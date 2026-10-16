@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+logs/
+*.log
+*.out
+# LaTeX build products
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.synctex.gz
+paper/main.pdf
+# Data, weights and derived outputs are not distributed
+net_weights/
+stim_frames/
+stim_frames_54/
+eeg_rdms_complete/
+*.npy
+*.npz
+*.h5
+*.pt
+*.pth
+*.ckpt
