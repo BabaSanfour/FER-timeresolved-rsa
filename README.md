@@ -141,7 +141,7 @@ Model RDMs are `(n_layers, 16, n_stim, n_stim)` correlation-distance RDMs, one p
 | VGG16 ImageNet (non-BN) | `analysis/run_new_vgg_rdms_rsas.sh` | `analysis/run_new_vgg_rdms_rsas.sh` |
 | FaceNet Complete VGGFace2 / AffectNet FT | 379 layers (Table 1, 18-stimulus cluster tests, size curve): `models/run_original_facenet_affectnet_rsa.sh`. 133 layers (Fig. 2): `analysis/layer_matched/run_layer_matched.sh` | `models/run_54_facenet_complete_m3dfel.sh` |
 | M3DFEL random / Kinetics / DFEW fold 3 | `models/run_m3dfel.sh`, `models/run_m3dfel_fold3_rdm_rsa.sh` | `models/run_54_facenet_complete_m3dfel.sh` |
-| Qwen3-VL-8B pretrained / random | `models/vlm/run_qwen3vl.sh` | `models/vlm/run_qwen3vl_54_gpu_parallel.sh` (`models/extract_qwen_rdms.py`) |
+| Qwen3-VL-8B pretrained / random (64 layers: 27 vision-encoder blocks, embedding output, 36 decoder blocks) | `models/vlm/run_qwen3vl.sh` | `models/vlm/run_qwen3vl_54_gpu_parallel.sh` (`models/extract_qwen_rdms.py`) |
 | Random-init seed ensemble (Table 1) | `analysis/seed_variability/run_extract_seeds.sh` → `analysis/seed_variability/rdms/` | — |
 | FaceNet training-set-size repeats | `vggface_train/extract_facenet_low_size_array.sh`, `extract_facenet_repeated_array.sh` (+ `run_facenet_repeated_cpu_fallback.sh` for tasks re-run on CPU) → `analysis/model_rdms_facenet_size_repeats/` | — |
 
@@ -153,7 +153,7 @@ distributed RDMs.
 
 | | Script | Output |
 |---|---|---|
-| 18 stimuli, 26 participants | `analysis/rsa_full_grid.py --models <tags> [--model-dir] [--out-dir]` (also called by the drivers above, and by `vggface_train/run_facenet_low_size_rsa.sh`, `run_facenet_repeated_rsa_summary.sh`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
+| 18 stimuli, 26 participants | `analysis/rsa_full_grid.py --models <tags> [--model-dir] [--out-dir] [--cohort with-ceg]` (also called by the drivers above, and by `vggface_train/run_facenet_low_size_rsa.sh`, `run_facenet_repeated_rsa_summary.sh`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
 | 18 stimuli, 25 participants (Table 1, Figure 1) | `analysis/seed_variability/rsa_grid_seeds.py --cohort no-ceg` | `analysis/seed_variability/rsa_no-ceg/`, `rsa_noceg_pretrained/`, `analysis/layer_matched/rsa_no-ceg/` |
 | 54 stimuli | `analysis/rsa_full_grid_54.py --models <tags>` | `analysis/rsa_grid_54/` |
 

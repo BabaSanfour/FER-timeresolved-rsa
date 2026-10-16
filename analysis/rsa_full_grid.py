@@ -56,13 +56,19 @@ def rank_normalise(v):
     return np.divide(rc, np.clip(n, 1e-12, None)), (n[..., 0] < 1e-12)
 
 
-def load_eeg():
-    """-> (S, 7, 16, 18, 18), subject ids, scope names. ROIs first, wholescalp last."""
-    # Use the preregistered/common 25-participant cohort. CEG is present only in
-    # the legacy unmasked directory and is not part of the paper's analysis set.
+def load_eeg(cohort="with-ceg"):
+    """-> (S, 7, 16, 18, 18), subject ids, scope names. ROIs first, wholescalp last.
+
+    with-ceg: all 26 participants of the 18-stimulus EEG folders (the grids in
+    analysis/rsa_grid*/). no-ceg: the 25 shared with the 54-stimulus set (CEG has no
+    54-stimulus data).
+    """
     roi_files = sorted(p for p in EEG_ROI_DIR.glob("*_windowed_rdms.npy")
-                       if not p.name.startswith("group") and not p.name.startswith("CEG_"))
+                       if not p.name.startswith("group"))
     ws_files = sorted(EEG_WS_DIR.glob("*_wholescalp_rdms.npy"))
+    if cohort == "no-ceg":
+        roi_files = [p for p in roi_files if not p.name.startswith("CEG_")]
+        ws_files = [p for p in ws_files if not p.name.startswith("CEG_")]
     roi_subs = [p.name.replace("_windowed_rdms.npy", "") for p in roi_files]
     ws_subs = [p.name.replace("_wholescalp_rdms.npy", "") for p in ws_files]
     if roi_subs != ws_subs:
@@ -87,6 +93,9 @@ def main():
     ap.add_argument("--model-dir", default=None,
                     help="directory containing model RDM .npy files (default: model_rdms_canonical)")
     ap.add_argument("--out-dir", default=None)
+    ap.add_argument("--cohort", choices=["with-ceg", "no-ceg"], default="with-ceg",
+                    help="with-ceg: 26 participants (default, as in analysis/rsa_grid*/); "
+                         "no-ceg: the 25 shared with the 54-stimulus set")
     ap.add_argument("--n-windows", type=int, default=None,
                     help="use only the first N matched EEG windows/model frames "
                          "(for legacy 15-frame RDMs; default: all EEG windows)")
@@ -95,7 +104,7 @@ def main():
     out_dir = Path(args.out_dir) if args.out_dir else OUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    eeg, subjects, scopes = load_eeg()
+    eeg, subjects, scopes = load_eeg(args.cohort)
     if args.n_windows is not None:
         if args.n_windows <= 0 or args.n_windows > eeg.shape[2]:
             raise SystemExit(f"ABORT: --n-windows must be in [1,{eeg.shape[2]}]")

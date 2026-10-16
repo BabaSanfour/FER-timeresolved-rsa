@@ -14,14 +14,16 @@
 # fused in temporal pairs) -> canonical (n_layers, 16, 18, 18) RDMs.
 set -uo pipefail
 
-VLM=./models/vlm
-OUT=./analysis/vlm_runs
+ROOT=$(realpath "${FER_ROOT:-.}")   # submit from the repository root or set FER_ROOT
+export FER_ROOT=$ROOT
+VLM=$ROOT/models/vlm
+OUT=$ROOT/analysis/vlm_runs
 MODEL_ID=Qwen/Qwen3-VL-8B-Instruct
 
 module load StdEnv/2023 python/3.12
 source "${VENV:-$HOME/envs/fer}/bin/activate"
 export PYTHONUNBUFFERED=1
-export HF_HOME=./.hf
+export HF_HOME=$ROOT/.hf
 export HF_HUB_OFFLINE=1          # compute nodes have no internet; weights are cached
 export TOKENIZERS_PARALLELISM=false
 
@@ -44,6 +46,7 @@ for VARIANT in pretrained random; do
             "${EXTRA[@]}"; then
         python compute_rdms_from_vlm_activations.py \
             --run-dir "$RUN" \
+            --out-dir "$ROOT/analysis/model_rdms_canonical" \
             --out-name "qwen3vl_${VARIANT}_16f_weights" \
             && echo "OK $VARIANT"
     else

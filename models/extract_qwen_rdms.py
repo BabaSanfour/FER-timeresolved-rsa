@@ -89,7 +89,7 @@ def main():
     set_seed(args.seed)
     if args.manifest:
         manifest = json.loads(Path(args.manifest).read_text())
-        videos = [(row["stimulus"], Path(row["video"])) for row in manifest]
+        videos = [(row["stimulus"], ROOT / row["video"]) for row in manifest]   # absolute paths are kept
     else:
         videos = canonical_videos()
     print(f"[stimuli] {len(videos)} videos (canonical order): {[s for s, _ in videos]}")
@@ -98,12 +98,13 @@ def main():
                             args.attn_implementation, random_weights=args.random)
     tmp = Path(tempfile.mkdtemp(prefix="vidrdm_frames_"))
 
-    acts_all, preds = [], []
+    acts_all, vis_all, preds = [], [], []
     for i, (stim, vpath) in enumerate(videos):
         res = ex.infer_video(str(vpath), args.prompt, args.nframes, args.max_new_tokens,
                              frame_list=args.frame_list, tmpdir=str(tmp))
         acts = res["activations"]                          # (T, n_layers, hidden)
         acts_all.append(acts)
+        vis_all.append(res["vision_activations"])        # (T, n_vision_blocks, vision_hidden)
         preds.append((stim, res["pred_label"], res["prediction_text"]))
         print(f"[{i+1}/{len(videos)}] {stim}: acts={acts.shape} pred={res['pred_label']}", flush=True)
 
@@ -114,18 +115,28 @@ def main():
     n_stim = len(videos)
     print(f"[stack] {stack.shape}  ({n_stim} stim, {T} frames, {L} layers)")
 
-    # per (layer, frame) correlation-distance RDM across the 18 stimuli -> (L, T, 18, 18)
-    rdms = np.zeros((L, T, n_stim, n_stim), dtype=np.float32)
+    vstack = np.stack([v[:T] for v in vis_all], axis=0)    # (n_stim, T, L_vis, vision_hidden)
+    L_vis = vstack.shape[2]
+
+    # per (layer, frame) correlation-distance RDM across stimuli; layers are ordered
+    # vision blocks, embedding output, decoder blocks -> (L_vis + L, T, n_stim, n_stim)
+    rdms = np.zeros((L_vis + L, T, n_stim, n_stim), dtype=np.float32)
+    for l in range(L_vis):
+        for t in range(T):
+            rdms[l, t] = corr_distance_rdm(vstack[:, t, l, :])
     for l in range(L):
         for t in range(T):
-            rdms[l, t] = corr_distance_rdm(stack[:, t, l, :])
+            rdms[L_vis + l, t] = corr_distance_rdm(stack[:, t, l, :])
+    names = ([f"vision_block_{i}" for i in range(1, L_vis + 1)] + ["embedding"] +
+             [f"decoder_block_{i}" for i in range(1, L)])
 
     out_dir = Path(args.out_dir) if args.out_dir else OUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{args.out_name}.npy"
     np.save(out, rdms)
     (out_dir / f"{args.out_name}.layers.json").write_text(json.dumps(
-        {"shape": list(rdms.shape), "model_id": args.model_id, "n_layers": int(L),
+        {"shape": list(rdms.shape), "layer_order": names, "model_id": args.model_id,
+         "n_layers": int(rdms.shape[0]), "n_vision_blocks": int(L_vis),
          "n_frames": int(T), "hidden_size": int(stack.shape[-1]), "nframes_fed": args.nframes,
          "frame_list": args.frame_list, "random_weights": args.random,
          "stimuli": [s for s, _ in videos]}, indent=2))

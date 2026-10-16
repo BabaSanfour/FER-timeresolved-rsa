@@ -120,6 +120,23 @@ class QwenVideoExtractor:
         self.processor = AutoProcessor.from_pretrained(model_id)
         print(f"[model] {model_id} loaded as {self.model_class}"
               f"{'  [RANDOM WEIGHTS]' if random_weights else '  [pretrained]'}", flush=True)
+        # Vision-encoder block outputs, captured during the analysis forward pass only
+        # (not during generation). The decoder's hidden_states do not include them.
+        self._vision_out: List[torch.Tensor] = []
+        self._capture = False
+        self.vision_blocks = self._find_vision_blocks()
+        for blk in self.vision_blocks:
+            blk.register_forward_hook(self._vision_hook)
+
+    def _find_vision_blocks(self):
+        for name, module in self.model.named_modules():
+            if name.endswith("visual.blocks"):
+                return module
+        raise RuntimeError("vision encoder blocks (*.visual.blocks) not found")
+
+    def _vision_hook(self, _module, _inputs, output):
+        if self._capture:
+            self._vision_out.append(output[0] if isinstance(output, tuple) else output)
 
     # -- locating the visual tokens -------------------------------------------------
     def _video_token_id(self) -> int:
@@ -199,7 +216,12 @@ class QwenVideoExtractor:
         dev = next(self.model.parameters()).device
         inputs = {k: (v.to(dev) if torch.is_tensor(v) else v) for k, v in inputs.items()}
 
-        out = self.model(**inputs, output_hidden_states=True, return_dict=True)
+        self._vision_out.clear()
+        self._capture = True
+        try:
+            out = self.model(**inputs, output_hidden_states=True, return_dict=True)
+        finally:
+            self._capture = False
         hidden_states = out.hidden_states
         if hidden_states is None:
             raise RuntimeError("Model returned no hidden_states.")
@@ -234,12 +256,29 @@ class QwenVideoExtractor:
             per_layer.append(vis.cpu().numpy())
         acts = np.stack(per_layer, axis=1)                    # (T, n_layers, hidden)
 
+        # Vision blocks: patch tokens of this one video, laid out time-major
+        # (T groups x H x W patches), so the same T-way split gives the temporal positions.
+        if len(self._vision_out) != len(self.vision_blocks):
+            raise RuntimeError(f"captured {len(self._vision_out)} vision blocks, "
+                               f"expected {len(self.vision_blocks)}")
+        per_block: List[np.ndarray] = []
+        for block_hidden in self._vision_out:                 # (n_patches, vision_hidden)
+            if block_hidden.shape[0] % n_groups:
+                raise RuntimeError(f"{block_hidden.shape[0]} vision tokens do not split "
+                                   f"into {n_groups} temporal groups")
+            vis = block_hidden.reshape(n_groups, -1, block_hidden.shape[-1]).mean(dim=1)
+            vis = F.normalize(vis.float(), dim=-1)
+            per_block.append(vis.cpu().numpy())
+        vision_acts = np.stack(per_block, axis=1)             # (T, n_vision_blocks, vision_hidden)
+        self._vision_out.clear()
+
         gen_ids = self.model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
         gen_only = gen_ids[:, inputs["input_ids"].shape[1]:]
         pred_text = self.processor.batch_decode(
             gen_only, skip_special_tokens=True, clean_up_tokenization_spaces=True)[0].strip()
 
-        return {"activations": acts, "n_groups": n_groups, "per_group": per_group,
+        return {"activations": acts, "vision_activations": vision_acts,
+                "n_groups": n_groups, "per_group": per_group,
                 "grid_thw": grid, "prediction_text": pred_text,
                 "pred_label": extract_emotion(pred_text)}
 
@@ -290,6 +329,8 @@ def main() -> None:
     rows: List[Dict[str, Any]] = []
     for i, row in df.iterrows():
         video_path = str(row["video_path"])
+        if not os.path.isabs(video_path):                   # paths relative to the data root
+            video_path = os.path.join(os.environ.get("FER_ROOT", "."), video_path)
         stimulus_id = str(row["stimulus_id"])
         label = row["label"] if "label" in row else None
         cond = f"{label}_{stimulus_id}" if label is not None else stimulus_id
@@ -300,6 +341,7 @@ def main() -> None:
                              frame_list=args.frame_list, tmpdir=str(tmp))
         acts = res["activations"]
         np.save(act_dir / f"{cond}.npy", acts)
+        np.save(act_dir / f"{cond}_vision.npy", res["vision_activations"])
         print(f"[{i+1}/{len(df)}] {cond}: acts={acts.shape} grid={res['grid_thw']} "
               f"({res['n_groups']} timepoints x {res['per_group']} tok/group) "
               f"pred={res['pred_label']}", flush=True)

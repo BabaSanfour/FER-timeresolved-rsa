@@ -10,7 +10,8 @@
 #SBATCH --error=./models/vlm/logs/%x-%j.out
 set -euo pipefail
 
-ROOT=.
+ROOT=$(realpath "${FER_ROOT:-.}")   # submit from the repository root or set FER_ROOT
+export FER_ROOT=$ROOT
 PY=${PY:-${VENV:-$HOME/envs/fer}/bin/python}
 MANIFEST="$ROOT/stim_frames_54/stimulus_manifest.json"
 OUT="$ROOT/analysis/model_rdms_54_gpu_staging"

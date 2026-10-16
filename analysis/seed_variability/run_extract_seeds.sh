@@ -23,6 +23,7 @@
 set -uo pipefail
 
 ROOT=$(realpath "${FER_ROOT:-.}")
+export FER_ROOT=$ROOT
 OUT=$ROOT/analysis/seed_variability/rdms
 STIM=$ROOT/stim_frames
 VLM=$ROOT/models/vlm

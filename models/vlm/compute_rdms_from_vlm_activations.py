@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Turn Qwen video-mode activations into canonical model RDMs.
 
-Input : <run_dir>/activations/{Label}_{ActorXX}.npy, each (n_timepoints, n_layers, hidden)
-Output: <out_dir>/<name>.npy  (n_layers, n_timepoints, 18, 18) float32
+Input : <run_dir>/activations/{Label}_{ActorXX}.npy, each (n_timepoints, n_layers, hidden):
+        decoder hidden states (embedding output + language decoder blocks), and
+        <run_dir>/activations/{Label}_{ActorXX}_vision.npy, (n_timepoints, n_blocks, vision_hidden):
+        vision-encoder block outputs
+Output: <out_dir>/<name>.npy  (n_layers, n_timepoints, 18, 18) float32; layers are ordered
+        vision blocks 1..27, embedding output, decoder blocks 1..36 (64 for Qwen3-VL-8B)
         <out_dir>/<name>.layers.json
 
 Stimuli are stacked in the canonical EMOTION-MAJOR order (fear 0-5, happy 6-11,
@@ -33,6 +37,30 @@ def corr_distance_rdm(X):
     return rdm.astype(np.float32)
 
 
+def layer_rdms(acts):
+    """(n_stim, T, L, H) activations -> (L, T, n_stim, n_stim) correlation-distance RDMs."""
+    n_stim, T, L, _ = acts.shape
+    rdms = np.zeros((L, T, n_stim, n_stim), dtype=np.float32)
+    for l in range(L):
+        for t in range(T):
+            rdms[l, t] = corr_distance_rdm(acts[:, t, l, :].astype(np.float64))
+    return rdms
+
+
+def load_stack(act_dir, suffix=""):
+    acts = []
+    for emo, fpre in EMO_FILE.items():
+        for a in ACTORS:
+            p = act_dir / f"{fpre}_Actor{a:02d}{suffix}.npy"
+            if not p.exists():
+                raise SystemExit(f"ABORT: missing {p}")
+            acts.append(np.load(p))                       # (T, L, H)
+    shapes = {x.shape for x in acts}
+    if len(shapes) != 1:
+        raise SystemExit(f"ABORT: activation shapes differ across stimuli: {shapes}")
+    return np.stack(acts, 0)                              # (18, T, L, H)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True, help="output_dir used by the extractor")
@@ -42,25 +70,16 @@ def main():
     args = ap.parse_args()
 
     act_dir = Path(args.run_dir) / "activations"
-    acts = []
-    for emo, fpre in EMO_FILE.items():
-        for a in ACTORS:
-            p = act_dir / f"{fpre}_Actor{a:02d}.npy"
-            if not p.exists():
-                raise SystemExit(f"ABORT: missing {p}")
-            acts.append(np.load(p))                       # (T, L, H)
-    shapes = {x.shape for x in acts}
-    if len(shapes) != 1:
-        raise SystemExit(f"ABORT: activation shapes differ across stimuli: {shapes}")
-
-    A = np.stack(acts, 0)                                 # (18, T, L, H)
-    n_stim, T, L, H = A.shape
-    print(f"[in] {n_stim} stimuli x {T} timepoints x {L} layers x {H} hidden")
-
-    rdms = np.zeros((L, T, n_stim, n_stim), dtype=np.float32)
-    for l in range(L):
-        for t in range(T):
-            rdms[l, t] = corr_distance_rdm(A[:, t, l, :].astype(np.float64))
+    A = load_stack(act_dir)
+    V = load_stack(act_dir, "_vision")
+    n_stim, T, L_dec, H = A.shape
+    L_vis = V.shape[2]
+    print(f"[in] {n_stim} stimuli x {T} timepoints: {L_vis} vision blocks x {V.shape[3]} + "
+          f"{L_dec} decoder states x {H}")
+    rdms = np.concatenate([layer_rdms(V), layer_rdms(A)], axis=0)
+    L = rdms.shape[0]
+    names = ([f"vision_block_{i}" for i in range(1, L_vis + 1)] + ["embedding"] +
+             [f"decoder_block_{i}" for i in range(1, L_dec)])
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -71,7 +90,7 @@ def main():
     if sp.exists():
         summary = json.loads(sp.read_text())
     (out_dir / f"{args.out_name}.layers.json").write_text(json.dumps({
-        "layer_order": [f"hidden_state_{i}" for i in range(L)],
+        "layer_order": names,
         "shape": list(rdms.shape), "arch": "Qwen3-VL (video mode)",
         "n_timepoints": T, "hidden_size": H, "stim_order": STIMS,
         "source_run": str(args.run_dir), **summary}, indent=2))
