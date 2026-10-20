@@ -5,7 +5,7 @@ RDMs, EEG RDMs, time-locked EEG–model RSA, cluster permutation tests, nuisance
 partial RSA, linear probing, and every table and figure.
 
 Data that cannot go on GitHub (model weights, VGGFace2 subset indexes, EEG and model RDMs,
-RSA results) are in a Google Drive folder: **`<DRIVE_LINK>`**. See [Data on Google Drive](#data-on-google-drive).
+RSA results) are in a Google Drive folder: **`https://drive.google.com/drive/folders/1w-IQJMyxpl0GaoB_b7Gx0Ho3YRmGENw_?usp=sharing`**. See [Data on Google Drive](#data-on-google-drive).
 
 - [Setup](#setup)
 - [Which script gives which result](#which-script-gives-which-result)
@@ -61,8 +61,6 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 
 | Result in the paper | Script | Command | Reads | Writes |
 |---|---|---|---|---|
-| Fig. 1, pipeline overview | none (diagram) | | | |
-| Table: training variants per family | none (description of the variants) | | | |
 | **Table 1** (`tab:main-results`), 18 stimuli, ρ<sub>max</sub> per scalp analysis | `analysis/build_paper_tables.py` | `python analysis/build_maxr_table.py` (trained rows), then `python analysis/build_paper_tables.py` | trained rows: `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/` via `analysis/paper_stats/timelocked_maxr_over_layers.csv`; Random rows: `analysis/seed_variability/results/no-ceg_summary.csv` | `analysis/paper_stats/table_main_results.tex` |
 | ↳ Random rows (mean ± SD over seeds) | `analysis/seed_variability/` | RDMs: `STAGE=cnn sbatch analysis/seed_variability/run_extract_seeds.sh`, `STAGE=qwen sbatch …`; grids: `python analysis/seed_variability/rsa_grid_seeds.py --cohort no-ceg --model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_no-ceg`; summary: `python analysis/seed_variability/aggregate_seeds.py --seed-grids analysis/seed_variability/rsa_no-ceg --pretrained-grids analysis/seed_variability/rsa_noceg_pretrained --cohort-label no-ceg --out-prefix analysis/seed_variability/results/no-ceg` | `stim_frames/`, EEG RDMs | `analysis/seed_variability/{rdms,rsa_no-ceg,results}/` |
 | **Fig. 2**, matched training comparisons (`new_model_comparison.pdf`) | `analysis/seed_variability/plot_model_comparison_seeds.py` | `python analysis/seed_variability/plot_model_comparison_seeds.py --out analysis/seed_variability/results/new_model_comparison` | `analysis/seed_variability/rsa_no-ceg/`, `rsa_noceg_pretrained/`, `analysis/layer_matched/rsa_no-ceg/`; EEG RDMs (lower noise ceiling) | `analysis/seed_variability/results/new_model_comparison.{pdf,png}` |
@@ -80,8 +78,6 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 
 | Result in the paper | Script | Command | Reads | Writes |
 |---|---|---|---|---|
-| EEG paradigm figure (task setup, frame sequence) | none (drawn by hand) | | | |
-| Per-stimulus behavioral results | none in this repository (see [Steps without code](#steps-without-code)) | | | |
 | Scalp ROI definitions | `eeg/roi_definitions.json` | | | |
 | Model details: analyzed layers | the `layer_order` of each RDM's `.layers.json` (written by the extraction scripts) | | | |
 | Model details: fine-tuning recipes and accuracies | `affectnet_3class_train/train_affectnet.py`, `M3DFEL/main.py` (see [Training](#3-training)) | | | training logs on Drive (`train.log`, `metrics.csv`, `log.txt`) |
@@ -95,16 +91,13 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 
 | Step | Script | Notes |
 |---|---|---|
-| Recording and preprocessing (filtering, ICA, epoching, baseline) | none | Done in Brain Vision Analyzer 2.1; see [Steps without code](#steps-without-code) |
 | 18-stimulus per-ROI RDMs, `(6, 16, 18, 18)` per participant | `eeg/compute_windowed_eeg_rdms_16win.py` | Reads per-participant condition-averaged epochs `eeg_data/Unmasked_avg/*_avg.pkl` (not distributed); writes `eeg_data/Unmasked_avg_windowed_rdms_16win_full/` |
 | 18-stimulus whole-scalp RDMs, 54-stimulus per-ROI and whole-scalp RDMs | none | Distributed as data (`eeg_data/Unmasked_avg_wholescalp_16win/`, `eeg_rdms_complete/`) |
 
-The 18-stimulus folders contain 26 participants. The seed-ensemble analyses (Table 1 Random rows,
+The 18-stimulus folders contain 25 participants. The seed-ensemble analyses (Table 1 Random rows,
 the seed table, Fig. 2) use the 25 shared with the 54-stimulus set (`--cohort no-ceg`).
 `analysis/rsa_full_grid.py`, whose grids give Table 1's trained rows and the 18-stimulus cluster
-tests, and `build_control_rsa.py` (noise ceilings) read all 26. In the 54-stimulus RDMs, 11
-participants lack one stimulus (`neutral_glasses_3`), and `rsa_full_grid_54.py` sets their
-neutral and pooled grids to NaN, so those grids have n = 14.
+tests, and `build_control_rsa.py` (noise ceilings) read all 25. 
 
 ### 2. Stimuli
 
@@ -118,7 +111,7 @@ neutral and pooled grids to NaN, so those grids have n = 14.
 
 | Model | Data preparation | Training | Checkpoint (on Drive) |
 |---|---|---|---|
-| ResNet18, ResNet50, FaceNet on VGGFace2 (715,810 training images, 5,346 identities) | `data/get_vggface2_hq.sh` (VGGFace2-HQ, zips 01–06); `vggface_train/build_index.py` | `vggface_train/train_vggface2.sh`. That job timed out while unpacking; the run used was `vggface_train/rescue_17733342.sh` in the same allocation (`train.py --epochs 18 --max-hours 2.05`) | `vggface_train/results/17733342/{resnet18,resnet50,facenet}/best.pt` |
+| ResNet18, ResNet50, FaceNet on VGGFace2 (715,810 training images, 5,346 identities) | `data/get_vggface2_hq.sh` (VGGFace2-HQ, zips 01–06); `vggface_train/build_index.py` | | `vggface_train/results/17733342/{resnet18,resnet50,facenet}/best.pt` |
 | FaceNet, VGGFace2 300k / 500k | `vggface_train/build_subset_indexes.py` | `vggface_train/train_facenet_subsets.sh` | `vggface_train/results/17798746/{300k,500k}/best_weights.pt` |
 | FaceNet, 10 repeats each of 10k, 50k, 100k, 200k, 300k, 500k, 800k (bootstrap) | `vggface_train/build_low_size_repeated_indexes.py`, `build_repeated_subset_indexes.py` | `vggface_train/train_facenet_low_size_array.sh`, `train_facenet_repeated_array.sh` (`train.py --seed 1000+r`) | `vggface_train/results/repeated_subsets/repeat_XX/<size>/best_weights.pt` |
 | AffectNet 3-class (fear, happy, neutral) fine-tuning of ResNet18, ResNet50, FaceNet (from the VGGFace2 checkpoints above) and VGG-Face | Kaggle `mstjebashazida/affectnet` v1, already reduced to the three classes (`AFFECTNET_DIR`) | `affectnet_3class_train/train_affectnet_3class.sh` → `train_affectnet.py` | `affectnet_3class_train/results/17810319/<arch>/best_weights.pt` |
@@ -145,9 +138,6 @@ Model RDMs are `(n_layers, 16, n_stim, n_stim)` correlation-distance RDMs, one p
 | Random-init seed ensemble (Table 1) | `analysis/seed_variability/run_extract_seeds.sh` → `analysis/seed_variability/rdms/` | — |
 | FaceNet training-set-size repeats | `vggface_train/extract_facenet_low_size_array.sh`, `extract_facenet_repeated_array.sh` (+ `run_facenet_repeated_cpu_fallback.sh` for tasks re-run on CPU) → `analysis/model_rdms_facenet_size_repeats/` | — |
 
-`models/run_54_facenet_complete_m3dfel.sh` was rebuilt from the provenance recorded in each RDM's
-`.layers.json`, because the original commands were not kept; it was checked by regenerating the
-distributed RDMs.
 
 ### 5. RSA grids
 
