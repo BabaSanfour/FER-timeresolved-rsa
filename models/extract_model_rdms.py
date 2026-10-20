@@ -1,7 +1,10 @@
-"""Standard, model-agnostic activation extraction + prediction + RDM computation.
+"""Activation extraction + prediction + RDM computation for the study models.
 
-Works with ANY checkpoint file:
-  1. build a known architecture (torchvision by name, or a registered custom builder),
+Supports only the four architecture families used in the study:
+  ResNet18, ResNet50, FaceNet, and VGG16.
+
+For a checkpoint file, the script:
+  1. builds one of the supported architectures,
   2. load the checkpoint forgivingly (strip 'module.', strict=False, report missing/extra),
   3. hook every TRAINABLE layer (modules carrying learnable parameters),
   4. run the 18 canonical stimuli x 16 frames, record per-frame class predictions,
@@ -15,12 +18,8 @@ Examples
   python extract_model_rdms.py --arch resnet50 --checkpoint net_weights/final_resnet50_1000 \
       --preproc imagenet --out-name resnet50_final_16f
 
-  # vgg16_bn with a face checkpoint, VGG-Face caffe preproc:
-  python extract_model_rdms.py --arch vgg16_bn --checkpoint net_weights/vgg16_bn_without-meg_pretrained \
-      --preproc vggface --out-name vgg16bn_nomeg_pretrained_16f
-
   # random control (no checkpoint):
-  python extract_model_rdms.py --arch vgg16_bn --random --seed 1 --out-name vgg16bn_random_seed1
+  python extract_model_rdms.py --arch vgg16 --random --seed 1 --out-name vgg16_random_seed1
 
 Outputs (analysis/model_rdms_canonical/):
   <out-name>.npy              (n_trainable_layer, 16, 18, 18) float32 RDMs
@@ -80,38 +79,15 @@ def _vgg(fn):
         return m
     return build
 
-def _mobilenet_v2(nc):
-    m = tvm.mobilenet_v2(weights=None)
-    if nc:
-        m.classifier[1] = nn.Linear(m.classifier[1].in_features, nc)
-    return m
-
-def _inception_v3(nc):
-    m = tvm.inception_v3(weights=None, aux_logits=True, init_weights=False)
-    if nc:
-        m.fc = nn.Linear(m.fc.in_features, nc)
-    m.aux_logits = False
-    return m
-
-def _densenet121(nc):
-    m = tvm.densenet121(weights=None)
-    if nc:
-        m.classifier = nn.Linear(m.classifier.in_features, nc)
-    return m
-
 def _facenet(nc):
-    # repo FaceNet (models/FaceNet.py): InceptionResnetV1 with last_linear(1792->512)
-    # + logits(512->num_classes). n_input_channels=3 for RGB stimuli.
     from FaceNet import InceptionResnetV1 as FaceNetIRV1
     return FaceNetIRV1(num_classes=nc or 2622, n_input_channels=3)
 
 ARCHS = {
-    "resnet18": _resnet(tvm.resnet18), "resnet34": _resnet(tvm.resnet34),
-    "resnet50": _resnet(tvm.resnet50), "resnet101": _resnet(tvm.resnet101),
-    "vgg16": _vgg(tvm.vgg16), "vgg16_bn": _vgg(tvm.vgg16_bn),
-    "vgg19": _vgg(tvm.vgg19), "vgg19_bn": _vgg(tvm.vgg19_bn),
-    "mobilenet_v2": _mobilenet_v2, "inception_v3": _inception_v3,
-    "densenet121": _densenet121, "facenet": _facenet,
+    "resnet18": _resnet(tvm.resnet18),
+    "resnet50": _resnet(tvm.resnet50),
+    "vgg16": _vgg(tvm.vgg16),
+    "facenet": _facenet,
 }
 
 # ---------------------------------------------------------------------------
@@ -143,21 +119,10 @@ def _pp_half(x):                          # (x/255 - 0.5)/0.5, as train.py norma
     x = (x.astype(np.float32) / 255.0 - 0.5) / 0.5
     return torch.tensor(np.transpose(x, (0, 3, 1, 2)).copy(), dtype=torch.float32)
 
-def _pp_gray_fer(x):
-    """Single-channel, matching utils.load_data_FER.Stimuliloader (mean .3612, std .3056).
-
-    That loader relies on the source HDF5 being 2-D so PIL yields mode 'L'.
-    stim_frames/ is RGB, so do the ITU-R 601-2 luminance conversion PIL would
-    have done. Required by the 1-channel `*_1D_*` checkpoints.
-    """
-    g = (x[..., 0] * 0.299 + x[..., 1] * 0.587 + x[..., 2] * 0.114).astype(np.float32) / 255.0
-    g = (g - 0.3612) / 0.3056
-    return torch.tensor(g[:, None, :, :].copy(), dtype=torch.float32)
-
 PREPROCS = {"imagenet": _pp_imagenet, "vggface": _pp_vggface,
             "vggface_rgb": _pp_vggface_rgb,
             "facenet": _pp_facenet, "none": _pp_none,
-            "half": _pp_half, "gray_fer": _pp_gray_fer}
+            "half": _pp_half}
 
 
 def resize_batch(x, size):
@@ -246,30 +211,6 @@ def trainable_layers(model):
             out.append((name, mod))
     return out
 
-def set_in_channels(model, n):
-    """Rebuild the first Conv2d to take n input channels.
-
-    The `*_1D_*` checkpoints are trained on grayscale, so their first conv has
-    shape (out,1,k,k); loading them into a 3-channel model is a hard size
-    mismatch that even strict=False will not tolerate.
-    """
-    for name, mod in model.named_modules():
-        if isinstance(mod, nn.Conv2d):
-            if mod.in_channels == n:
-                return model
-            new = nn.Conv2d(n, mod.out_channels, mod.kernel_size, mod.stride,
-                            mod.padding, mod.dilation, mod.groups, mod.bias is not None)
-            parent, parts = model, name.split(".")
-            for p in parts[:-1]:
-                parent = parent[int(p)] if p.isdigit() else getattr(parent, p)
-            if parts[-1].isdigit():
-                parent[int(parts[-1])] = new
-            else:
-                setattr(parent, parts[-1], new)
-            return model
-    return model
-
-
 def weight_layers(model):
     """Conv/Linear leaves only -- the layers an architecture's depth number counts.
 
@@ -321,8 +262,6 @@ def main():
                          "loading only the backbone from the checkpoint (e.g. 3 for the "
                          "fear/happy/neutral task). The head tensors are dropped from the "
                          "checkpoint; everything else must still match exactly.")
-    ap.add_argument("--in-channels", type=int, default=3,
-                    help="input channels; use 1 for the grayscale *_1D_* checkpoints")
     ap.add_argument("--resize", type=int, default=None,
                     help="resize stimuli to NxN before preprocessing (e.g. 112 for models "
                          "trained at 112; default: keep the native 224)")
@@ -361,8 +300,6 @@ def main():
     # --- build ---
     torch.manual_seed(args.seed)          # reproducible re-initialised head
     model = ARCHS[args.arch](nc)
-    if args.in_channels != 3:
-        model = set_in_channels(model, args.in_channels)
     model = model.to(DEVICE)
     if args.random:
         randomize(model, args.seed)
@@ -461,7 +398,7 @@ def main():
          "checkpoint": args.checkpoint, "random": args.random, "seed": args.seed,
          "preproc": args.preproc, "num_classes": nc,
          "resize": args.resize, "layers": args.layers,
-         "in_channels": args.in_channels, "head_classes": args.head_classes,
+         "in_channels": 3, "head_classes": args.head_classes,
          "excluded_head_layer": dropped_head_layer,
          "stimuli": stim_names, "stimulus_manifest": str(manifest_path)}, indent=2))
     with (OUT_DIR / f"{args.out_name}.predictions.csv").open("w", newline="") as f:

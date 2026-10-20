@@ -7,17 +7,9 @@ RDM per (layer, frame) ACROSS the 18 stimuli -> (n_layer, 16, 18, 18), the SAME 
 as the image extractor, so `analysis/paper_stats/timelocked_rsa_general.py` consumes it
 unchanged.
 
-Reuses the verified Qwen video-token splitting / temporal grouping from
-`vlm_extract_video_mode.py` (QwenVideoExtractor).
-
 Stimulus order = canonical emotion-major (fear 0-5, happy 6-11, neutral 12-17;
 actors 01,02,04,07,08,11), matching the EEG conditions.
 
-Examples
-  python extract_video_model_rdms.py --model_id Qwen/Qwen2.5-VL-7B-Instruct \
-      --out-name qwen25vl7b_video_16f
-  python extract_video_model_rdms.py --model_id Qwen/Qwen2.5-VL-3B-Instruct \
-      --nframes 16 --frame-list --out-name qwen25vl3b_video_16f
 
 Outputs (analysis/model_rdms_canonical/):
   <out-name>.npy              (n_layer, 16, 18, 18) float32 correlation-distance RDMs

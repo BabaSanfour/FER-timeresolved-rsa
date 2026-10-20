@@ -3,7 +3,7 @@
 
     facenet        InceptionResnetV1, our VGGFace2 pretraining
     resnet18/50    torchvision ResNets, our VGGFace2 pretraining
-    vgg16_vggface  VGG-Face (Parkhi et al., 2015; no batch norm)
+    vgg16_vggface  VGG16 (Parkhi et al., 2015)
 """
 import argparse
 import csv
@@ -21,8 +21,8 @@ from torchvision import datasets, models, transforms
 CLASSES = ["fear", "happy", "neutral"]
 
 
-class VGGFace(nn.Module):
-    """VGG-Face network matching the public vgg_face_dag.pth state dict."""
+class VGG16(nn.Module):
+    """VGG16 network."""
     def __init__(self, num_classes=2622):
         super().__init__()
         layers = []
@@ -46,7 +46,7 @@ class VGGFace(nn.Module):
         return self.classifier(torch.flatten(self.features(x), 1))
 
 
-def remap_vggface_state(state):
+def remap_vgg16_state(state):
     """Map either torchvision-style or MatConvNet-conversion names."""
     if "state_dict" in state:
         state = state["state_dict"]
@@ -82,7 +82,6 @@ def build_model(arch, weights_path):
     state = checkpoint_state(weights_path)
     if arch == "facenet":
         from facenet_pytorch import InceptionResnetV1
-        # The VGGFace2 checkpoint used a 5,346-identity classification head.
         model = InceptionResnetV1(pretrained=None, classify=True, num_classes=5346)
         model.load_state_dict(state)
         model.logits = nn.Linear(model.logits.in_features, len(CLASSES))
@@ -92,8 +91,8 @@ def build_model(arch, weights_path):
         model.load_state_dict(state)
         model.fc = nn.Linear(model.fc.in_features, len(CLASSES))
         return model
-    model = VGGFace(2622)
-    state = remap_vggface_state(state)
+    model = VGG16(2622)
+    state = remap_vgg16_state(state)
     model.load_state_dict(state)
     model.classifier[6] = nn.Linear(4096, len(CLASSES))
     return model
@@ -101,7 +100,7 @@ def build_model(arch, weights_path):
 
 def make_transforms(arch):
     if arch == "vgg16_vggface":
-        # Original VGG-Face RGB mean subtraction on [0,255] pixels.
+        # Original VGG16 RGB mean subtraction on [0,255] pixels.
         mean = [129.1863 / 255, 104.7624 / 255, 93.5940 / 255]
         std = [1 / 255, 1 / 255, 1 / 255]
         size, resize = 224, 256
