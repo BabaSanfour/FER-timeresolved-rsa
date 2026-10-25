@@ -74,7 +74,9 @@ def remap_vgg16_state(state):
 def checkpoint_state(path):
     if not path or not Path(path).is_file():
         raise FileNotFoundError(f"pretrained checkpoint not found: {path}")
-    obj = torch.load(path, map_location="cpu", weights_only=False)
+    # weights_only: tensors and plain containers only, so a downloaded file
+    # (e.g. the public VGG-Face conversion) cannot run code when loaded
+    obj = torch.load(path, map_location="cpu", weights_only=True)
     return obj.get("model", obj.get("state_dict", obj))
 
 
@@ -167,6 +169,7 @@ def main():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--resume", default="auto")
     p.add_argument("--max-hours", type=float)
+    p.add_argument("--channels-last", action="store_true", help="faster convolutions on H100")
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -187,6 +190,8 @@ def main():
     train_loader = DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True, **common)
     val_loader = DataLoader(val_set, args.batch_size * 2, shuffle=False, **common)
     model = build_model(args.arch, args.weights).to(device)
+    mem_format = torch.channels_last if args.channels_last else torch.contiguous_format
+    model = model.to(memory_format=mem_format)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
     criterion = nn.CrossEntropyLoss(label_smoothing=.1)
@@ -209,7 +214,8 @@ def main():
         model.train()
         train_loss, seen = 0.0, 0
         for images, target in train_loader:
-            images, target = images.to(device, non_blocking=True), target.to(device, non_blocking=True)
+            images = images.to(device, non_blocking=True, memory_format=mem_format)
+            target = target.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device.type, dtype=amp_dtype, enabled=device.type == "cuda"):
                 loss = criterion(model(images), target)
@@ -227,10 +233,10 @@ def main():
                  "args": vars(args)}
         atomic_save(state, out / "last.pt")
         atomic_save(model.state_dict(), out / "last_weights.pt")
-        if macro_f1 > best_f1:
-            best_f1 = macro_f1
-            atomic_save(state, out / "best.pt")
-            atomic_save(model.state_dict(), out / "best_weights.pt")
+        # No checkpoint selection: the Test folder is the only held-out split, so
+        # choosing an epoch on it would leak. The final epoch (last_weights.pt) is
+        # the model; per-epoch Test metrics are logged for reference only.
+        best_f1 = max(best_f1, macro_f1)
         with open(metrics_path, "a", newline="") as f:
             csv.writer(f).writerow([epoch, train_loss / seen, val_loss, acc, macro_f1,
                                     optimizer.param_groups[0]["lr"]])
