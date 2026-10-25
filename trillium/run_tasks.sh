@@ -17,6 +17,8 @@ R=$SCRATCH/fer_revision
 module load StdEnv/2023 python/3.12
 source "$R/trainenv/bin/activate"
 export PYTHONUNBUFFERED=1 OMP_NUM_THREADS=2
+# home is read-only on compute nodes: compiler and library caches go to scratch
+export TRITON_CACHE_DIR=$R/.cache/triton TORCHINDUCTOR_CACHE_DIR=$R/.cache/inductor XDG_CACHE_HOME=$R/.cache
 
 NCPU=${SLURM_CPUS_PER_TASK:-$(OMP_NUM_THREADS= nproc)}  # not plain nproc: it reports OMP_NUM_THREADS
 W=$(( NCPU / PER_GPU - 1 ))
