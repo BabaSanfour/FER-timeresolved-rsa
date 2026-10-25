@@ -27,6 +27,19 @@ nvidia-smi -L
 nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used --format=csv,noheader -l 60 &
 SMI=$!
 
+# The decoded-image cache (~36 GB) is read at random; from network scratch that
+# is latency-bound, so copy it into node memory once and share it across the
+# runs on this GPU. Only for task lists that use it ({C}).
+C=$R/data/vggface_cache
+if sed -n "${FIRST},$(( FIRST + CHUNK - 1 ))p" "$TASKS" | grep -q '{C}'; then
+    SHM=/dev/shm/fer_cache_${SLURM_JOB_ID:-$$}
+    trap 'rm -rf "$SHM"' EXIT
+    mkdir -p "$SHM"
+    t=$SECONDS
+    cp "$C/images_u8_128.npy" "$C/paths.txt" "$SHM/" && C=$SHM
+    echo "cache in $C ($(( SECONDS - t )) s)"
+fi
+
 PIDS=()
 while IFS=$'\t' read -r out done_re cmd; do
     [ -n "$out" ] || continue
@@ -38,7 +51,7 @@ while IFS=$'\t' read -r out done_re cmd; do
     left=$(awk -v w="$WALL_H" -v s=$(( SECONDS - START )) 'BEGIN{printf "%.2f", w - s/3600 - 0.15}')
     if awk -v l="$left" 'BEGIN{exit !(l < 0.25)}'; then echo "no time left for $out"; break; fi
     mkdir -p "$out"
-    cmd=${cmd//\{W\}/$W}; cmd=${cmd//\{H\}/$left}
+    cmd=${cmd//\{W\}/$W}; cmd=${cmd//\{H\}/$left}; cmd=${cmd//\{C\}/$C}
     echo "$(date +%T) start $out (max ${left} h)"
     ( bash -c "$cmd" >>"$out/train.log" 2>&1; echo "$(date +%T) exit $? $out" ) &
     PIDS+=($!)
