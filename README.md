@@ -80,7 +80,7 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 |---|---|---|---|---|
 | Scalp ROI definitions | `eeg/roi_definitions.json` | | | |
 | Model details: analyzed layers | the `layer_order` of each RDM's `.layers.json` (written by the extraction scripts) | | | |
-| Model details: fine-tuning recipes and accuracies | `affectnet_3class_train/train_affectnet.py`, `M3DFEL/main.py` (see [Training](#3-training)) | | | training logs on Drive (`train.log`, `metrics.csv`, `log.txt`) |
+| Model details: training recipes and accuracies | `vggface_train/train.py`, `affectnet_3class_train/train_affectnet.py`, `M3DFEL/main.py` (see [Training](#3-training)) | `bash trillium/submit_all.sh` | | `results/*/repeat_NN/train.log`, `metrics.csv`, `test_metrics.json`; M3DFEL: `log.txt` |
 | Random-initialization variability table (`tab:seeds`) | `analysis/build_paper_tables.py` | as Table 1 | `analysis/seed_variability/results/no-ceg_{summary,per_seed}.csv` | `analysis/paper_stats/table_seeds.tex` |
 | Linear probing (18 and 54 videos) | `analysis/evaluate_all_models_linear_54.py`, `analysis/export_predictions_same_models_54.py` | no arguments | `analysis/model_rdms_54/` | `analysis/model_performance_54/complete_54/` |
 | Linear-probing figure (`model_accuracy_summary_54.pdf`) | `analysis/plot_accuracy_summary_54.py` | `python analysis/plot_accuracy_summary_54.py` | `analysis/model_performance_54/complete_54/performance_54_same_models.csv` | `analysis/model_performance_54/complete_54/model_accuracy_summary_54.pdf` |
@@ -109,16 +109,46 @@ tests, and `build_control_rsa.py` (noise ceilings) read all 25.
 
 ### 3. Training
 
-| Model | Data preparation | Training | Checkpoint (on Drive) |
-|---|---|---|---|
-| ResNet18, ResNet50, FaceNet on VGGFace2 (715,810 training images, 5,346 identities) | `data/get_vggface2_hq.sh` (VGGFace2-HQ, zips 01–06); `vggface_train/build_index.py` | | `vggface_train/results/17733342/{resnet18,resnet50,facenet}/best.pt` |
-| FaceNet, VGGFace2 300k / 500k | `vggface_train/build_subset_indexes.py` | `vggface_train/train_facenet_subsets.sh` | `vggface_train/results/17798746/{300k,500k}/best_weights.pt` |
-| FaceNet, 10 repeats each of 10k, 50k, 100k, 200k, 300k, 500k, 800k (bootstrap) | `vggface_train/build_low_size_repeated_indexes.py`, `build_repeated_subset_indexes.py` | `vggface_train/train_facenet_low_size_array.sh`, `train_facenet_repeated_array.sh` (`train.py --seed 1000+r`) | `vggface_train/results/repeated_subsets/repeat_XX/<size>/best_weights.pt` |
-| AffectNet 3-class (fear, happy, neutral) fine-tuning of ResNet18, ResNet50, FaceNet (from the VGGFace2 checkpoints above) and VGG-Face | Kaggle `mstjebashazida/affectnet` v1, already reduced to the three classes (`AFFECTNET_DIR`) | `affectnet_3class_train/train_affectnet_3class.sh` → `train_affectnet.py` | `affectnet_3class_train/results/17810319/<arch>/best_weights.pt` |
-| M3DFEL, DFEW 3-class (happy, neutral, fear) | `M3DFEL/prepare_dfew_3class.sh` (`DFEW_PASSWORD`, `DFEW_DIR`) | `M3DFEL/train_dfew_3class.sh` (5 folds); fold 3 is the one used | `M3DFEL/results/17812056/fold_3/best_weights.pt` |
+All trained models in the paper come from one pipeline, run on Trillium (Digital Research
+Alliance of Canada) H100 GPUs; `trillium/` holds the job scripts. Every run has ten seeds
+(1001--1010; repeat *r* uses seed 1000+*r*). `FER_ROOT` below is the data root
+(`$SCRATCH/fer_revision` on Trillium).
+
+**1. Environment.** `bash trillium/setup_env.sh` (exact versions in `trillium/trainenv_freeze.txt`).
+
+**2. Data** (on a data-transfer node; on Trillium `ssh tri-dm1`, since login nodes cap CPU time):
+
+| Data | Command | Check |
+|---|---|---|
+| VGGFace2-HQ training archives 01--06 (726,502 images) | `DEST=$FER_ROOT/data/vggface_dataset bash data/get_vggface2_hq.sh` (accept the dataset terms on HuggingFace first) | sizes of the six zips |
+| Image lists: full pool and validation | `python vggface_train/build_index.py --root $FER_ROOT/data/vggface_dataset/VGGface2_None_norm_512_true_bygfpgan --out vggface_train/index` | 715,810 train, 10,692 val |
+| Image lists: subsets | `python vggface_train/build_subset_indexes.py` (10k--500k, 10 repeats) | reproduce the lists on Drive byte for byte |
+| Decoded-image cache (36 GB) | `python vggface_train/build_decode_cache.py --data-root ... --index-dir vggface_train/index --out-dir $FER_ROOT/data/vggface_cache` (also built by `trillium/bench.sh`) | 200-image spot check |
+| AffectNet, 3 classes | `bash data/get_affectnet_3class.sh` (Kaggle token) | archive checksum and per-class counts |
+| VGG-Face weights | `bash data/get_vgg_face.sh` | checksum |
+
+**3. Train.** From the repository root on `trillium-gpu`: `bash trillium/submit_all.sh`. It writes the
+task lists (`trillium/make_tasks.py`) and submits four job arrays; each array element takes one H100
+and runs three trainings on it (four for fine-tuning), and fine-tuning starts after pretraining.
+Re-running it skips finished runs and resumes unfinished ones. Outputs go to
+`$FER_ROOT/results/<group>/.../repeat_NN/`; the model used downstream is `best_weights.pt`.
+
+| Runs (10 seeds each) | Script and recipe | Output |
+|---|---|---|
+| Face pretraining: ResNet18, ResNet50, FaceNet on the full pool (715,810 images, 5,346 identities) | `vggface_train/train.py`, 40 epochs; checkpoint = best validation top-1 | `results/pretrain/<arch>/repeat_NN/` |
+| Size curve: FaceNet on 10k--500k subsets; the full-pool FaceNets are its end point | as above | `results/sizecurve/repeat_NN/<size>/` |
+| Step-matched check: FaceNet on 10k--300k subsets for the full pool's 55,920 steps | as above, `--steps 55920 --eval-every-steps 1398` | `results/stepmatched/repeat_NN/<size>/` |
+| AffectNet fine-tuning: ResNet18, ResNet50, FaceNet (from their pretraining `best_weights.pt`) and VGG16 (from VGG-Face) | `affectnet_3class_train/train_affectnet.py`; epoch chosen on a fixed, class-balanced 10% of Train; Test evaluated once (`test_metrics.json`) | `results/finetune/<arch>/repeat_NN/` |
+| M3DFEL on DFEW fold 3 (not retrained: DFEW requires a licence) | `M3DFEL/prepare_dfew_3class.sh`, `M3DFEL/train_dfew_3class.sh` (5 folds; fold 3 used) | `M3DFEL/results/17812056/fold_3/best_weights.pt` |
+
+`trillium/bench.sh` measures throughput per model and packing (FaceNet: 9.1k images/s alone,
+16.1k with three runs per H100). The 180 runs took about 180 GPU-hours.
+
+The first version of the paper used single training runs (18-epoch full-pool models, a bootstrap
+"800k" subset, AffectNet epochs chosen on the Test folder); their scripts are in the git history and
+their checkpoints on Drive, but they are not the models in the paper.
 
 `M3DFEL/` is the Tencent TFace implementation (CVPR 2023) with our changes for 3-class DFEW.
-`models/train_vggface2_rgb.py` did not produce any checkpoint used in the paper.
 
 ### 4. Model RDMs
 

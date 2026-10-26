@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Train one backbone (resnet50 / resnet18 / facenet) on VGGFace2 identity classification.
+"""Train ResNet18, ResNet50 or FaceNet on VGGFace2-HQ identity classification.
 
-One process owns one GPU; three of these run concurrently on a node, one per GPU.
-Reads the prebuilt index (see build_index.py) so it never walks the dataset tree.
+Reads the image lists from build_index.py / build_subset_indexes.py.
 """
 import argparse
 import csv
 import os
 import time
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torchvision
@@ -22,7 +22,7 @@ from torchvision import transforms
 class ListDataset(Dataset):
     """Images listed in a '<relpath>\\t<label>' index file, rooted at `root`."""
 
-    def __init__(self, root, index_file, transform, decode_size):
+    def __init__(self, root, index_file, transform, decode_size, cache_dir=None):
         self.root = root
         self.transform = transform
         # draft() decodes JPEG straight to the nearest 1/2^n scale, so a 512px
@@ -32,12 +32,23 @@ class ListDataset(Dataset):
         with open(index_file) as f:
             rows = [line.rstrip("\n").split("\t") for line in f if line.strip()]
         self.samples = [(p, int(l)) for p, l in rows]
+        # optional: the same 128px bitmaps, decoded once (build_decode_cache.py)
+        self.cache_file, self.rows, self.cache = None, None, None
+        if cache_dir:
+            self.cache_file = os.path.join(cache_dir, f"images_u8_{decode_size}.npy")
+            with open(os.path.join(cache_dir, "paths.txt")) as f:
+                where = {line.rstrip("\n"): i for i, line in enumerate(f)}
+            self.rows = [where[p] for p, _ in self.samples]
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, i):
         path, label = self.samples[i]
+        if self.cache_file:
+            if self.cache is None:
+                self.cache = np.load(self.cache_file, mmap_mode="r")
+            return self.transform(Image.fromarray(np.asarray(self.cache[self.rows[i]]))), label
         with Image.open(os.path.join(self.root, path)) as img:
             img.draft("RGB", self.decode_size)
             img = img.convert("RGB")
@@ -118,6 +129,10 @@ def main():
     p.add_argument("--index-dir", required=True)
     p.add_argument("--out-dir", required=True)
     p.add_argument("--epochs", type=int, default=30)
+    p.add_argument("--steps", type=int, default=None, help="train for N steps instead of --epochs")
+    p.add_argument("--eval-every-steps", type=int, default=None,
+                   help="evaluate and checkpoint every N steps instead of every epoch")
+    p.add_argument("--cache-dir", default=None, help="decoded-image cache (build_decode_cache.py)")
     p.add_argument("--batch-size", type=int, default=512)
     p.add_argument("--lr", type=float, default=None, help="default: 0.1 * batch_size/256")
     p.add_argument("--weight-decay", type=float, default=5e-4)
@@ -152,9 +167,9 @@ def main():
 
     train_tf, val_tf = build_transforms(args.size, args.decode_size)
     train_set = ListDataset(args.data_root, os.path.join(args.index_dir, "train.txt"),
-                            train_tf, args.decode_size)
+                            train_tf, args.decode_size, args.cache_dir)
     val_set = ListDataset(args.data_root, os.path.join(args.index_dir, "val.txt"),
-                          val_tf, args.decode_size)
+                          val_tf, args.decode_size, args.cache_dir)
 
     def loader(ds, shuffle, bs):
         return DataLoader(ds, batch_size=bs, shuffle=shuffle, num_workers=args.workers,
@@ -176,7 +191,9 @@ def main():
     scaler = torch.amp.GradScaler("cuda", enabled=amp_dtype is torch.float16)
 
     steps_per_epoch = len(train_loader)
-    total_steps = steps_per_epoch * args.epochs
+    if args.steps:
+        args.epochs = -(-args.steps // steps_per_epoch)
+    total_steps = args.steps or steps_per_epoch * args.epochs
     warmup_steps = int(steps_per_epoch * args.warmup_epochs)
 
     def lr_at(step):
@@ -213,10 +230,12 @@ def main():
                  "lr", "img_per_s", "epoch_s", "elapsed_s"])
 
     stop_reason = "completed"
+    # running stats cover the interval since the last evaluation
+    e0 = time.time()
+    run_loss = run_top1 = seen = 0
+    last_eval_step = global_step
     for epoch in range(start_epoch, args.epochs):
         model.train()
-        e0 = time.time()
-        run_loss = run_top1 = seen = 0
 
         for i, (images, target) in enumerate(train_loader):
             for g in optimizer.param_groups:
@@ -245,7 +264,13 @@ def main():
                 print(f"[{args.arch}] e{epoch} {i + 1}/{steps_per_epoch} "
                       f"loss={run_loss / seen:.3f} top1={100 * run_top1 / seen:.2f}% "
                       f"lr={optimizer.param_groups[0]['lr']:.4f} {rate:.0f} img/s", flush=True)
+            if global_step >= total_steps:
+                break
 
+        last_epoch = epoch == args.epochs - 1 or global_step >= total_steps
+        if (args.eval_every_steps and not last_epoch
+                and global_step - last_eval_step < args.eval_every_steps):
+            continue
         epoch_s = time.time() - e0
         val_top1, val_top5 = evaluate(model, val_loader, device, amp_dtype, cuda)
         elapsed = time.time() - t0
@@ -281,6 +306,9 @@ def main():
                 stop_reason = f"time budget ({spent:.2f}h of {args.max_hours}h, next epoch would overrun)"
                 print(f"[{args.arch}] stopping: {stop_reason}", flush=True)
                 break
+        e0 = time.time()
+        run_loss = run_top1 = seen = 0
+        last_eval_step = global_step
 
     print(f"[{args.arch}] FINISHED ({stop_reason}) best_val_top1={best_top1:.2f}% "
           f"total={(time.time() - t0) / 3600:.2f}h", flush=True)

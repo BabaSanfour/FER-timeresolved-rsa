@@ -7,6 +7,7 @@
 """
 import argparse
 import csv
+import json
 import os
 import random
 import time
@@ -14,7 +15,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, models, transforms
 
 
@@ -74,7 +75,9 @@ def remap_vgg16_state(state):
 def checkpoint_state(path):
     if not path or not Path(path).is_file():
         raise FileNotFoundError(f"pretrained checkpoint not found: {path}")
-    obj = torch.load(path, map_location="cpu", weights_only=False)
+    # weights_only: tensors and plain containers only, so a downloaded file
+    # (e.g. the public VGG-Face conversion) cannot run code when loaded
+    obj = torch.load(path, map_location="cpu", weights_only=True)
     return obj.get("model", obj.get("state_dict", obj))
 
 
@@ -167,6 +170,11 @@ def main():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--resume", default="auto")
     p.add_argument("--max-hours", type=float)
+    p.add_argument("--channels-last", action="store_true", help="faster convolutions on H100")
+    p.add_argument("--val-fraction", type=float, default=0.1,
+                   help="share of each Train class held out for epoch selection")
+    p.add_argument("--split-seed", type=int, default=0,
+                   help="fixes the validation split (kept the same across models and seeds)")
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -178,20 +186,41 @@ def main():
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     train_tf, val_tf = make_transforms(args.arch)
-    train_set = datasets.ImageFolder(Path(args.data_root) / "Train", train_tf)
-    val_set = datasets.ImageFolder(Path(args.data_root) / "Test", val_tf)
-    if train_set.classes != CLASSES or val_set.classes != CLASSES:
-        raise ValueError(f"expected classes {CLASSES}; got train={train_set.classes}, test={val_set.classes}")
+    root = Path(args.data_root)
+    full_train = datasets.ImageFolder(root / "Train")
+    test_set = datasets.ImageFolder(root / "Test", val_tf)
+    if full_train.classes != CLASSES or test_set.classes != CLASSES:
+        raise ValueError(f"expected classes {CLASSES}; got train={full_train.classes}, test={test_set.classes}")
+    # Validation split carved from Train, class-balanced and fixed by --split-seed,
+    # so every model and seed sees the same split. The epoch is chosen on it; the
+    # Test folder is evaluated once, at the end, for the chosen epoch only.
+    rng = random.Random(args.split_seed)
+    val_idx = []
+    for c in range(len(CLASSES)):
+        idx = [i for i, t in enumerate(full_train.targets) if t == c]
+        rng.shuffle(idx)
+        val_idx += idx[:round(len(idx) * args.val_fraction)]
+    val_idx = sorted(val_idx)
+    held = set(val_idx)
+    train_idx = [i for i in range(len(full_train)) if i not in held]
+    train_set = Subset(datasets.ImageFolder(root / "Train", train_tf), train_idx)
+    val_set = Subset(datasets.ImageFolder(root / "Train", val_tf), val_idx)
+    with open(out / "val_split.txt", "w") as f:
+        f.write("\n".join(os.path.relpath(full_train.samples[i][0], root) for i in val_idx) + "\n")
+    print(f"train={len(train_set)} val={len(val_set)} (from Train, split seed {args.split_seed}) "
+          f"test={len(test_set)}", flush=True)
     common = dict(num_workers=args.workers, pin_memory=device.type == "cuda",
                   persistent_workers=args.workers > 0)
     train_loader = DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True, **common)
     val_loader = DataLoader(val_set, args.batch_size * 2, shuffle=False, **common)
     model = build_model(args.arch, args.weights).to(device)
+    mem_format = torch.channels_last if args.channels_last else torch.contiguous_format
+    model = model.to(memory_format=mem_format)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
     criterion = nn.CrossEntropyLoss(label_smoothing=.1)
     scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda" and amp_dtype == torch.float16)
-    start_epoch, best_f1 = 0, -1.0
+    start_epoch, best_f1, best_epoch = 0, -1.0, -1
     resume = out / "last.pt" if args.resume == "auto" else Path(args.resume)
     if resume.is_file():
         ckpt = torch.load(resume, map_location="cpu", weights_only=False)
@@ -200,16 +229,19 @@ def main():
         scheduler.load_state_dict(ckpt["scheduler"])
         scaler.load_state_dict(ckpt["scaler"])
         start_epoch, best_f1 = ckpt["epoch"] + 1, ckpt["best_macro_f1"]
+        best_epoch = ckpt.get("best_epoch", -1)
     metrics_path = out / "metrics.csv"
     if start_epoch == 0:
         with open(metrics_path, "w", newline="") as f:
-            csv.writer(f).writerow(["epoch", "train_loss", "val_loss", "accuracy", "macro_f1", "lr"])
+            csv.writer(f).writerow(["epoch", "train_loss", "val_loss", "val_accuracy", "val_macro_f1", "lr"])
     started = time.time()
+    completed = True
     for epoch in range(start_epoch, args.epochs):
         model.train()
         train_loss, seen = 0.0, 0
         for images, target in train_loader:
-            images, target = images.to(device, non_blocking=True), target.to(device, non_blocking=True)
+            images = images.to(device, non_blocking=True, memory_format=mem_format)
+            target = target.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device.type, dtype=amp_dtype, enabled=device.type == "cuda"):
                 loss = criterion(model(images), target)
@@ -220,25 +252,38 @@ def main():
             seen += target.numel()
         val_loss, acc, macro_f1, cm = evaluate(model, val_loader, device, amp_dtype)
         scheduler.step()
+        if macro_f1 > best_f1:
+            best_f1, best_epoch = macro_f1, epoch
+            atomic_save(model.state_dict(), out / "best_weights.pt")
         state = {"epoch": epoch, "arch": args.arch, "classes": CLASSES,
                  "model": model.state_dict(), "optimizer": optimizer.state_dict(),
                  "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(),
-                 "best_macro_f1": max(best_f1, macro_f1), "confusion_matrix": cm,
+                 "best_macro_f1": best_f1, "best_epoch": best_epoch, "confusion_matrix": cm,
                  "args": vars(args)}
         atomic_save(state, out / "last.pt")
         atomic_save(model.state_dict(), out / "last_weights.pt")
-        if macro_f1 > best_f1:
-            best_f1 = macro_f1
-            atomic_save(state, out / "best.pt")
-            atomic_save(model.state_dict(), out / "best_weights.pt")
         with open(metrics_path, "a", newline="") as f:
             csv.writer(f).writerow([epoch, train_loss / seen, val_loss, acc, macro_f1,
                                     optimizer.param_groups[0]["lr"]])
         print(f"epoch={epoch+1}/{args.epochs} train_loss={train_loss/seen:.4f} "
-              f"val_loss={val_loss:.4f} acc={acc:.4f} macro_f1={macro_f1:.4f}", flush=True)
-        if args.max_hours and (time.time() - started) / 3600 >= args.max_hours:
+              f"val_loss={val_loss:.4f} val_acc={acc:.4f} val_macro_f1={macro_f1:.4f}", flush=True)
+        if args.max_hours and (time.time() - started) / 3600 >= args.max_hours and epoch + 1 < args.epochs:
             print("stopping cleanly at max-hours", flush=True)
+            completed = False
             break
+
+    if completed:
+        # the one Test evaluation: the epoch chosen on validation
+        model.load_state_dict(torch.load(out / "best_weights.pt", map_location="cpu", weights_only=True))
+        model.to(device, memory_format=mem_format)
+        test_loader = DataLoader(test_set, args.batch_size * 2, shuffle=False, **common)
+        test_loss, test_acc, test_f1, test_cm = evaluate(model, test_loader, device, amp_dtype)
+        result = {"best_epoch": best_epoch + 1, "val_macro_f1": best_f1, "test_accuracy": test_acc,
+                  "test_macro_f1": test_f1, "test_loss": test_loss, "test_confusion_matrix": test_cm,
+                  "n_train": len(train_set), "n_val": len(val_set), "n_test": len(test_set)}
+        with open(out / "test_metrics.json", "w") as f:
+            json.dump(result, f, indent=1)
+        print(f"TEST best_epoch={best_epoch + 1} accuracy={test_acc:.4f} macro_f1={test_f1:.4f}", flush=True)
 
 
 if __name__ == "__main__":

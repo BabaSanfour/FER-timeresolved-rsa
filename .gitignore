@@ -22,3 +22,6 @@ eeg_rdms_complete/
 *.pt
 *.pth
 *.ckpt
+trillium/tasks/
+vggface_train/index/
+vggface_train/indexes_repeated/
