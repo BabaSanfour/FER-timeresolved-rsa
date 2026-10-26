@@ -1,18 +1,8 @@
 #!/bin/bash
-# Fetch the AffectNet images used for the 3-class fine-tuning and build the
-# layout train_affectnet.py reads: $DEST/affectnet_3class/{Train,Test}/{fear,happy,neutral}.
-#
-# Why this Kaggle copy: the copy used for the first models (Kaggle
-# mstjebashazida/affectnet v1) is no longer public. sofiajch07/affectnet v1 is a
-# re-upload of the same archive: its fear/happy/neutral folders hold exactly the
-# same number of images (Train 1,512 / 2,340 / 2,758; Test 1,664 / 2,704 / 2,368),
-# and the Test total (6,736) is the size implied by the first models' accuracies.
-# Images are 96x96 (PNG and JPG); the other five emotion folders are not used.
-# AffectNet's own terms (academic, non-commercial) apply to this copy.
-#
-# ONE-TIME SETUP: a Kaggle API token, as ~/.kaggle/access_token (new-style token,
-# sent as a Bearer header) or ~/.kaggle/kaggle.json (username + key).
-# Run on a data transfer node (Trillium: ssh tri-dm1); 340 MB.
+# AffectNet for the 3-class fine-tuning, as $DEST/affectnet_3class/{Train,Test}/{fear,happy,neutral}.
+# Kaggle sofiajch07/affectnet v1 (96x96 images): the first models' copy
+# (mstjebashazida/affectnet) is gone; this one has the same per-class counts.
+# AffectNet's academic terms apply. Needs a Kaggle token in ~/.kaggle.
 set -euo pipefail
 
 DEST=${DEST:-${FER_ROOT:-.}/data/affectnet_kaggle}
@@ -40,12 +30,10 @@ OUT="$DEST/affectnet_3class"
 for split in Train Test; do
   mkdir -p "$OUT/$split"
   for cls in fear happy neutral; do
-    # hard links: the 3-class view costs no extra space
     [ -d "$OUT/$split/$cls" ] || cp -al "$SRC/$split/$cls" "$OUT/$split/$cls"
   done
 done
 
-# the counts that identify this copy
 declare -A WANT=([Train/fear]=1512 [Train/happy]=2340 [Train/neutral]=2758
                  [Test/fear]=1664 [Test/happy]=2704 [Test/neutral]=2368)
 for k in "${!WANT[@]}"; do

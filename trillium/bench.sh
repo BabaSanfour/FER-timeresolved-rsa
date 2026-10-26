@@ -6,10 +6,8 @@
 #SBATCH --cpus-per-task=24
 #SBATCH --time=1:00:00
 #SBATCH --output=%x-%j.out
-# Measure steady-state training throughput and GPU use per model and per packing
-# (1-4 trainings sharing one H100), with the cache in node memory as in
-# run_tasks.sh, and torch.compile. Also smoke-tests the step-matched options and
-# the AffectNet validation-split path. Submit from the repo root on trillium-gpu.
+# Throughput per model and packing (1-4 runs per H100), plus smoke tests of the
+# step-matched options and the AffectNet validation split. Builds the cache if missing.
 set -uo pipefail
 R=$SCRATCH/fer_revision
 REPO=$R/repo

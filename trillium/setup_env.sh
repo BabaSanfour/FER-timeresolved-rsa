@@ -1,9 +1,6 @@
 #!/bin/bash
-# Build the training environment used for the paper's models (Trillium,
-# StdEnv/2023, Python 3.12, Alliance wheelhouse). Exact versions: trainenv_freeze.txt.
-# facenet-pytorch is installed without its dependencies: it pins torch<2.3, but only
-# its model definition (InceptionResnetV1) is used, which runs on current torch.
-# Run on a login node (it needs internet for facenet-pytorch).
+# Training environment (Trillium, Python 3.12; versions in trainenv_freeze.txt).
+# facenet-pytorch without dependencies: it pins an old torch, but only its model class is used.
 set -euo pipefail
 ENV=${ENV:-$SCRATCH/fer_revision/trainenv}
 module load StdEnv/2023 python/3.12

@@ -1,28 +1,18 @@
 #!/usr/bin/env python3
-"""Write the task lists for the revision's retraining on Trillium (one line per run).
+"""Task lists for the retraining on Trillium: one tab-separated line per run
+(output dir, pattern that marks it done in train.log, command).
 
-Recipe changes from the original runs (decided 2026-10-25):
-  - every VGGFace2-HQ model trains for 40 epochs (the full-pool models had 18, a
-    time-budget choice in rescue_17733342.sh; the subsets had 40);
-  - the size curve ends at the full 715,810-image pool trained the same way,
-    10 repeats, instead of the public facenet-pytorch checkpoint; the
-    "800k_bootstrap" condition (draws with replacement) is dropped;
-  - step-matched check: subsets 10k-300k trained for the full pool's step count;
-  - checkpoints are chosen on validation splits only, never on a test set:
-    VGGFace2 runs on their own val list (best_weights.pt); AffectNet fine-tunes on
-    a fixed, class-balanced 10% of Train, with the Test folder evaluated once;
-  - fine-tunes start from our own 40-epoch VGGFace2 models (VGG16 from VGG-Face);
-  - 10 seeds for every trained run (seed 1000 + repeat, as in the size curve).
-
-Line format (tab-separated): out_dir, done-pattern for out_dir/train.log, command.
-{W} in the command is replaced by the data-loader worker count at launch, {H} by
-the hours left in the job and {C} by the decoded-image cache (copied to /dev/shm).
+40 epochs for every VGGFace2-HQ model; size curve 10k-500k plus the full pool;
+step-matched 10k-300k at the full pool's step count; AffectNet fine-tunes from our
+pretraining (VGG16 from VGG-Face) with the epoch chosen on validation; ten seeds
+(1000 + repeat). run_tasks.sh fills in {W} (loader workers), {H} (hours left)
+and {C} (cache path).
 """
 import argparse
 import os
 
 SIZES = ["10k", "50k", "100k", "200k", "300k", "500k"]
-FULL_POOL_STEPS = 1398 * 40  # 715,810 // 512 steps per epoch x 40 epochs
+FULL_POOL_STEPS = 1398 * 40  # 715,810 // 512 x 40 epochs
 
 
 def main():

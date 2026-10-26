@@ -122,7 +122,7 @@ Alliance of Canada) H100 GPUs; `trillium/` holds the job scripts. Every run has 
 |---|---|---|
 | VGGFace2-HQ training archives 01--06 (726,502 images) | `DEST=$FER_ROOT/data/vggface_dataset bash data/get_vggface2_hq.sh` (accept the dataset terms on HuggingFace first) | sizes of the six zips |
 | Image lists: full pool and validation | `python vggface_train/build_index.py --root $FER_ROOT/data/vggface_dataset/VGGface2_None_norm_512_true_bygfpgan --out vggface_train/index` | 715,810 train, 10,692 val |
-| Image lists: subsets | `python vggface_train/build_low_size_repeated_indexes.py` (10k--200k), `python vggface_train/build_repeated_subset_indexes.py` (300k, 500k; its `800k_bootstrap` lists are not used) | reproduce the lists on Drive byte for byte |
+| Image lists: subsets | `python vggface_train/build_subset_indexes.py` (10k--500k, 10 repeats) | reproduce the lists on Drive byte for byte |
 | Decoded-image cache (36 GB) | `python vggface_train/build_decode_cache.py --data-root ... --index-dir vggface_train/index --out-dir $FER_ROOT/data/vggface_cache` (also built by `trillium/bench.sh`) | 200-image spot check |
 | AffectNet, 3 classes | `bash data/get_affectnet_3class.sh` (Kaggle token) | archive checksum and per-class counts |
 | VGG-Face weights | `bash data/get_vgg_face.sh` | checksum |
@@ -144,14 +144,11 @@ Re-running it skips finished runs and resumes unfinished ones. Outputs go to
 `trillium/bench.sh` measures throughput per model and packing (FaceNet: 9.1k images/s alone,
 16.1k with three runs per H100). The 180 runs took about 180 GPU-hours.
 
-The first version of the paper used single runs from `vggface_train/train_vggface2.sh` (completed by
-`rescue_17733342.sh` at 18 epochs), `train_facenet_subsets.sh`, `train_facenet_low_size_array.sh`,
-`train_facenet_repeated_array.sh` (with an `800k_bootstrap` condition) and
-`affectnet_3class_train/train_affectnet_3class.sh` (epoch chosen on the Test folder). These scripts and
-their checkpoints on Drive are kept for reference; they are not the models in the paper.
+The first version of the paper used single training runs (18-epoch full-pool models, a bootstrap
+"800k" subset, AffectNet epochs chosen on the Test folder); their scripts are in the git history and
+their checkpoints on Drive, but they are not the models in the paper.
 
 `M3DFEL/` is the Tencent TFace implementation (CVPR 2023) with our changes for 3-class DFEW.
-`models/train_vggface2_rgb.py` did not produce any checkpoint used in the paper.
 
 ### 4. Model RDMs
 

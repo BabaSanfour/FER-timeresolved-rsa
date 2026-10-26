@@ -3,14 +3,9 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=24
 #SBATCH --output=logs/%x-%A_%a.out
-# One array element = one H100 (a quarter node: 24 cores). It runs a chunk of a
-# task list from make_tasks.py, PER_GPU trainings at a time on the same GPU, so a
-# single small model does not leave the GPU idle. Runs whose train.log already
-# shows the done-pattern are skipped, and unfinished ones resume from last.pt,
-# so resubmitting the same array finishes whatever a previous job left.
-#
-#   TASKS=trillium/tasks/sizecurve.txt PER_GPU=3 CHUNK=6 WALL_H=4 \
-#     sbatch --job-name=fer-sizecurve --time=4:00:00 --array=0-9 trillium/run_tasks.sh
+# One array element = one H100: runs CHUNK lines of a task list, PER_GPU at a time.
+# Finished runs are skipped and unfinished ones resume, so resubmitting completes a group.
+# Called by submit_all.sh.
 set -uo pipefail
 : "${TASKS:?}" "${PER_GPU:=1}" "${CHUNK:=1}" "${WALL_H:?set WALL_H to the --time in hours}"
 R=$SCRATCH/fer_revision
@@ -29,9 +24,7 @@ nvidia-smi -L
 nvidia-smi --query-gpu=timestamp,utilization.gpu,memory.used --format=csv,noheader -l 60 &
 SMI=$!
 
-# The decoded-image cache (~36 GB) is read at random; from network scratch that
-# is latency-bound, so copy it into node memory once and share it across the
-# runs on this GPU. Only for task lists that use it ({C}).
+# random reads from network scratch are slow: copy the cache to node memory once
 C=$R/data/vggface_cache
 if sed -n "${FIRST},$(( FIRST + CHUNK - 1 ))p" "$TASKS" | grep -q '{C}'; then
     SHM=/dev/shm/fer_cache_${SLURM_JOB_ID:-$$}

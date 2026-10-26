@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Train one backbone (resnet50 / resnet18 / facenet) on VGGFace2 identity classification.
+"""Train ResNet18, ResNet50 or FaceNet on VGGFace2-HQ identity classification.
 
-One process owns one GPU; three of these run concurrently on a node, one per GPU.
-Reads the prebuilt index (see build_index.py) so it never walks the dataset tree.
+Reads the image lists from build_index.py / build_subset_indexes.py.
 """
 import argparse
 import csv
@@ -33,8 +32,7 @@ class ListDataset(Dataset):
         with open(index_file) as f:
             rows = [line.rstrip("\n").split("\t") for line in f if line.strip()]
         self.samples = [(p, int(l)) for p, l in rows]
-        # Optional cache from build_decode_cache.py: the same 128px bitmaps,
-        # decoded once. Opened lazily so each worker maps its own view.
+        # optional: the same 128px bitmaps, decoded once (build_decode_cache.py)
         self.cache_file, self.rows, self.cache = None, None, None
         if cache_dir:
             self.cache_file = os.path.join(cache_dir, f"images_u8_{decode_size}.npy")
@@ -131,14 +129,10 @@ def main():
     p.add_argument("--index-dir", required=True)
     p.add_argument("--out-dir", required=True)
     p.add_argument("--epochs", type=int, default=30)
-    p.add_argument("--steps", type=int, default=None,
-                   help="train for this many optimizer steps instead of --epochs "
-                        "(same cosine schedule over the steps); for step-matched runs")
+    p.add_argument("--steps", type=int, default=None, help="train for N steps instead of --epochs")
     p.add_argument("--eval-every-steps", type=int, default=None,
-                   help="evaluate and checkpoint every N steps instead of every epoch "
-                        "(and at the end); for runs with very short epochs")
-    p.add_argument("--cache-dir", default=None,
-                   help="decoded-image cache from build_decode_cache.py (same input, no JPEG decode)")
+                   help="evaluate and checkpoint every N steps instead of every epoch")
+    p.add_argument("--cache-dir", default=None, help="decoded-image cache (build_decode_cache.py)")
     p.add_argument("--batch-size", type=int, default=512)
     p.add_argument("--lr", type=float, default=None, help="default: 0.1 * batch_size/256")
     p.add_argument("--weight-decay", type=float, default=5e-4)
@@ -236,8 +230,7 @@ def main():
                  "lr", "img_per_s", "epoch_s", "elapsed_s"])
 
     stop_reason = "completed"
-    # Running stats cover the interval since the last evaluation: one epoch by
-    # default, or --eval-every-steps steps when epochs are tiny (step-matched runs).
+    # running stats cover the interval since the last evaluation
     e0 = time.time()
     run_loss = run_top1 = seen = 0
     last_eval_step = global_step

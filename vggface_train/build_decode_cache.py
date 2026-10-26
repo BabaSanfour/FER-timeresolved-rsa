@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""Decode every image in index/{train,val}.txt once, at the size train.py decodes to.
+"""Decode every listed image once, exactly as train.py does (128px), into one uint8 array.
 
-train.py decodes each 512px JPEG with draft() to 128px on every epoch, which makes
-training CPU-bound. This writes those exact 128px RGB bitmaps to one uint8 array
-(N x 128 x 128 x 3, ~36 GB for 726,502 images) plus the matching path list, so
-train.py --cache-dir reads them instead of decoding. The augmentation still runs
-on the same PIL images, so the training input is unchanged.
-
-Usage::
-
-    python vggface_train/build_decode_cache.py --data-root .../VGGface2_None_norm_512_true_bygfpgan \
-        --index-dir vggface_train/index --out-dir .../vggface_cache --workers 24
+train.py --cache-dir then skips JPEG decoding; the augmentation is unchanged.
+726,502 images -> ~36 GB.
 """
 import argparse
 import os

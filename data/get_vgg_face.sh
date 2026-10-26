@@ -1,9 +1,5 @@
 #!/bin/bash
-# Fetch VGG-Face (Parkhi et al., 2015) as the PyTorch conversion by S. Albanie
-# (pytorch-mcn), the starting point of the VGG16 AffectNet fine-tune and the
-# "VGG-Face" variant. Layer names conv1_1 ... fc8 (2,622 identities); inputs are
-# RGB in [0, 255] minus the mean (129.186, 104.762, 93.594), which is what
-# train_affectnet.py's vgg16_vggface preprocessing applies. 580 MB.
+# VGG-Face (Parkhi et al., 2015), PyTorch conversion by S. Albanie: the VGG16 face model.
 set -euo pipefail
 
 DEST=${DEST:-${FER_ROOT:-.}/data/net_weights}
