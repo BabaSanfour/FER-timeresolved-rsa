@@ -130,6 +130,8 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--checkpoint", default=None,
                     help="trained M3DFEL state dict (e.g. selected Fold 3 best_weights.pt)")
+    ap.add_argument("--state", default=None,
+                    help="full saved state dict of this extractor's model (e.g. a saved random seed)")
     ap.add_argument("--out-name", required=True)
     ap.add_argument("--out-dir", default=str(ROOT / "analysis/model_rdms_canonical"))
     ap.add_argument("--frames-dir", default=str(ROOT / "stim_frames"))
@@ -150,9 +152,10 @@ def main():
     margs = SimpleNamespace(
         num_frames=n_time * INSTANCE_LENGTH,
         instance_length=INSTANCE_LENGTH,
-        num_classes=3 if args.checkpoint else 7,
+        num_classes=(torch.load(args.state, map_location="cpu", weights_only=True)["fc.weight"].shape[0]
+                     if args.state else 3 if args.checkpoint else 7),
         gpu_ids=[0] if device.type == "cuda" else [],
-        r3d_weights=str(M3DFEL_DIR / "pretrained/r3d_18-b3b3357e.pth"),
+        r3d_weights=os.environ.get("M3DFEL_R3D", str(M3DFEL_DIR / "pretrained/r3d_18-b3b3357e.pth")),
     )
     torch.manual_seed(args.seed)
     model = M3DFEL(margs)
@@ -176,6 +179,9 @@ def main():
                   f"{tuple(state['pwconv.weight'].shape)}; pwconv is excluded from RDMs")
         model.load_state_dict(state, strict=True)
         print(f"[M3DFEL TRAINED] loaded {args.checkpoint}")
+    elif args.state:
+        model.load_state_dict(torch.load(args.state, map_location="cpu", weights_only=True), strict=True)
+        print(f"[M3DFEL] loaded saved weights {args.state}")
     elif args.random:
         model = randomize(model, args.seed)
         print(f"[M3DFEL RANDOM] every weight re-initialised (seed {args.seed})")
@@ -186,7 +192,8 @@ def main():
         torch.save({k: v.detach().cpu() for k, v in model.state_dict().items()}, args.save_weights)
         print(f"[weights] saved state_dict -> {args.save_weights}")
 
-    # ---- hooks: every module whose output keeps the instance (time) axis ----
+    # ---- hooks: the R3D-18 backbone's convolutions and batch norms. The temporal
+    # head (LSTM, attention, norm) mixes all 16 windows, so it is not analysed. ----
     acts = {}
 
     def make_hook(name):
@@ -212,7 +219,7 @@ def main():
 
     handles, layer_names = [], []
     for name, mod in model.named_modules():
-        if isinstance(mod, (nn.Conv3d, nn.Conv1d, nn.Linear, nn.LSTM)) or name == "norm":
+        if name.startswith("features.") and isinstance(mod, (nn.Conv3d, nn.BatchNorm3d)):
             handles.append(mod.register_forward_hook(make_hook(name)))
             layer_names.append(name)
     print(f"[hooks] {len(layer_names)} candidate layers")
@@ -265,7 +272,7 @@ def main():
     (out_dir / f"{args.out_name}.layers.json").write_text(json.dumps({
         "layer_order": order, "shape": list(rdms.shape), "arch": "M3DFEL (r3d_18 + MIL)",
         "random": bool(args.random), "seed": args.seed,
-        "checkpoint": args.checkpoint,
+        "checkpoint": args.checkpoint, "state": args.state,
         "pretrained_note": ("DFEW 3-class trained checkpoint" if args.checkpoint else
                             ("all weights random" if args.random else
                              "Kinetics-400 r3d_18 backbone; MIL head untrained")),

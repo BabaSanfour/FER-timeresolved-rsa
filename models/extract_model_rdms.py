@@ -175,10 +175,19 @@ def _repo_to_torchvision(arch, k):
     return k                                  # facenet checkpoints are native
 
 
+_VGGFACE = dict(zip(
+    ["conv1_1", "conv1_2", "conv2_1", "conv2_2", "conv3_1", "conv3_2", "conv3_3",
+     "conv4_1", "conv4_2", "conv4_3", "conv5_1", "conv5_2", "conv5_3", "fc6", "fc7", "fc8"],
+    [f"features.{i}" for i in (0, 2, 5, 7, 10, 12, 14, 17, 19, 21, 24, 26, 28)] +
+    [f"classifier.{i}" for i in (0, 3, 6)]))
+
+
 def remap_state(arch, state, layout):
     """layout: 'auto' (detect), 'repo' (force remap), 'torchvision' (leave alone)."""
     if layout == "torchvision":
         return state
+    if arch == "vgg16" and "conv1_1.weight" in state:          # VGG-Face (Albanie's conversion)
+        return {f"{_VGGFACE[k.rsplit('.', 1)[0]]}.{k.rsplit('.', 1)[1]}": v for k, v in state.items()}
     if layout == "auto" and not any(k.startswith("model.") for k in state):
         return state
     return {_repo_to_torchvision(arch, k): v for k, v in state.items()}

@@ -47,14 +47,13 @@ def layer_rdms(acts):
     return rdms
 
 
-def load_stack(act_dir, suffix=""):
+def load_stack(act_dir, names, suffix=""):
     acts = []
-    for emo, fpre in EMO_FILE.items():
-        for a in ACTORS:
-            p = act_dir / f"{fpre}_Actor{a:02d}{suffix}.npy"
-            if not p.exists():
-                raise SystemExit(f"ABORT: missing {p}")
-            acts.append(np.load(p))                       # (T, L, H)
+    for name in names:
+        p = act_dir / f"{name}{suffix}.npy"
+        if not p.exists():
+            raise SystemExit(f"ABORT: missing {p}")
+        acts.append(np.load(p))                           # (T, L, H)
     shapes = {x.shape for x in acts}
     if len(shapes) != 1:
         raise SystemExit(f"ABORT: activation shapes differ across stimuli: {shapes}")
@@ -67,11 +66,19 @@ def main():
     ap.add_argument("--out-dir",
                     default="./analysis/model_rdms_canonical")
     ap.add_argument("--out-name", required=True)
+    ap.add_argument("--manifest", default=None,
+                    help="stimulus_manifest.json; activations are named by its 'stimulus' field")
     args = ap.parse_args()
 
     act_dir = Path(args.run_dir) / "activations"
-    A = load_stack(act_dir)
-    V = load_stack(act_dir, "_vision")
+    if args.manifest:
+        stims = [r["stimulus"] for r in json.loads(Path(args.manifest).read_text())]
+        files = stims
+    else:
+        stims = STIMS
+        files = [f"{fpre}_Actor{a:02d}" for fpre in EMO_FILE.values() for a in ACTORS]
+    A = load_stack(act_dir, files)
+    V = load_stack(act_dir, files, "_vision")
     n_stim, T, L_dec, H = A.shape
     L_vis = V.shape[2]
     print(f"[in] {n_stim} stimuli x {T} timepoints: {L_vis} vision blocks x {V.shape[3]} + "
@@ -92,7 +99,8 @@ def main():
     (out_dir / f"{args.out_name}.layers.json").write_text(json.dumps({
         "layer_order": names,
         "shape": list(rdms.shape), "arch": "Qwen3-VL (video mode)",
-        "n_timepoints": T, "hidden_size": H, "stim_order": STIMS,
+        "n_timepoints": T, "hidden_size": H, "stim_order": stims,
+        "stimulus_manifest": args.manifest,
         "source_run": str(args.run_dir), **summary}, indent=2))
 
     off = ~np.eye(n_stim, dtype=bool)
