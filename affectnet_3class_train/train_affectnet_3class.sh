@@ -12,7 +12,7 @@ ROOT=$(realpath "${FER_ROOT:-.}")   # data/repo root; submit from the repository
 set -euo pipefail
 
 PROJECT=$ROOT/affectnet_3class_train
-DATA="${AFFECTNET_DIR:?set AFFECTNET_DIR to the Kaggle mstjebashazida/affectnet v1 archive (Train/, Test/)}"
+DATA="${AFFECTNET_DIR:?set AFFECTNET_DIR to the 3-class folder built by data/get_affectnet_3class.sh}"
 FINAL="$PROJECT/results/$SLURM_JOB_ID"
 STAGE="$SLURM_TMPDIR/affectnet-output"
 mkdir -p "$STAGE" "$FINAL"
