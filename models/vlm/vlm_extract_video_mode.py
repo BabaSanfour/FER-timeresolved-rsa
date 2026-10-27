@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
-"""Qwen2.5-VL **native video mode** activation extraction.
+"""Qwen3-VL activations from one video pass per clip.
 
-Here the whole clip goes through in ONE forward pass as a video, so Qwen's 3D
-patch embedding and time-aware mRoPE actually see the dynamics.
-
-Recovering a model-time axis from a single pass
-
-Output (identical layout to the frame-mode extractor, so
-`compute_rdms_from_vlm_activations.py` consumes it unchanged):
-    activations/{condition_id}.npy   -- (n_timepoints, n_layers, hidden_size)
-    frame_predictions.csv            -- one row per timepoint
+Each of the 16 shared frames (indices from the stimulus manifest) is supplied twice, so the
+temporal patch size of 2 gives exactly 16 time points. Writes activations/{stimulus}.npy
+(16, n_decoder_states, hidden) and {stimulus}_vision.npy (16, n_vision_blocks, vision_hidden);
+compute_rdms_from_vlm_activations.py turns them into RDMs.
 """
 from __future__ import annotations
 
@@ -154,7 +149,8 @@ class QwenVideoExtractor:
         return int(getattr(ip, "merge_size", 2) or 2)
 
     @staticmethod
-    def canonical_frame_paths(video_path: str, n_frames: int, tmpdir: str) -> List[str]:
+    def canonical_frame_paths(video_path: str, n_frames: int, tmpdir: str,
+                              indices: List[int] | None = None) -> List[str]:
         """Sample n_frames with the SAME rule as every other model
         (CAP_PROP_FRAME_COUNT + linspace + seek), write them to disk, and return each
         path TWICE. Qwen fuses frames in temporal pairs, so 2*n_frames images collapse
@@ -169,7 +165,8 @@ class QwenVideoExtractor:
         if total == 0:
             raise RuntimeError(f"Could not read any frame from {video_path}")
         # identical rule to every other model: linspace over the whole clip
-        idx = (np.arange(total) if total <= n_frames
+        idx = (np.asarray(indices) if indices is not None   # shared frame list (stimulus manifest)
+               else np.arange(total) if total <= n_frames
                else np.linspace(0, total - 1, n_frames, dtype=int))
         paths: List[str] = []
         stem = Path(video_path).stem
@@ -182,13 +179,13 @@ class QwenVideoExtractor:
     @torch.inference_mode()
     def infer_video(self, video_path: str, prompt: str, nframes: int,
                     max_new_tokens: int, frame_list: bool = False,
-                    tmpdir: str | None = None) -> Dict[str, Any]:
+                    tmpdir: str | None = None, indices: List[int] | None = None) -> Dict[str, Any]:
         if nframes % 2 != 0 and not frame_list:
             raise ValueError("nframes must be even (Qwen fuses frames in temporal pairs).")
 
         if frame_list:
             # nframes here = number of CANONICAL frames == number of temporal groups
-            vid = self.canonical_frame_paths(video_path, nframes, tmpdir or ".")
+            vid = self.canonical_frame_paths(video_path, nframes, tmpdir or ".", indices)
         else:
             vid = video_path
 
@@ -284,10 +281,10 @@ class QwenVideoExtractor:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Qwen2.5-VL native VIDEO-mode activation extraction.")
+    p = argparse.ArgumentParser(description="Qwen3-VL video-mode activation extraction.")
     p.add_argument("--metadata_csv", required=True)
     p.add_argument("--output_dir", required=True)
-    p.add_argument("--model_id", default="Qwen/Qwen2.5-VL-7B-Instruct")
+    p.add_argument("--model_id", default="Qwen/Qwen3-VL-8B-Instruct")
     p.add_argument("--device", default="cuda")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--attn_implementation", default=None)
@@ -337,8 +334,10 @@ def main() -> None:
         if not os.path.exists(video_path):
             print(f"[WARN] missing video, skipping: {video_path}"); continue
 
+        indices = ([int(i) for i in str(row["frame_indices"]).split()]
+                   if "frame_indices" in row else None)
         res = ex.infer_video(video_path, args.prompt, args.nframes, args.max_new_tokens,
-                             frame_list=args.frame_list, tmpdir=str(tmp))
+                             frame_list=args.frame_list, tmpdir=str(tmp), indices=indices)
         acts = res["activations"]
         np.save(act_dir / f"{cond}.npy", acts)
         np.save(act_dir / f"{cond}_vision.npy", res["vision_activations"])

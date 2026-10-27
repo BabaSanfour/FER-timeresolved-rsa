@@ -1,22 +1,9 @@
 #!/usr/bin/env python3
-"""Turn Qwen video-mode activations into canonical model RDMs.
+"""RDMs from Qwen3-VL video-mode activations.
 
-Input : <run_dir>/activations/{Label}_{ActorXX}.npy, each (n_timepoints, n_layers, hidden):
-        decoder hidden states (embedding output + language decoder blocks), and
-        <run_dir>/activations/{Label}_{ActorXX}_vision.npy, (n_timepoints, n_blocks, vision_hidden):
-        vision-encoder block outputs
-Output: <out_dir>/<name>.npy  (n_layers, n_timepoints, 18, 18) float32; layers are ordered
-        vision blocks 1..27, embedding output, decoder blocks 1..36 (64 for Qwen3-VL-8B)
-        <out_dir>/<name>.layers.json
-
-Stimuli are stacked in the canonical EMOTION-MAJOR order (fear 0-5, happy 6-11,
-neutral 12-17; actors 01, 02, 04, 07, 08, 11) so the result drops straight into
-analysis/rsa_full_grid.py alongside the CNN RDMs. The video files spell happy as
-"Hapiness", which is mapped here.
-
-Distance is correlation distance over the hidden dimension, computed separately
-per (layer, timepoint) across the 18 stimuli - the same estimator as
-models/extract_model_rdms.py.
+Stacks the stimuli in stimulus-manifest order and writes <out-name>.npy (64, 16, n_stim, n_stim):
+vision blocks 1..27, embedding output, decoder blocks 1..36; correlation distance per layer and
+time point, as in extract_model_rdms.py.
 """
 import argparse
 import json
@@ -47,14 +34,13 @@ def layer_rdms(acts):
     return rdms
 
 
-def load_stack(act_dir, suffix=""):
+def load_stack(act_dir, names, suffix=""):
     acts = []
-    for emo, fpre in EMO_FILE.items():
-        for a in ACTORS:
-            p = act_dir / f"{fpre}_Actor{a:02d}{suffix}.npy"
-            if not p.exists():
-                raise SystemExit(f"ABORT: missing {p}")
-            acts.append(np.load(p))                       # (T, L, H)
+    for name in names:
+        p = act_dir / f"{name}{suffix}.npy"
+        if not p.exists():
+            raise SystemExit(f"ABORT: missing {p}")
+        acts.append(np.load(p))                           # (T, L, H)
     shapes = {x.shape for x in acts}
     if len(shapes) != 1:
         raise SystemExit(f"ABORT: activation shapes differ across stimuli: {shapes}")
@@ -67,11 +53,19 @@ def main():
     ap.add_argument("--out-dir",
                     default="./analysis/model_rdms_canonical")
     ap.add_argument("--out-name", required=True)
+    ap.add_argument("--manifest", default=None,
+                    help="stimulus_manifest.json; activations are named by its 'stimulus' field")
     args = ap.parse_args()
 
     act_dir = Path(args.run_dir) / "activations"
-    A = load_stack(act_dir)
-    V = load_stack(act_dir, "_vision")
+    if args.manifest:
+        stims = [r["stimulus"] for r in json.loads(Path(args.manifest).read_text())]
+        files = stims
+    else:
+        stims = STIMS
+        files = [f"{fpre}_Actor{a:02d}" for fpre in EMO_FILE.values() for a in ACTORS]
+    A = load_stack(act_dir, files)
+    V = load_stack(act_dir, files, "_vision")
     n_stim, T, L_dec, H = A.shape
     L_vis = V.shape[2]
     print(f"[in] {n_stim} stimuli x {T} timepoints: {L_vis} vision blocks x {V.shape[3]} + "
@@ -92,7 +86,8 @@ def main():
     (out_dir / f"{args.out_name}.layers.json").write_text(json.dumps({
         "layer_order": names,
         "shape": list(rdms.shape), "arch": "Qwen3-VL (video mode)",
-        "n_timepoints": T, "hidden_size": H, "stim_order": STIMS,
+        "n_timepoints": T, "hidden_size": H, "stim_order": stims,
+        "stimulus_manifest": args.manifest,
         "source_run": str(args.run_dir), **summary}, indent=2))
 
     off = ~np.eye(n_stim, dtype=bool)

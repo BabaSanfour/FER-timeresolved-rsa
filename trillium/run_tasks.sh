@@ -7,13 +7,14 @@
 # Finished runs are skipped and unfinished ones resume, so resubmitting completes a group.
 # Called by submit_all.sh.
 set -uo pipefail
-: "${TASKS:?}" "${PER_GPU:=1}" "${CHUNK:=1}" "${WALL_H:?set WALL_H to the --time in hours}"
+: "${TASKS:?}" "${PER_GPU:=1}" "${CHUNK:=1}" "${WALL_H:?set WALL_H to the --time in hours}" "${LOG:=train.log}"
 R=$SCRATCH/fer_revision
 module load StdEnv/2023 python/3.12
 source "$R/trainenv/bin/activate"
 export PYTHONUNBUFFERED=1 OMP_NUM_THREADS=2
 # home is read-only on compute nodes: compiler and library caches go to scratch
 export TRITON_CACHE_DIR=$R/.cache/triton TORCHINDUCTOR_CACHE_DIR=$R/.cache/inductor XDG_CACHE_HOME=$R/.cache
+export HF_HOME=$R/data/.hf HF_HUB_OFFLINE=1   # compute nodes have no internet
 
 NCPU=${SLURM_CPUS_PER_TASK:-$(OMP_NUM_THREADS= nproc)}  # not plain nproc: it reports OMP_NUM_THREADS
 W=$(( NCPU / PER_GPU - 1 ))
@@ -38,7 +39,7 @@ fi
 PIDS=()
 while IFS=$'\t' read -r out done_re cmd; do
     [ -n "$out" ] || continue
-    if grep -qE "$done_re" "$out/train.log" 2>/dev/null; then
+    if grep -qE "$done_re" "$out/$LOG" 2>/dev/null; then
         echo "skip (done) $out"; continue
     fi
     # wait for a free slot on the GPU
@@ -48,7 +49,7 @@ while IFS=$'\t' read -r out done_re cmd; do
     mkdir -p "$out"
     cmd=${cmd//\{W\}/$W}; cmd=${cmd//\{H\}/$left}; cmd=${cmd//\{C\}/$C}
     echo "$(date +%T) start $out (max ${left} h)"
-    ( bash -c "$cmd" >>"$out/train.log" 2>&1; echo "$(date +%T) exit $? $out" ) &
+    ( bash -c "$cmd" >>"$out/$LOG" 2>&1; echo "$(date +%T) exit $? $out" ) &
     PIDS+=($!)
 done < <(sed -n "${FIRST},$(( FIRST + CHUNK - 1 ))p" "$TASKS")
 
