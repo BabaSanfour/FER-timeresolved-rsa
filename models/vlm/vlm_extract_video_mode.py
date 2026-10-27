@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
-"""Qwen2.5-VL **native video mode** activation extraction.
+"""Qwen3-VL activations from one video pass per clip.
 
-Here the whole clip goes through in ONE forward pass as a video, so Qwen's 3D
-patch embedding and time-aware mRoPE actually see the dynamics.
-
-Recovering a model-time axis from a single pass
-
-Output (identical layout to the frame-mode extractor, so
-`compute_rdms_from_vlm_activations.py` consumes it unchanged):
-    activations/{condition_id}.npy   -- (n_timepoints, n_layers, hidden_size)
-    frame_predictions.csv            -- one row per timepoint
+Each of the 16 shared frames (indices from the stimulus manifest) is supplied twice, so the
+temporal patch size of 2 gives exactly 16 time points. Writes activations/{stimulus}.npy
+(16, n_decoder_states, hidden) and {stimulus}_vision.npy (16, n_vision_blocks, vision_hidden);
+compute_rdms_from_vlm_activations.py turns them into RDMs.
 """
 from __future__ import annotations
 
@@ -286,10 +281,10 @@ class QwenVideoExtractor:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Qwen2.5-VL native VIDEO-mode activation extraction.")
+    p = argparse.ArgumentParser(description="Qwen3-VL video-mode activation extraction.")
     p.add_argument("--metadata_csv", required=True)
     p.add_argument("--output_dir", required=True)
-    p.add_argument("--model_id", default="Qwen/Qwen2.5-VL-7B-Instruct")
+    p.add_argument("--model_id", default="Qwen/Qwen3-VL-8B-Instruct")
     p.add_argument("--device", default="cuda")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--attn_implementation", default=None)

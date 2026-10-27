@@ -1,30 +1,11 @@
 #!/usr/bin/env python3
-"""M3DFEL (CVPR 2023, Tencent TFace) video RDMs, pretrained and random.
+"""M3DFEL (R3D-18 backbone + temporal-attention head) RDMs: random, Kinetics-400 or DFEW-trained.
 
-M3DFEL = r3d_18 backbone (Kinetics-400) -> per-instance 512-d -> BiLSTM ->
-multi-head self-attention + DMIN -> pwconv -> fc(7). See
-M3DFEL/ (github.com/Tencent/TFace/tree/master/attribute/M3DFEL, with our 3-class DFEW changes).
-
-IMPORTANT - what "pretrained" can mean here
-    Tencent publishes NO DFEW-trained checkpoint (the repo has zero releases and
-    the README only documents training). So --pretrained builds exactly what the
-    repo's own code builds: a Kinetics-400 pretrained r3d_18 backbone with a
-    randomly initialised MIL head. --random additionally randomises the backbone,
-    so the pair isolates the value of the Kinetics-pretrained video features.
-
-Getting 16 time points out of a 4-instance architecture
-    The model natively splits num_frames into num_frames/instance_length
-    instances, i.e. 16/4 = 4 time points - too coarse to time-lock to the 16 EEG
-    windows. Instead we feed 16 OVERLAPPING 4-frame windows (window t covers
-    canonical frames t-1..t+2, clipped), so bag_size = 16 while every instance
-    still sees genuine 3-D motion. Tensor shapes are exactly those the
-    architecture expects.
-
-Stimuli are the SAME canonical 16 frames every other model saw (stim_frames/
-Slide{k}.h5), resized to 112 and scaled to [0,1] - the repo's test-time
-transform (GroupResize + ToTorchFormatTensor, no mean/std normalisation).
-
-Output: analysis/model_rdms_canonical/<out-name>.npy  (n_layers, 16, 18, 18)
+Each of the 16 frames is the centre of a 4-frame window (frames t-1..t+2), so the 16 windows give 16
+time points; the trained pwconv (which depends on the number of windows) is tiled to fit. Only the
+backbone's convolutions and batch norms are analysed: the temporal head mixes all windows. Inputs:
+the shared frames at 112 x 112 in [0, 1], as in M3DFEL's training transform.
+Output: <out-name>.npy (n_layers, 16, n_stim, n_stim) + .layers.json + .predictions.csv.
 """
 import argparse
 import csv

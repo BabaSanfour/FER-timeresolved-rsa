@@ -1,30 +1,12 @@
-"""Activation extraction + prediction + RDM computation for the study models.
+"""Layer-wise RDMs for ResNet18, ResNet50, VGG16 and FaceNet.
 
-Supports only the four architecture families used in the study:
-  ResNet18, ResNet50, FaceNet, and VGG16.
+Loads a checkpoint (refusing partial loads), hooks the chosen layers, runs the 16 frames of every
+stimulus (Slide{1..16}.h5 + stimulus_manifest.json from build_stimuli_h5_16frames.py) and writes
+<out-name>.npy (n_layers, 16, n_stim, n_stim) correlation-distance RDMs, .layers.json (provenance)
+and .predictions.csv. Example:
 
-For a checkpoint file, the script:
-  1. builds one of the supported architectures,
-  2. load the checkpoint forgivingly (strip 'module.', strict=False, report missing/extra),
-  3. hook every TRAINABLE layer (modules carrying learnable parameters),
-  4. run the 18 canonical stimuli x 16 frames, record per-frame class predictions,
-  5. compute one correlation-distance RDM per (trainable layer, frame) -> (n_layer,16,18,18).
-
-Stimuli: hdf5_16frames/Slide{1..16}.h5 ['images'] = (18,224,224,3) uint8 RGB, canonical
-emotion-major order (fear 0-5, happy 6-11, neutral 12-17; actors 01,02,04,07,08,11).
-
-Examples
-  # torchvision resnet50, ImageNet preproc, weights from a checkpoint, auto head size:
-  python extract_model_rdms.py --arch resnet50 --checkpoint net_weights/final_resnet50_1000 \
-      --preproc imagenet --out-name resnet50_final_16f
-
-  # random control (no checkpoint):
-  python extract_model_rdms.py --arch vgg16 --random --seed 1 --out-name vgg16_random_seed1
-
-Outputs (analysis/model_rdms_canonical/):
-  <out-name>.npy              (n_trainable_layer, 16, 18, 18) float32 RDMs
-  <out-name>.layers.json      layer order + shapes + provenance
-  <out-name>.predictions.csv  stim,frame,pred_idx  (per-frame argmax of the model output)
+    python models/extract_model_rdms.py --arch resnet50 --checkpoint <weights> --preproc imagenet \
+        --layers trainable --exclude-head --h5-dir <frames> --out-dir <dir> --out-name resnet50_imagenet
 """
 import argparse
 import csv

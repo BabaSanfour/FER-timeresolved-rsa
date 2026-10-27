@@ -5,9 +5,6 @@ import os
 import torch
 from torch import nn
 
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from utils.load_weights import load_weights
 
 class BasicConv2d(nn.Module):
 
@@ -264,17 +261,7 @@ class InceptionResnetV1(nn.Module):
         x = self.block8(x)
         x = self.avgpool_1a(x)
         x = self.dropout(x)
-        features = self.last_linear(x.view(x.shape[0], -1))#ena bdalt 
-        x = self.last_bn(features)#ena badalt 
-        logits = self.logits(x)#ena bdalt 
-        return logits, features#ena bdalt 
-        #x = self.last_linear(x.view(x.shape[0], -1))
-        #x = self.last_bn(x)
-        #x = self.logits(x)
-        #return x
-
-def FaceNet(pretrained: bool = False, num_classes: int = 1000, n_input_channels: int = 3, transfer: bool = False, weights: str = None) -> InceptionResnetV1:
-    model = InceptionResnetV1(num_classes, n_input_channels)
-    if pretrained:
-        return load_weights(model, transfer, weights)
-    return model
+        features = self.last_linear(x.view(x.shape[0], -1))
+        x = self.last_bn(features)
+        logits = self.logits(x)
+        return logits, features

@@ -1,22 +1,9 @@
 #!/usr/bin/env python3
-"""Turn Qwen video-mode activations into canonical model RDMs.
+"""RDMs from Qwen3-VL video-mode activations.
 
-Input : <run_dir>/activations/{Label}_{ActorXX}.npy, each (n_timepoints, n_layers, hidden):
-        decoder hidden states (embedding output + language decoder blocks), and
-        <run_dir>/activations/{Label}_{ActorXX}_vision.npy, (n_timepoints, n_blocks, vision_hidden):
-        vision-encoder block outputs
-Output: <out_dir>/<name>.npy  (n_layers, n_timepoints, 18, 18) float32; layers are ordered
-        vision blocks 1..27, embedding output, decoder blocks 1..36 (64 for Qwen3-VL-8B)
-        <out_dir>/<name>.layers.json
-
-Stimuli are stacked in the canonical EMOTION-MAJOR order (fear 0-5, happy 6-11,
-neutral 12-17; actors 01, 02, 04, 07, 08, 11) so the result drops straight into
-analysis/rsa_full_grid.py alongside the CNN RDMs. The video files spell happy as
-"Hapiness", which is mapped here.
-
-Distance is correlation distance over the hidden dimension, computed separately
-per (layer, timepoint) across the 18 stimuli - the same estimator as
-models/extract_model_rdms.py.
+Stacks the stimuli in stimulus-manifest order and writes <out-name>.npy (64, 16, n_stim, n_stim):
+vision blocks 1..27, embedding output, decoder blocks 1..36; correlation distance per layer and
+time point, as in extract_model_rdms.py.
 """
 import argparse
 import json

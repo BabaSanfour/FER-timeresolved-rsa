@@ -38,19 +38,11 @@ and set `FER_ROOT` to a directory that contains both the code and the data.
 - `M3DFEL/pretrained/r3d_18-b3b3357e.pth` (on Drive; torchvision's Kinetics-400 R3D-18) is the
   M3DFEL backbone.
 
-**Random CNN weights depend on the hardware.** `models/extract_model_rdms.py` randomizes the
-weights after moving the model to the device, and CUDA's random kernels depend on the GPU
-partition, so one seed gives different weights on a CPU, a full GPU and a MIG slice. Each set
-below reproduces bit-for-bit with this code on the hardware listed:
-
-| Random CNN RDMs | Hardware |
-|---|---|
-| Table 1 seed ensemble (`analysis/seed_variability/rdms/`, `run_extract_seeds.sh STAGE=cnn`) | H100 MIG 2g.20gb slice |
-| 18-stimulus seed 42 (`analysis/model_rdms_canonical/*_random_16f_weights`, `run_random_rdms.sh`) | full H100 |
-| 54-stimulus seed 42 (`run_image_models_54_cpu.sh`) | CPU |
-
-M3DFEL and Qwen3-VL draw their weights on the CPU, so their seeds reproduce on any machine. All of
-these random models are saved on Drive under `random_init_weights/`.
+**Random weights are loaded, not redrawn.** Random variants use the saved weights on Drive
+(`random_init_weights/`: ResNet18, ResNet50, FaceNet and M3DFEL, seeds 42 and 0--8).
+`trillium/extract_prep.sh` draws the plain-VGG16 seeds 0--8 and any missing M3DFEL seed on the CPU,
+after checking that redrawing the existing seeds reproduces those files bit for bit. Random
+Qwen3-VL models are drawn from its default initializer (seeds 42 and 0--8).
 
 ## Which script gives which result
 
@@ -101,11 +93,10 @@ tests, and `build_control_rsa.py` (noise ceilings) read all 25.
 
 ### 2. Stimuli
 
-| Step | Script |
-|---|---|
-| 18 videos → 16 frames per video (`stim_frames/Slide1..16.h5`) | `python models/build_stimuli_h5_16frames.py --out-dir stim_frames` |
-| 54 videos (unoccluded, mask, sunglasses) → `stim_frames_54/` + `stimulus_manifest.json` | `python models/prepare_stimuli_54.py` |
-| Qwen3-VL video list | `models/vlm/stimuli_metadata_canon.csv` (paths relative to the root) |
+`bash trillium/extract_prep.sh` builds, for the 18- and 54-video sets (`data/stimuli/set18`, `set54`):
+16 frames per video with one sampler (`models/build_stimuli_h5_16frames.py`: container frame count,
+`linspace`, seek, 224 x 224), `stimulus_manifest.json` (order, file, sampled frame indices) and the
+Qwen3-VL video list `qwen_videos.csv`, in `data/stim_frames/set18|set54/`.
 
 ### 3. Training
 
@@ -154,20 +145,16 @@ their checkpoints on Drive, but they are not the models in the paper.
 
 Model RDMs are `(n_layers, 16, n_stim, n_stim)` correlation-distance RDMs, one per layer and frame;
 `models/build_emotion_rdms.py` / `build_emotion_rdms_54.py` split them per emotion.
-`models/extract_model_rdms.py`, `models/m3dfel_extract_rdms.py` and
-`models/vlm/vlm_extract_video_mode.py` accept `--save-weights PATH` to save the network they used.
+From the repository root on `trillium-gpu`: `bash trillium/extract_prep.sh` once, then
+`bash trillium/submit_extract.sh` (386 extractions; re-running skips finished ones). Outputs:
+`$FER_ROOT/rdms/set18|set54/<name>/<name>.npy` with `.layers.json` (layers, weights, preprocessing,
+stimuli).
 
-| Variants | 18 stimuli (`analysis/model_rdms_canonical/`) | 54 stimuli (`analysis/model_rdms_54/`) |
+| Family (layers) | Variants | Extractor |
 |---|---|---|
-| Image CNNs: ImageNet, VGGFace2, VGGFace (BN), VGG-Face, random seed 42 | `models/run_all_final.sh` (→ `run_imagenet_rdms.sh`, `run_vggface2_rdms.sh`, `run_random_rdms.sh`) | `models/run_image_models_54_cpu.sh` |
-| FaceNet 300k/500k, AffectNet fine-tunes | `models/run_today_models_rdm_rsa.sh` | `models/run_image_models_54_cpu.sh` |
-| VGG16 ImageNet (non-BN) | `analysis/run_new_vgg_rdms_rsas.sh` | `analysis/run_new_vgg_rdms_rsas.sh` |
-| FaceNet Complete VGGFace2 / AffectNet FT | 379 layers (Table 1, 18-stimulus cluster tests, size curve): `models/run_original_facenet_affectnet_rsa.sh`. 133 layers (Fig. 2): `analysis/layer_matched/run_layer_matched.sh` | `models/run_54_facenet_complete_m3dfel.sh` |
-| M3DFEL random / Kinetics / DFEW fold 3 | `models/run_m3dfel.sh`, `models/run_m3dfel_fold3_rdm_rsa.sh` | `models/run_54_facenet_complete_m3dfel.sh` |
-| Qwen3-VL-8B pretrained / random (64 layers: 27 vision-encoder blocks, embedding output, 36 decoder blocks) | `models/vlm/run_qwen3vl.sh` | `models/vlm/run_qwen3vl_54_gpu_parallel.sh` (`models/extract_qwen_rdms.py`) |
-| Random-init seed ensemble (Table 1) | `analysis/seed_variability/run_extract_seeds.sh` → `analysis/seed_variability/rdms/` | — |
-| FaceNet training-set-size repeats | `vggface_train/extract_facenet_low_size_array.sh`, `extract_facenet_repeated_array.sh` (+ `run_facenet_repeated_cpu_fallback.sh` for tasks re-run on CPU) → `analysis/model_rdms_facenet_size_repeats/` | — |
-
+| ResNet18 (40), ResNet50 (106), FaceNet (245), VGG16 (15): every layer with parameters except the output layer | random (10 seeds), ImageNet, face (VGGFace2-HQ, 10 runs; VGG16: VGG-Face), AffectNet (10 runs); FaceNet size curve and step-matched check (18 videos) | `models/extract_model_rdms.py` |
+| M3DFEL (40): R3D-18 backbone convolutions and batch norms | random (10 seeds), Kinetics-400, DFEW fold 3 | `models/m3dfel_extract_rdms.py` |
+| Qwen3-VL-8B (64): 27 vision blocks, embedding output, 36 decoder blocks; float32 | released, random (10 seeds) | `models/vlm/vlm_extract_video_mode.py`, `compute_rdms_from_vlm_activations.py` |
 
 ### 5. RSA grids
 
