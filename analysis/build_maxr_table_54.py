@@ -9,9 +9,9 @@ import os
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import rankdata
 
 import rsa_core
+from rsa_core import upper, row_spearman
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID = ROOT / "analysis/rsa_grid_54"
@@ -44,27 +44,6 @@ FAMILIES = {
 }
 
 
-def upper(x):
-    iu = np.triu_indices(x.shape[-1], 1)
-    return x[..., iu[0], iu[1]]
-
-
-def rho(x, y):
-    x, y = rankdata(x), rankdata(y)
-    if x.std() == 0 or y.std() == 0:
-        return np.nan
-    return float(np.corrcoef(x, y)[0, 1])
-
-
-def row_rho(x, y):
-    """Vectorised row-wise Spearman; x/y are (subjects,pairs)."""
-    rx, ry = rankdata(x, axis=1), rankdata(y, axis=1)
-    rx -= rx.mean(1, keepdims=True); ry -= ry.mean(1, keepdims=True)
-    denom = np.linalg.norm(rx, axis=1) * np.linalg.norm(ry, axis=1)
-    return np.divide(np.sum(rx * ry, axis=1), denom,
-                     out=np.full(len(x), np.nan), where=denom > 0)
-
-
 def ceilings(subjects):
     result = {}
     for ei, emotion in enumerate(EMOS):
@@ -82,8 +61,8 @@ def ceilings(subjects):
                 ups, los = [], []
                 for sidx, keep in groups:
                     x = group[sidx][:, keep]
-                    ups.append(row_rho(x, np.broadcast_to(gm[keep], x.shape)))
-                    los.append(row_rho(x, (total[keep][None] - x) / (count[keep][None] - 1)))
+                    ups.append(row_spearman(x, np.broadcast_to(gm[keep], x.shape)))
+                    los.append(row_spearman(x, (total[keep][None] - x) / (count[keep][None] - 1)))
                 up[oi, wi] = np.nanmean(np.concatenate(ups))
                 lo[oi, wi] = np.nanmean(np.concatenate(los))
         result[ei] = (lo, up)

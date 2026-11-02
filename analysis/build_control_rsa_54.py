@@ -7,9 +7,9 @@ they have, in the control RSA and in the noise ceilings (see rsa_core.py).
 import csv
 
 import numpy as np
-from scipy.stats import rankdata
 
 import rsa_core
+from rsa_core import upper, spearman
 
 ROOT = rsa_core.ROOT
 CTRL = ROOT / "analysis/motion_controls_54/rdms"
@@ -17,20 +17,6 @@ OUT = ROOT / "analysis/motion_controls_54/results/timelocked_control_rsa_54.csv"
 EMOTIONS = ["all", "fear", "happy", "neutral"]
 CONTROLS = ["identity", "identity_graded", "pixel_diff", "motion_energy", "optical_flow"]
 SLICES = rsa_core.EMOTIONS["54"]
-
-
-def upper(x):
-    ij = np.triu_indices(x.shape[-1], 1)
-    return x[..., ij[0], ij[1]]
-
-
-def spear(x, y):
-    """Spearman on the pairs finite in both (a participant's available stimuli)."""
-    keep = np.isfinite(x) & np.isfinite(y)
-    x, y = rankdata(x[keep]), rankdata(y[keep])
-    if x.std() == 0 or y.std() == 0:
-        return np.nan
-    return np.corrcoef(x, y)[0, 1]
 
 
 def main():
@@ -48,16 +34,16 @@ def main():
             count = np.isfinite(ev).sum(0).astype(ev.dtype)
             lower, upper_nc = [], []
             for w in range(ev.shape[1]):
-                upper_nc.append(np.nanmean([spear(ev[s, w], group[w]) for s in range(len(subs))]))
+                upper_nc.append(np.nanmean([spearman(ev[s, w], group[w]) for s in range(len(subs))]))
                 lower.append(np.nanmean([
-                    spear(ev[s, w], (total[w] - ev[s, w]) / (count[w] - 1))
+                    spearman(ev[s, w], (total[w] - ev[s, w]) / (count[w] - 1))
                     for s in range(len(subs))
                 ]))
             idx = SLICES[emotion]
             for control, full_rdm in controls.items():
                 cv = upper(full_rdm[np.ix_(idx, idx)])
                 per_window = np.asarray([
-                    np.nanmean([spear(cv, ev[s, w]) for s in range(len(subs))])
+                    np.nanmean([spearman(cv, ev[s, w]) for s in range(len(subs))])
                     for w in range(ev.shape[1])
                 ])
                 if np.all(np.isnan(per_window)):

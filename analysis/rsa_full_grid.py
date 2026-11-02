@@ -27,29 +27,15 @@ import csv
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import rankdata
 
 import rsa_core
+from rsa_core import upper, rank_normalise
 
 ROOT = rsa_core.ROOT
 MDIR = ROOT / "analysis/model_rdms_canonical"
 OUT_DIR = ROOT / "analysis/rsa_grid"
 
 EMOTIONS = rsa_core.EMOTIONS["18"]
-
-
-def upper(r):
-    """(..., k, k) -> (..., k*(k-1)/2) upper triangle."""
-    iu = np.triu_indices(r.shape[-1], 1)
-    return r[..., iu[0], iu[1]]
-
-
-def rank_normalise(v):
-    """Rank -> mean-centre -> unit norm, so a dot product IS Spearman's rho."""
-    r = np.apply_along_axis(rankdata, -1, v)
-    rc = r - r.mean(-1, keepdims=True)
-    n = np.linalg.norm(rc, axis=-1, keepdims=True)
-    return np.divide(rc, np.clip(n, 1e-12, None)), (n[..., 0] < 1e-12)
 
 
 def main():

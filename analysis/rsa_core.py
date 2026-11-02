@@ -1,4 +1,5 @@
-"""Shared pieces of the RSA analyses: EEG loading for both stimulus sets.
+"""Shared pieces of the RSA analyses: EEG loading for both stimulus sets, and the
+rank-correlation helpers.
 
 EEG RDMs are returned as (subjects, 7 scopes, windows, n, n): six ROIs in
 `roi_order.npy` order, then the whole scalp, stimuli in the model order
@@ -24,6 +25,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+from scipy.stats import rankdata
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 EEG_DIRS = {
@@ -104,3 +106,36 @@ def pair_groups(vectors):
     patterns, inverse = np.unique(keep, axis=0, return_inverse=True)
     groups = [(np.flatnonzero(inverse.ravel() == g), patterns[g]) for g in range(len(patterns))]
     return sorted(groups, key=lambda g: -g[1].sum())
+
+
+def upper(r):
+    """(..., k, k) -> (..., k*(k-1)/2) upper triangle."""
+    iu = np.triu_indices(r.shape[-1], 1)
+    return r[..., iu[0], iu[1]]
+
+
+def rank_normalise(v):
+    """Rank -> mean-centre -> unit norm along the last axis, so a dot product IS
+    Spearman's rho. Also returns where the vector is constant (rho undefined)."""
+    r = np.apply_along_axis(rankdata, -1, v)
+    rc = r - r.mean(-1, keepdims=True)
+    n = np.linalg.norm(rc, axis=-1, keepdims=True)
+    return np.divide(rc, np.clip(n, 1e-12, None)), (n[..., 0] < 1e-12)
+
+
+def spearman(x, y):
+    """Spearman's rho on the pairs finite in both; NaN if either is constant."""
+    keep = np.isfinite(x) & np.isfinite(y)
+    rx, ry = rankdata(x[keep]), rankdata(y[keep])
+    if np.std(rx) == 0 or np.std(ry) == 0:
+        return np.nan
+    return float(np.corrcoef(rx, ry)[0, 1])
+
+
+def row_spearman(x, y):
+    """Row-wise Spearman of two (rows, pairs) arrays without missing values."""
+    rx, ry = rankdata(x, axis=1), rankdata(y, axis=1)
+    rx -= rx.mean(1, keepdims=True); ry -= ry.mean(1, keepdims=True)
+    denom = np.linalg.norm(rx, axis=1) * np.linalg.norm(ry, axis=1)
+    return np.divide(np.sum(rx * ry, axis=1), denom,
+                     out=np.full(len(x), np.nan), where=denom > 0)

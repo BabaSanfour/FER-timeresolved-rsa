@@ -26,15 +26,11 @@ import numpy as np
 from scipy.stats import rankdata
 
 import rsa_core
+from rsa_core import upper
 
 ROOT = rsa_core.ROOT
 CONTROL_NAMES = ("identity", "pixel_diff", "motion_energy", "optical_flow")
 EMOTIONS = ("all", "fear", "happy", "neutral")
-
-
-def upper(x: np.ndarray) -> np.ndarray:
-    ij = np.triu_indices(x.shape[-1], 1)
-    return x[..., ij[0], ij[1]]
 
 
 def ranked_centered(x: np.ndarray) -> np.ndarray:

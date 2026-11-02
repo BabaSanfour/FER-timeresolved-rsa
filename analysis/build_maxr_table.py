@@ -20,9 +20,9 @@ import os
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import rankdata
 
 import rsa_core
+from rsa_core import upper, spearman
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID_DIRS = [
@@ -66,18 +66,6 @@ FAMILIES = {
                  ("Kinetics", "m3dfel_pretrained_16f_weights"),
                  ("DFEW FT", "m3dfel_dfew_3class_fold3_16f_weights")],
 }
-
-
-def upper(r):
-    iu = np.triu_indices(r.shape[-1], 1)
-    return r[..., iu[0], iu[1]]
-
-
-def spearman(x, y):
-    rx, ry = rankdata(x), rankdata(y)
-    if np.std(rx) == 0 or np.std(ry) == 0:
-        return np.nan
-    return float(np.corrcoef(rx, ry)[0, 1])
 
 
 def noise_ceilings(eeg):

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 import rsa_core
-from rsa_full_grid import upper, rank_normalise
+from rsa_core import upper, rank_normalise
 
 ROOT = rsa_core.ROOT
 MDIR = ROOT / "analysis/model_rdms_54"

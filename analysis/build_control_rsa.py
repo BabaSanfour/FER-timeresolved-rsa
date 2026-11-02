@@ -20,9 +20,9 @@ import os
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import rankdata
 
 import rsa_core
+from rsa_core import upper, spearman
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 RDM_DIR = ROOT / "analysis/motion_controls/rdms"
@@ -31,18 +31,6 @@ NC_OUT = ROOT / "analysis/paper_stats/noise_ceiling_16win.csv"
 
 EMOTIONS = rsa_core.EMOTIONS["18"]
 CONTROLS = ["identity", "identity_graded", "pixel_diff", "motion_energy", "optical_flow"]
-
-
-def upper(r):
-    iu = np.triu_indices(r.shape[-1], 1)
-    return r[..., iu[0], iu[1]]
-
-
-def spearman(x, y):
-    rx, ry = rankdata(x), rankdata(y)
-    if np.std(rx) == 0 or np.std(ry) == 0:
-        return np.nan
-    return float(np.corrcoef(rx, ry)[0, 1])
 
 
 def main():
