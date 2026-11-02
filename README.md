@@ -19,7 +19,10 @@ RSA results) are in a Google Drive folder: **`https://drive.google.com/drive/fol
 git clone https://github.com/MaryemBenslimane/FER-timeresolved-rsa.git
 cd FER-timeresolved-rsa
 python -m venv $HOME/envs/fer && source $HOME/envs/fer/bin/activate   # Python 3.12
-pip install -r requirements.txt
+pip install .                       # analysis (pyproject.toml)
+# training and RDM extraction (GPU) also need:
+pip install ".[models]" && pip install --no-deps facenet-pytorch==2.6.0
+# and OpenCV: module load opencv/4.11.0 on Alliance clusters, else pip install opencv-python-headless
 ```
 
 Download the Drive folder and merge its contents into the repository root, so that
@@ -108,7 +111,8 @@ Alliance of Canada) H100 GPUs; `trillium/` holds the job scripts. Every run has 
 (1001--1010; repeat *r* uses seed 1000+*r*). `FER_ROOT` below is the data root
 (`$SCRATCH/fer_revision` on Trillium).
 
-**1. Environment.** `bash trillium/setup_env.sh` (exact versions in `trillium/trainenv_freeze.txt`).
+**1. Environment.** `bash trillium/setup_env.sh` (dependencies in `pyproject.toml`, extra `models`;
+exact versions in `trillium/trainenv_freeze.txt`).
 
 **2. Data** (on a data-transfer node; on Trillium `ssh tri-dm1`, since login nodes cap CPU time):
 
