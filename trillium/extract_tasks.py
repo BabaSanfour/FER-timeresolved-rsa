@@ -83,7 +83,7 @@ def main():
             out = f"{rdms}/{name}"
             qwen.append(f"{out}\t^\\[ok\\] \\(\tpython {repo}/models/vlm/vlm_extract_video_mode.py "
                         f"--metadata_csv {frames}/qwen_videos.csv --output_dir {out}/run "
-                        f"--model_id {qwen_dir} --dtype float32 --frame-list --nframes 16 {extra} "
+                        f"--model_id {qwen_dir} --dtype float32 {extra} "
                         f"&& python {repo}/models/vlm/compute_rdms_from_vlm_activations.py --run-dir {out}/run "
                         f"--out-dir {out} --out-name {name} --manifest {frames}/stimulus_manifest.json")
 

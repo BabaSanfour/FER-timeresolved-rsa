@@ -14,17 +14,10 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-try:                       # opencv is a module on this cluster, not a wheel
-    import cv2
-except ImportError:        # PyAV (a qwen-vl-utils dependency) decodes just as well
-    cv2 = None
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
-
-os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
-os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
 
 import transformers
 from transformers import AutoProcessor
@@ -149,12 +142,10 @@ class QwenVideoExtractor:
         return int(getattr(ip, "merge_size", 2) or 2)
 
     @staticmethod
-    def canonical_frame_paths(video_path: str, n_frames: int, tmpdir: str,
-                              indices: List[int] | None = None) -> List[str]:
-        """Sample n_frames with the SAME rule as every other model
-        (CAP_PROP_FRAME_COUNT + linspace + seek), write them to disk, and return each
-        path TWICE. Qwen fuses frames in temporal pairs, so 2*n_frames images collapse
-        to exactly n_frames temporal groups, one per canonical frame.
+    def canonical_frame_paths(video_path: str, tmpdir: str, indices: List[int]) -> List[str]:
+        """Write the shared frames (indices from the stimulus manifest, the same frames
+        every model reads) to disk and return each path TWICE. Qwen fuses frames in
+        temporal pairs, so 2 x 16 images give exactly 16 temporal groups.
         """
         import av
         from PIL import Image
@@ -164,10 +155,9 @@ class QwenVideoExtractor:
         total = len(frames)
         if total == 0:
             raise RuntimeError(f"Could not read any frame from {video_path}")
-        # identical rule to every other model: linspace over the whole clip
-        idx = (np.asarray(indices) if indices is not None   # shared frame list (stimulus manifest)
-               else np.arange(total) if total <= n_frames
-               else np.linspace(0, total - 1, n_frames, dtype=int))
+        idx = np.asarray(indices)
+        if idx.max() >= total:
+            raise RuntimeError(f"{video_path}: frame {idx.max()} requested, {total} decoded")
         paths: List[str] = []
         stem = Path(video_path).stem
         for k, i in enumerate(idx):
@@ -177,25 +167,17 @@ class QwenVideoExtractor:
         return paths
 
     @torch.inference_mode()
-    def infer_video(self, video_path: str, prompt: str, nframes: int,
-                    max_new_tokens: int, frame_list: bool = False,
-                    tmpdir: str | None = None, indices: List[int] | None = None) -> Dict[str, Any]:
-        if nframes % 2 != 0 and not frame_list:
-            raise ValueError("nframes must be even (Qwen fuses frames in temporal pairs).")
-
-        if frame_list:
-            # nframes here = number of CANONICAL frames == number of temporal groups
-            vid = self.canonical_frame_paths(video_path, nframes, tmpdir or ".", indices)
-        else:
-            vid = video_path
+    def infer_video(self, video_path: str, prompt: str, max_new_tokens: int,
+                    tmpdir: str, indices: List[int]) -> Dict[str, Any]:
+        nframes = len(indices)              # canonical frames == temporal groups
+        vid = self.canonical_frame_paths(video_path, tmpdir, indices)
 
         messages = [{
             "role": "user",
             # nframes MUST be given for a frame list too: without it
             # process_vision_info applies its own default sampling and silently
             # drops most of the frames (observed: 32 -> 4, i.e. 2 timepoints).
-            "content": ([{"type": "video", "video": vid, "nframes": len(vid)}] if frame_list
-                        else [{"type": "video", "video": vid, "nframes": nframes}]) + [
+            "content": [{"type": "video", "video": vid, "nframes": len(vid)}] + [
                 {"type": "text", "text": prompt},
             ],
         }]
@@ -207,9 +189,8 @@ class QwenVideoExtractor:
         # Qwen3VLVideoProcessor defaults to do_sample_frames=True (fps=2), which
         # RE-samples an already-sampled frame list: 32 canonical frames collapse to
         # 4, i.e. 2 temporal groups instead of 16. Disable it for a frame list.
-        proc_kwargs = {"do_sample_frames": False} if frame_list else {}
         inputs = self.processor(text=[text], images=image_inputs, videos=video_inputs,
-                                padding=True, return_tensors="pt", **proc_kwargs)
+                                padding=True, return_tensors="pt", do_sample_frames=False)
         dev = next(self.model.parameters()).device
         inputs = {k: (v.to(dev) if torch.is_tensor(v) else v) for k, v in inputs.items()}
 
@@ -238,7 +219,7 @@ class QwenVideoExtractor:
             per_group = int(vid_positions.numel()) // max(n_groups, 1)
             print(f"  [warn] grid {grid} vs {int(vid_positions.numel())} tokens; "
                   f"falling back to {n_groups}x{per_group}", flush=True)
-        if frame_list and n_groups != nframes:
+        if n_groups != nframes:
             raise RuntimeError(
                 f"expected {nframes} temporal groups from a {len(vid)}-frame list but "
                 f"got {n_groups} (grid {grid}). The processor resampled the frames; "
@@ -285,23 +266,13 @@ def main() -> None:
     p.add_argument("--metadata_csv", required=True)
     p.add_argument("--output_dir", required=True)
     p.add_argument("--model_id", default="Qwen/Qwen3-VL-8B-Instruct")
-    p.add_argument("--device", default="cuda")
     p.add_argument("--dtype", default="bfloat16")
-    p.add_argument("--attn_implementation", default=None)
-    p.add_argument("--nframes", type=int, default=32,
-                   help="Frames fed to the model; temporal pairing halves this "
-                        "(32 -> 16 timepoints, matching the frame-mode grid).")
-    p.add_argument("--frame-list", dest="frame_list", action="store_true",
-                   help="Pass duplicated canonical frames as the video (gives exactly --nframes temporal groups).")
     p.add_argument("--random", dest="random_weights", action="store_true",
                    help="randomly initialise the architecture instead of loading the "
                         "pretrained checkpoint (untrained control)")
     p.add_argument("--max_new_tokens", type=int, default=8)
     p.add_argument("--prompt", default=DEFAULT_PROMPT)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--max_samples", type=int, default=0)
-    p.add_argument("--save-weights", dest="save_weights", default=None,
-                   help="also save the loaded/randomised model (HF save_pretrained) to this directory")
     args = p.parse_args()
 
     set_seed(args.seed)
@@ -309,35 +280,23 @@ def main() -> None:
     act_dir = out_dir / "activations"
 
     df = pd.read_csv(args.metadata_csv)
-    missing = {"video_path", "stimulus_id"} - set(df.columns)
+    missing = {"video_path", "stimulus_id", "frame_indices"} - set(df.columns)
     if missing:
         raise ValueError(f"metadata_csv missing columns: {missing}")
-    if args.max_samples > 0:
-        df = df.iloc[: args.max_samples].copy()
 
     import tempfile
     tmp = Path(tempfile.mkdtemp(prefix='qwen_vid_frames_'))
-    ex = QwenVideoExtractor(args.model_id, args.device, args.dtype, args.attn_implementation,
+    ex = QwenVideoExtractor(args.model_id, "cuda", args.dtype, None,
                             random_weights=args.random_weights)
-    if args.save_weights:
-        ex.model.save_pretrained(args.save_weights)
-        print(f"[weights] saved model -> {args.save_weights}", flush=True)
 
     rows: List[Dict[str, Any]] = []
     for i, row in df.iterrows():
         video_path = str(row["video_path"])
-        if not os.path.isabs(video_path):                   # paths relative to the data root
-            video_path = os.path.join(os.environ.get("FER_ROOT", "."), video_path)
-        stimulus_id = str(row["stimulus_id"])
-        label = row["label"] if "label" in row else None
-        cond = f"{label}_{stimulus_id}" if label is not None else stimulus_id
+        cond = stimulus_id = str(row["stimulus_id"])
         if not os.path.exists(video_path):
-            print(f"[WARN] missing video, skipping: {video_path}"); continue
-
-        indices = ([int(i) for i in str(row["frame_indices"]).split()]
-                   if "frame_indices" in row else None)
-        res = ex.infer_video(video_path, args.prompt, args.nframes, args.max_new_tokens,
-                             frame_list=args.frame_list, tmpdir=str(tmp), indices=indices)
+            raise SystemExit(f"ABORT: missing video {video_path}")
+        indices = [int(i) for i in str(row["frame_indices"]).split()]
+        res = ex.infer_video(video_path, args.prompt, args.max_new_tokens, str(tmp), indices)
         acts = res["activations"]
         np.save(act_dir / f"{cond}.npy", acts)
         np.save(act_dir / f"{cond}_vision.npy", res["vision_activations"])
@@ -350,14 +309,13 @@ def main() -> None:
                          "video_path": video_path, "frame_index": t,
                          "prediction_text": res["prediction_text"],
                          "pred_label": res["pred_label"],
-                         "n_layers": int(acts.shape[1]), "hidden_size": int(acts.shape[2]),
-                         **({"label": label} if label is not None else {})})
+                         "n_layers": int(acts.shape[1]), "hidden_size": int(acts.shape[2])})
 
     if not rows:
         raise RuntimeError("No videos processed - check metadata paths.")
     pd.DataFrame(rows).to_csv(out_dir / "frame_predictions.csv", index=False)
     (out_dir / "summary.json").write_text(json.dumps(
-        {"mode": "video", "model_id": args.model_id, "nframes": args.nframes,
+        {"mode": "video", "model_id": args.model_id, "nframes": len(indices),
          "random_weights": bool(args.random_weights), "seed": args.seed,
          "n_conditions": len(set(r["condition_id"] for r in rows))}, indent=2))
     print(f"[ok] wrote {act_dir} and frame_predictions.csv")
