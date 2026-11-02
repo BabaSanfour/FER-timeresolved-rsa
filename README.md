@@ -62,7 +62,7 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | Nuisance RDMs and their RSA, 18 stimuli (Section 4.4) | `analysis/compute_{identity,identity_graded,pixel_diff,optical_flow,motion_energy}_rdm.py` → `analysis/build_control_rsa.py` | run each `compute_*` script, then `python analysis/build_control_rsa.py` | `Stims_Videos/` (via `analysis/_stim_loader_v2.py`) | `analysis/motion_controls/{rdms,results}/` |
 | Nuisance RDMs and their RSA, 54 stimuli | `analysis/build_control_rdms_54.py` → `analysis/build_control_rsa_54.py` | no arguments | stimulus videos, 54-stimulus EEG RDMs | `analysis/motion_controls_54/{rdms,results}/` |
 | Partial RSA (single and joint nuisance controls) | `analysis/partial_rsa.py` | `python analysis/partial_rsa.py --dataset 54` (and `--dataset 18`) | model, EEG and nuisance RDMs | `analysis/partial_rsa_{18,54}/partial_rsa_maxima.csv` |
-| Noise ceilings (grey bars in Fig. 2) | `analysis/build_control_rsa.py` | `python analysis/build_control_rsa.py` | 18-stimulus EEG RDMs | `analysis/paper_stats/noise_ceiling_16win.csv`; per window: `analysis/noise_ceiling.py` (`*_perwindow.*`) |
+| Noise ceilings (grey bars in Fig. 2) | `analysis/build_control_rsa.py` | `python analysis/build_control_rsa.py` | 18-stimulus EEG RDMs | `analysis/paper_stats/noise_ceiling_16win.csv` |
 | Cluster-based permutation tests (Section 4.5), both stimulus sets | `analysis/cluster_permutation_rsa_54.py` | `sbatch analysis/submit_cluster_permutation.sh` (array task 0 = 54 stimuli, 1 = 18) | `analysis/rsa_grid*/` | `analysis/cluster_permutation_{18,54}/` (`grid_summary.csv`, `clusters.csv`, `model_survivors.csv`, `*_cluster_masks.npz`) |
 | **Fig. 4**, layer × time maps of the Holm-surviving clusters (`layer_time_clusters.pdf`) | `analysis/plot_layer_time_clusters.py` | `python analysis/plot_layer_time_clusters.py` | `analysis/rsa_grid_54/`, `analysis/cluster_permutation_54/` | `analysis/cluster_permutation_54/plots/layer_time_clusters.pdf` |
 
@@ -147,7 +147,7 @@ their checkpoints on Drive, but they are not the models in the paper.
 ### 4. Model RDMs
 
 Model RDMs are `(n_layers, 16, n_stim, n_stim)` correlation-distance RDMs, one per layer and frame;
-`models/build_emotion_rdms.py` / `build_emotion_rdms_54.py` split them per emotion.
+`models/build_emotion_rdms_54.py` splits the 54-stimulus RDMs per emotion.
 From the repository root on `trillium-gpu`: `bash trillium/extract_prep.sh` once, then
 `bash trillium/submit_extract.sh` (386 extractions; re-running skips finished ones). Outputs:
 `$FER_ROOT/rdms/set18|set54/<name>/<name>.npy` with `.layers.json` (layers, weights, preprocessing,
@@ -163,7 +163,7 @@ stimuli).
 
 | | Script | Output |
 |---|---|---|
-| 18 stimuli, 26 participants | `analysis/rsa_full_grid.py --models <tags> [--model-dir] [--out-dir]` (also called by the drivers above, and by `vggface_train/run_facenet_low_size_rsa.sh`, `run_facenet_repeated_rsa_summary.sh`; random-seed ensembles: `--model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
+| 18 stimuli, 26 participants | `analysis/rsa_full_grid.py --models <tags> [--model-dir] [--out-dir]` (also called by the drivers above, and by `vggface_train/run_facenet_low_size_rsa.sh`; random-seed ensembles: `--model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
 | 54 stimuli | `analysis/rsa_full_grid_54.py --models <tags>` | `analysis/rsa_grid_54/` |
 
 Each grid file holds the participant × scalp analysis (6 ROIs + whole scalp) × layer × condition

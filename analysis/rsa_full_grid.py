@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Full time-locked RSA grid: subject x scope x layer x emotion x window.
 
-Unlike analysis/rsa_per_roi.py (which LOSO-selects ONE layer) and
-fer_tr/timelocked_rsa_per_roi.py (which reports the max over layers x windows),
-this keeps every cell, so nothing is collapsed before you decide how to.
+Every cell is kept, so nothing is collapsed before the summaries.
 
 Estimator, per cell: Spearman correlation between the upper triangles of
     EEG RDM  [subject s, scope o, window k]

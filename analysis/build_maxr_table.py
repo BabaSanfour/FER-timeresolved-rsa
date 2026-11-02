@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Collapse the full RSA grid into the max_r table the bar plots consume.
 
-max_r = max over (layer x 16 windows) of the SUBJECT-MEAN time-locked Spearman,
-matching the convention in fer_tr/timelocked_rsa_per_roi.py.
+max_r = max over (layer x 16 windows) of the SUBJECT-MEAN time-locked Spearman.
 
 Scopes   : 6 ROIs + wholescalp + ROI-avg (mean of 6 per-ROI max_r) -> 8
 Emotions : all / fear / happy / neutral + emo-avg (mean of the 3
