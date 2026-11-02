@@ -21,19 +21,16 @@ from __future__ import annotations
 
 import argparse
 import csv
-from pathlib import Path
 
 import numpy as np
 from scipy.stats import rankdata
 
-ROOT = Path(__file__).resolve().parents[1]
+import rsa_core
+from rsa_core import upper
+
+ROOT = rsa_core.ROOT
 CONTROL_NAMES = ("identity", "pixel_diff", "motion_energy", "optical_flow")
 EMOTIONS = ("all", "fear", "happy", "neutral")
-
-
-def upper(x: np.ndarray) -> np.ndarray:
-    ij = np.triu_indices(x.shape[-1], 1)
-    return x[..., ij[0], ij[1]]
 
 
 def ranked_centered(x: np.ndarray) -> np.ndarray:
@@ -68,49 +65,6 @@ def residual_normalise(vectors: np.ndarray, basis: np.ndarray) -> tuple[np.ndarr
     return values, invalid
 
 
-def subject_ids_18() -> list[str]:
-    directory = ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full"
-    complete = set(subject_ids_54())
-    return sorted(p.name.removesuffix("_windowed_rdms.npy") for p in directory.glob("*_windowed_rdms.npy")
-                  if not p.name.startswith("group") and
-                  p.name.removesuffix("_windowed_rdms.npy") in complete)
-
-
-def load_eeg_18(emotion: str, subjects: list[str]) -> tuple[np.ndarray, list[str]]:
-    roi_dir = ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full"
-    ws_dir = ROOT / "eeg_data/Unmasked_avg_wholescalp_16win"
-    roi = np.stack([np.load(roi_dir / f"{s}_windowed_rdms.npy") for s in subjects])
-    ws = np.stack([np.load(ws_dir / f"{s}_wholescalp_rdms.npy") for s in subjects])
-    scopes = [str(x) for x in np.load(roi_dir / "roi_order.npy", allow_pickle=True)] + ["wholescalp"]
-    eeg = np.concatenate([roi, ws[:, None]], axis=1)
-    indices = {
-        "all": np.arange(18), "fear": np.arange(6),
-        "happy": np.arange(6, 12), "neutral": np.arange(12, 18),
-    }[emotion]
-    return eeg[..., indices, :][..., indices], scopes
-
-
-def subject_ids_54() -> list[str]:
-    directory = ROOT / "eeg_rdms_complete/perroi"
-    return sorted(p.name.removesuffix("_all_rdms.npy") for p in directory.glob("*_all_rdms.npy"))
-
-
-def load_eeg_54(emotion: str, subjects: list[str]) -> tuple[np.ndarray, list[str]]:
-    base = ROOT / "eeg_rdms_complete"
-    roi = np.stack([np.load(base / "perroi" / f"{s}_{emotion}_rdms.npy") for s in subjects])
-    ws = np.stack([np.load(base / "wholescalp" / f"{s}_{emotion}_rdms.npy") for s in subjects])
-    scopes = [str(x) for x in np.load(base / "roi_order.npy", allow_pickle=True)] + ["wholescalp"]
-    return np.concatenate([roi, ws[:, None]], axis=1), scopes
-
-
-def condition_indices(dataset: int, emotion: str) -> np.ndarray:
-    size = 6 if dataset == 18 else 18
-    return {
-        "all": np.arange(size * 3), "fear": np.arange(size),
-        "happy": np.arange(size, size * 2), "neutral": np.arange(size * 2, size * 3),
-    }[emotion]
-
-
 def model_tags(dataset: int) -> list[str]:
     grid_dir = ROOT / ("analysis/rsa_grid" if dataset == 18 else "analysis/rsa_grid_54")
     return sorted(p.name.removesuffix("_rsa_grid.npz") for p in grid_dir.glob("*_rsa_grid.npz"))
@@ -123,7 +77,7 @@ def main() -> None:
     args = parser.parse_args()
 
     dataset = args.dataset
-    subjects = subject_ids_18() if dataset == 18 else subject_ids_54()
+    subjects = rsa_core.subjects(str(dataset))
     model_dir = ROOT / ("analysis/model_rdms_canonical" if dataset == 18 else "analysis/model_rdms_54")
     control_dir = ROOT / ("analysis/motion_controls/rdms" if dataset == 18 else
                           "analysis/motion_controls_54/rdms")
@@ -143,10 +97,9 @@ def main() -> None:
         scopes_out = None
 
         for emotion in EMOTIONS:
-            eeg, scopes = (load_eeg_18(emotion, subjects) if dataset == 18 else
-                           load_eeg_54(emotion, subjects))
+            eeg, _, scopes = rsa_core.load_eeg(str(dataset), emotion, subjects)
             scopes_out = scopes
-            indices = condition_indices(dataset, emotion)
+            indices = rsa_core.EMOTIONS[str(dataset)][emotion]
             model_condition = model[..., indices, :][..., indices]
             model_vectors = upper(model_condition)
             eeg_vectors = upper(eeg)
@@ -155,14 +108,21 @@ def main() -> None:
             control_sets = [(name, [i]) for i, name in enumerate(CONTROL_NAMES)]
             control_sets.append(("joint", list(range(len(CONTROL_NAMES)))))
 
+            # Participants with a missing video are analysed on their available pairs:
+            # ranks, nuisance basis and residuals are all recomputed on that subset.
+            groups = rsa_core.pair_groups(eeg_vectors)
             for set_name, selected in control_sets:
-                basis, retained_local = nuisance_basis([control_vectors[i] for i in selected])
-                retained = [CONTROL_NAMES[selected[i]] for i in retained_local]
-                ez, e_invalid = residual_normalise(eeg_vectors, basis)
-                mz, m_invalid = residual_normalise(model_vectors, basis)
-                grid = np.einsum("sowp,lwp->solw", ez, mz, optimize=True).astype(np.float32)
-                grid[np.broadcast_to(e_invalid[:, :, None, :], grid.shape)] = np.nan
-                grid[np.broadcast_to(m_invalid[None, None, :, :], grid.shape)] = np.nan
+                grid = np.full(eeg_vectors.shape[:2] + model_vectors.shape[:2], np.nan, np.float32)
+                for gi, (sidx, keep) in enumerate(groups):
+                    basis, retained_local = nuisance_basis([control_vectors[i][keep] for i in selected])
+                    if gi == 0:  # the group with the most pairs (all of them when anyone is complete)
+                        retained = [CONTROL_NAMES[selected[i]] for i in retained_local]
+                    ez, e_invalid = residual_normalise(eeg_vectors[sidx][..., keep], basis)
+                    mz, m_invalid = residual_normalise(model_vectors[..., keep], basis)
+                    part = np.einsum("sowp,lwp->solw", ez, mz, optimize=True).astype(np.float32)
+                    part[np.broadcast_to(e_invalid[:, :, None, :], part.shape)] = np.nan
+                    part[np.broadcast_to(m_invalid[None, None, :, :], part.shape)] = np.nan
+                    grid[sidx] = part
                 group = np.nanmean(grid, axis=0)
                 maxima = []
                 for oi, scope in enumerate(scopes):

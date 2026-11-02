@@ -28,8 +28,9 @@ Download [DFEW](https://dfew-dataset.github.io/) and unzip the files to make sur
 ```
 
 ## Installation
+From the repository root (dependencies in `pyproject.toml`):
 ```
-pip install -r requirements.txt
+pip install ".[models,dfew]"
 ```
 
 

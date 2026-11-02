@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""ROI-averaged max_r bar plot (x = emotion) for all models, 25-subject cohort,
+"""ROI-averaged max_r bar plot (x = emotion) for all models, 26-subject cohort,
 with the random-init bars replaced by the seed ensemble (mean +/- 1 SD).
 
 Redraws panel 3 of analysis/plot_maxr_barplots_allmodels.py (the paper's
 figures/new_model_comparison.pdf) on the same data as the regenerated Table 1:
 
-  random   per-seed grids in seed_variability/rsa_no-ceg; rho_max is taken per
+  random   per-seed grids in seed_variability/rsa_seeds; rho_max is taken per
            seed and only then averaged (see aggregate_seeds.py), error bar = SD
-  trained  seed_variability/rsa_noceg_pretrained, except the two Complete
+  trained  seed_variability/rsa_pretrained, except the two Complete
            VGGFace2 FaceNet rows, read from the layer-matched grids with the
            random 3-unit head dropped (as in layer_matched/build_table1.py)
 
-Noise ceilings are recomputed on the same 25 subjects, at the window of each
-per-cell maximum, and averaged exactly as build_maxr_table.py does. A random
+Noise ceilings are recomputed on the same 26 subjects, at the window of each
+per-cell maximum, and averaged as in rsa_core.averaged_cells. A random
 bar is grey when its seed-mean lies below the seed-mean lower ceiling.
 """
 import argparse
@@ -28,16 +28,16 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
-HERE = ROOT / "analysis" / "seed_variability"
-sys.path.insert(0, str(ROOT / "analysis"))
-sys.path.insert(0, str(HERE))
-import build_maxr_table as B          # noqa: E402  (noise_ceilings)
-from rsa_grid_seeds import load_eeg   # noqa: E402
+HERE = ROOT / "analysis" / "seed_variability"          # data
+CODE = Path(__file__).resolve().parent                  # code: imports come from here
+sys.path.insert(0, str(CODE.parent))
+sys.path.insert(0, str(CODE))
+import rsa_core                       # noqa: E402
 from aggregate_seeds import FAMILIES as SEED_FAMILIES  # noqa: E402
 
-SEED_DIR = HERE / "rsa_no-ceg"
-GRID_DIR = HERE / "rsa_noceg_pretrained"
-MATCHED_DIR = ROOT / "analysis" / "layer_matched" / "rsa_no-ceg"
+SEED_DIR = HERE / "rsa_seeds"
+GRID_DIR = HERE / "rsa_pretrained"
+MATCHED_DIR = ROOT / "analysis" / "layer_matched" / "rsa"
 
 EMOS = ["all", "fear", "happy", "neutral", "emo-avg"]
 N_ROI = 6
@@ -75,19 +75,10 @@ GREY = "#B9B9B9"
 
 
 def roiavg_by_emotion(rsa, lo):
-    """-> {emo: (max_r, nc_lower)} for the ROI-avg scope, following
-    build_maxr_table.py: per-cell max over layer x window first, then average."""
-    gm = np.nanmean(rsa, axis=0)                       # (O, L, E, W)
-    v = np.zeros((N_ROI, 4)); l = np.zeros((N_ROI, 4))
-    for oi in range(N_ROI):
-        for ei in range(4):
-            block = gm[oi, :, ei, :]
-            li, ki = np.unravel_index(np.nanargmax(block), block.shape)
-            v[oi, ei] = block[li, ki]
-            l[oi, ei] = lo[oi, ei, ki]
-    out = {e: (v[:, ei].mean(), l[:, ei].mean()) for ei, e in enumerate(EMOS[:4])}
-    out["emo-avg"] = (v[:, 1:].mean(), l[:, 1:].mean())
-    return out
+    """-> {emo: (max_r, nc_lower)} for the ROI-avg scope: per-cell max over
+    layer x window first, then averaged (rsa_core.averaged_cells)."""
+    cells = rsa_core.averaged_cells(rsa_core.cell_maxima(rsa, lo))
+    return {e: cells[rsa_core.N_ROI + 1, ei][:2] for ei, e in enumerate(EMOS)}
 
 
 def load(path, drop_last=False):
@@ -98,12 +89,12 @@ def load(path, drop_last=False):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, help="output path without extension")
-    ap.add_argument("--csv", default=str(HERE / "results" / "model_comparison_no-ceg.csv"))
+    ap.add_argument("--csv", default=str(HERE / "results" / "model_comparison.csv"))
     args = ap.parse_args()
 
-    eeg, subjects, _ = load_eeg("no-ceg")
+    eeg, subjects, _ = rsa_core.load_eeg("18")
     print(f"[eeg] {len(subjects)} subjects; computing noise ceilings ...")
-    lo, _up = B.noise_ceilings(eeg)                    # (7, 4, W)
+    lo, _up = rsa_core.noise_ceilings(eeg, "18")       # (7, 4, W)
 
     data, rows = {}, []                                # data[model][state][emo] = (m, sd, nc)
     for model, trained in MODELS.items():

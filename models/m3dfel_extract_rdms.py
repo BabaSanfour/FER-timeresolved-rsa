@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""M3DFEL (R3D-18 backbone + temporal-attention head) RDMs: random, Kinetics-400 or DFEW-trained.
+"""M3DFEL (R3D-18 backbone + temporal-attention head) RDMs: Kinetics-400 (no weights given),
+DFEW-trained (--checkpoint) or random (--state: the saved random weights).
 
 Each of the 16 frames is the centre of a 4-frame window (frames t-1..t+2), so the 16 windows give 16
 time points; the trained pwconv (which depends on the number of windows) is tiled to fit. Only the
@@ -19,13 +20,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-ROOT = Path(os.environ.get("FER_ROOT", "."))
 # M3DFEL code (bundled in M3DFEL/) and its pretrained/r3d_18-b3b3357e.pth backbone weights.
 M3DFEL_DIR = Path(os.environ.get("M3DFEL_DIR", Path(__file__).resolve().parents[1] / "M3DFEL"))
 sys.path.insert(0, str(M3DFEL_DIR))
 
-ACTORS = [1, 2, 4, 7, 8, 11]
-STIMS = [f"{e}_Actor{a:02d}" for e in ("fear", "happy", "neutral") for a in ACTORS]
 INSTANCE_LENGTH = 4
 
 
@@ -54,25 +52,9 @@ def overlapping_windows(x, instance_length=INSTANCE_LENGTH):
     return x[idx]
 
 
-def temporal_input(x, mode="original", shuffle_seed=1001, static_frame=0):
-    """Transform a canonical clip before making overlapping model instances.
-
-    A common permutation is used across stimuli to preserve matched frame
-    sampling. Static clips repeat one source frame across the entire input.
-    """
-    if mode == "original":
-        return x
-    if mode == "shuffled":
-        return x[np.random.default_rng(shuffle_seed).permutation(len(x))]
-    if mode == "static":
-        if not 0 <= static_frame < len(x):
-            raise ValueError("static frame is outside the canonical clip")
-        return np.repeat(x[static_frame:static_frame + 1], len(x), axis=0)
-    raise ValueError(f"unknown temporal mode: {mode}")
-
-
 def randomize(model, seed):
-    """Same scheme as extract_model_rdms.py: Xavier conv/linear, identity norms."""
+    """Same scheme as extract_model_rdms.py: Xavier conv/linear, identity norms
+    (used by trillium/extract_prep.sh to draw the saved random weights)."""
     torch.manual_seed(seed)
     for m in model.modules():
         if isinstance(m, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.Linear)):
@@ -106,24 +88,14 @@ def corr_distance_rdm(X):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--random", action="store_true",
-                    help="randomise every weight (default: Kinetics-pretrained backbone)")
-    ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--checkpoint", default=None,
-                    help="trained M3DFEL state dict (e.g. selected Fold 3 best_weights.pt)")
-    ap.add_argument("--state", default=None,
-                    help="full saved state dict of this extractor's model (e.g. a saved random seed)")
+    weights = ap.add_mutually_exclusive_group()
+    weights.add_argument("--checkpoint", default=None,
+                         help="trained M3DFEL state dict (e.g. selected Fold 3 best_weights.pt)")
+    weights.add_argument("--state", default=None,
+                         help="full saved state dict of this extractor's model (a saved random seed)")
+    ap.add_argument("--frames-dir", required=True, help="frames from build_stimuli_h5_16frames.py")
+    ap.add_argument("--out-dir", required=True)
     ap.add_argument("--out-name", required=True)
-    ap.add_argument("--out-dir", default=str(ROOT / "analysis/model_rdms_canonical"))
-    ap.add_argument("--frames-dir", default=str(ROOT / "stim_frames"))
-    ap.add_argument("--manifest", default=None)
-    ap.add_argument("--temporal-mode", choices=["original", "shuffled", "static"],
-                    default="original")
-    ap.add_argument("--shuffle-seed", type=int, default=1001)
-    ap.add_argument("--save-weights", default=None,
-                    help="also save the model's state_dict (after loading/randomizing) to this path")
-    ap.add_argument("--static-frame", type=int, default=0,
-                    help="zero-based canonical frame repeated for static input")
     args = ap.parse_args()
 
     from models.M3DFEL import M3DFEL
@@ -138,7 +110,7 @@ def main():
         gpu_ids=[0] if device.type == "cuda" else [],
         r3d_weights=os.environ.get("M3DFEL_R3D", str(M3DFEL_DIR / "pretrained/r3d_18-b3b3357e.pth")),
     )
-    torch.manual_seed(args.seed)
+    torch.manual_seed(42)        # the Kinetics variant's untrained head: reproducible predictions
     model = M3DFEL(margs)
     if args.checkpoint:
         state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
@@ -163,15 +135,9 @@ def main():
     elif args.state:
         model.load_state_dict(torch.load(args.state, map_location="cpu", weights_only=True), strict=True)
         print(f"[M3DFEL] loaded saved weights {args.state}")
-    elif args.random:
-        model = randomize(model, args.seed)
-        print(f"[M3DFEL RANDOM] every weight re-initialised (seed {args.seed})")
     else:
         print("[M3DFEL] Kinetics-400 pretrained r3d_18 backbone + untrained MIL head")
     model.eval().to(device)
-    if args.save_weights:
-        torch.save({k: v.detach().cpu() for k, v in model.state_dict().items()}, args.save_weights)
-        print(f"[weights] saved state_dict -> {args.save_weights}")
 
     # ---- hooks: the R3D-18 backbone's convolutions and batch norms. The temporal
     # head (LSTM, attention, norm) mixes all 16 windows, so it is not analysed. ----
@@ -206,12 +172,8 @@ def main():
     print(f"[hooks] {len(layer_names)} candidate layers")
 
     X = load_canonical_frames(args.frames_dir)
-    manifest_path = Path(args.manifest) if args.manifest else Path(args.frames_dir) / "stimulus_manifest.json"
-    if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text())
-        stim_names = [row["stimulus"] for row in manifest]
-    else:
-        stim_names = STIMS
+    manifest_path = Path(args.frames_dir) / "stimulus_manifest.json"
+    stim_names = [row["stimulus"] for row in json.loads(manifest_path.read_text())]
     if len(stim_names) != len(X):
         raise RuntimeError(f"manifest has {len(stim_names)} stimuli but frames contain {len(X)}")
     print(f"[stim] {X.shape}")
@@ -219,9 +181,7 @@ def main():
     per_stim, order, predictions = [], None, []
     with torch.no_grad():
         for s in range(X.shape[0]):
-            transformed = temporal_input(X[s], args.temporal_mode,
-                                         args.shuffle_seed, args.static_frame)
-            clip = overlapping_windows(transformed)               # (64,3,112,112)
+            clip = overlapping_windows(X[s])                       # (64,3,112,112)
             xb = torch.from_numpy(clip).unsqueeze(0).to(device)    # (1,64,3,112,112)
             acts.clear()
             output = model(xb)
@@ -252,18 +212,11 @@ def main():
         w.writerows(predictions)
     (out_dir / f"{args.out_name}.layers.json").write_text(json.dumps({
         "layer_order": order, "shape": list(rdms.shape), "arch": "M3DFEL (r3d_18 + MIL)",
-        "random": bool(args.random), "seed": args.seed,
         "checkpoint": args.checkpoint, "state": args.state,
         "pretrained_note": ("DFEW 3-class trained checkpoint" if args.checkpoint else
-                            ("all weights random" if args.random else
-                             "Kinetics-400 r3d_18 backbone; MIL head untrained")),
+                            "saved weights (random variant)" if args.state else
+                            "Kinetics-400 r3d_18 backbone; MIL head untrained"),
         "instance_length": INSTANCE_LENGTH, "n_timepoints": T,
-        "temporal_mode": args.temporal_mode,
-        "shuffle_seed": args.shuffle_seed if args.temporal_mode == "shuffled" else None,
-        "frame_order": (np.random.default_rng(args.shuffle_seed).permutation(n_time).tolist()
-                        if args.temporal_mode == "shuffled" else
-                        [args.static_frame] * n_time if args.temporal_mode == "static" else
-                        list(range(n_time))),
         "temporal_scheme": "16 overlapping 4-frame windows (t-1..t+2, clipped)",
         "checkpoint_temporal_adaptation": (
             "trained bag_size-4 pwconv repeated to bag_size 16 only to complete "

@@ -13,7 +13,7 @@ submit() {  # name tasks per_gpu chunk hours [extra sbatch args]
         --export=ALL trillium/run_tasks.sh
 }
 
-# runs per GPU, runs per array element, walltime (h); from bench.sh: FaceNet 9.1k img/s
+# runs per GPU, runs per array element, walltime (h); from a benchmark: FaceNet 9.1k img/s
 # alone, 16.1k with 3 runs per H100
 PRE=$(submit pretrain    trillium/tasks/pretrain.txt    "${PRE_PER:-3}"  "${PRE_CHUNK:-3}"  "${PRE_H:-4}")
 SIZ=$(submit sizecurve   trillium/tasks/sizecurve.txt   "${SIZ_PER:-3}"  "${SIZ_CHUNK:-6}"  "${SIZ_H:-3}")

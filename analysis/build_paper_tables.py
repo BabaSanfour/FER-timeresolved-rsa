@@ -2,11 +2,11 @@
 """Table 1 (tab:main-results) and the random-seed table (tab:seeds) of the paper.
 
 Trained rows: emotion-averaged rho_max from analysis/paper_stats/timelocked_maxr_over_layers.csv
-(written by analysis/build_maxr_table.py from the 18-stimulus RSA grids in
+(written by analysis/maxr_table.py --stimuli 18 from the 18-stimulus RSA grids in
 analysis/rsa_grid/, rsa_grid_today/ and rsa_grid_facenet_original_vggface2_affectnet_16win/).
 
-Random rows and seed ranges: analysis/seed_variability/results/no-ceg_summary.csv and
-no-ceg_per_seed.csv (written by analysis/seed_variability/aggregate_seeds.py; 10 seeds per
+Random rows and seed ranges: analysis/seed_variability/results/seeds_summary.csv and
+seeds_per_seed.csv (written by analysis/seed_variability/aggregate_seeds.py; 10 seeds per
 family, 5 for Qwen3-VL, rho_max computed per seed before averaging).
 
 Writes analysis/paper_stats/table_main_results.tex and table_seeds.tex.
@@ -54,9 +54,9 @@ def main():
         for r in csv.DictReader(fh):
             if r["emotion"] == "emo-avg":
                 maxr[(r["model"], r["state"], r["roi"])] = float(r["max_r"])
-    summary = {r["family"]: r for r in csv.DictReader((SEEDS / "no-ceg_summary.csv").open())}
+    summary = {r["family"]: r for r in csv.DictReader((SEEDS / "seeds_summary.csv").open())}
     per_seed = defaultdict(list)
-    for r in csv.DictReader((SEEDS / "no-ceg_per_seed.csv").open()):
+    for r in csv.DictReader((SEEDS / "seeds_per_seed.csv").open()):
         per_seed[r["family"]].append(float(r["ROI avg."]))
 
     lines, lowest = [], {}
