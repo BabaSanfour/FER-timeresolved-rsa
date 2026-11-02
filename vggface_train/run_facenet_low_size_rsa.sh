@@ -17,7 +17,7 @@ for repeat in $(seq -w 1 10); do
     tags+=("facenet_vggface2_repeat${repeat}_${condition}_16f_weights")
   done
 done
-python "$ROOT/analysis/rsa_full_grid.py" --models "${tags[@]}" \
+python "$ROOT/analysis/rsa_grid.py" --stimuli 18 --models "${tags[@]}" \
   --model-dir "$ROOT/analysis/model_rdms_facenet_size_repeats" \
   --out-dir "$ROOT/analysis/rsa_grid_facenet_size_repeats"
 python "$ROOT/analysis/summarize_facenet_low_size_repeats.py"

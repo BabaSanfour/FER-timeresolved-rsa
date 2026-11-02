@@ -54,7 +54,7 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | Result in the paper | Script | Command | Reads | Writes |
 |---|---|---|---|---|
 | **Table 1** (`tab:main-results`), 18 stimuli, ρ<sub>max</sub> per scalp analysis | `analysis/build_paper_tables.py` | `python analysis/build_maxr_table.py` (trained rows), then `python analysis/build_paper_tables.py` | trained rows: `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/` via `analysis/paper_stats/timelocked_maxr_over_layers.csv`; Random rows: `analysis/seed_variability/results/seeds_summary.csv` | `analysis/paper_stats/table_main_results.tex` |
-| ↳ Random rows (mean ± SD over seeds) | `analysis/seed_variability/` | RDMs: `STAGE=cnn sbatch analysis/seed_variability/run_extract_seeds.sh`, `STAGE=qwen sbatch …`; grids: `python analysis/rsa_full_grid.py --model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`; summary: `python analysis/seed_variability/aggregate_seeds.py --seed-grids analysis/seed_variability/rsa_seeds --pretrained-grids analysis/seed_variability/rsa_pretrained --out-prefix analysis/seed_variability/results/seeds` | `stim_frames/`, EEG RDMs | `analysis/seed_variability/{rdms,rsa_seeds,results}/` |
+| ↳ Random rows (mean ± SD over seeds) | `analysis/seed_variability/` | RDMs: `STAGE=cnn sbatch analysis/seed_variability/run_extract_seeds.sh`, `STAGE=qwen sbatch …`; grids: `python analysis/rsa_grid.py --stimuli 18 --model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`; summary: `python analysis/seed_variability/aggregate_seeds.py --seed-grids analysis/seed_variability/rsa_seeds --pretrained-grids analysis/seed_variability/rsa_pretrained --out-prefix analysis/seed_variability/results/seeds` | `stim_frames/`, EEG RDMs | `analysis/seed_variability/{rdms,rsa_seeds,results}/` |
 | **Fig. 2**, matched training comparisons (`new_model_comparison.pdf`) | `analysis/seed_variability/plot_model_comparison_seeds.py` | `python analysis/seed_variability/plot_model_comparison_seeds.py --out analysis/seed_variability/results/new_model_comparison` | `analysis/seed_variability/rsa_seeds/`, `rsa_pretrained/`, `analysis/layer_matched/rsa/`; EEG RDMs (lower noise ceiling) | `analysis/seed_variability/results/new_model_comparison.{pdf,png}` |
 | ROI-averaged ρ<sub>max</sub> in Sections 4.1 and 4.3 | as Table 1 and the seed table | | | |
 | **Fig. 3**, FaceNet training-set size (`facenet_vggface2_size.pdf`) and its values in Section 4.2 | `analysis/summarize_facenet_low_size_repeats.py`, `analysis/plot_facenet_size_curve.py` | `python analysis/summarize_facenet_low_size_repeats.py && python analysis/plot_facenet_size_curve.py` | `analysis/rsa_grid_facenet_size_repeats/` (10 repeats per size; "800k" = `800k_bootstrap`) | `analysis/facenet_low_size_repeats/max_r_facenet_all_sizes.csv`, `facenet_vggface2_size_curve.pdf` |
@@ -146,8 +146,8 @@ their checkpoints on Drive, but they are not the models in the paper.
 
 ### 4. Model RDMs
 
-Model RDMs are `(n_layers, 16, n_stim, n_stim)` correlation-distance RDMs, one per layer and frame;
-`models/build_emotion_rdms_54.py` splits the 54-stimulus RDMs per emotion.
+Model RDMs are `(n_layers, 16, n_stim, n_stim)` correlation-distance RDMs, one per layer and frame
+(the RSA scripts slice the emotions themselves).
 From the repository root on `trillium-gpu`: `bash trillium/extract_prep.sh` once, then
 `bash trillium/submit_extract.sh` (386 extractions; re-running skips finished ones). Outputs:
 `$FER_ROOT/rdms/set18|set54/<name>/<name>.npy` with `.layers.json` (layers, weights, preprocessing,
@@ -163,8 +163,8 @@ stimuli).
 
 | | Script | Output |
 |---|---|---|
-| 18 stimuli, 26 participants | `analysis/rsa_full_grid.py --models <tags> [--model-dir] [--out-dir]` (also called by the drivers above, and by `vggface_train/run_facenet_low_size_rsa.sh`; random-seed ensembles: `--model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
-| 54 stimuli | `analysis/rsa_full_grid_54.py --models <tags>` | `analysis/rsa_grid_54/` |
+| 18 stimuli, 26 participants | `analysis/rsa_grid.py --stimuli 18 --models <tags> [--model-dir] [--out-dir]` (also called by the drivers above, and by `vggface_train/run_facenet_low_size_rsa.sh`; random-seed ensembles: `--model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
+| 54 stimuli, 25 participants | `analysis/rsa_grid.py --stimuli 54 --models <tags> [--model-dir] [--out-dir]` | `analysis/rsa_grid_54/` |
 
 Each grid file holds the participant × scalp analysis (6 ROIs + whole scalp) × layer × condition
 (all, fear, happy, neutral) × EEG window array of Spearman ρ. Statistics, controls and tables are

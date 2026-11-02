@@ -3,7 +3,7 @@
 
 Missing data
 ------------
-`rsa_full_grid*.py` writes NaN for a participant x condition whose EEG RDM is
+`rsa_grid.py` writes NaN for a participant x condition whose EEG RDM is
 degenerate (flat). (Participants with a missing video are not NaN: they are
 analysed on their available stimulus pairs, see rsa_core.py.) Participants without
 any finite cell are dropped **listwise per (scope, emotion) grid** and the realised n is reported; they are
