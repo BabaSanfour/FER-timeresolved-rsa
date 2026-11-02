@@ -4,9 +4,9 @@
 Missing data
 ------------
 `rsa_full_grid*.py` writes NaN for a participant x condition whose EEG RDM is
-degenerate (flat). In the 54-stimulus set 11 of 25 participants are entirely
-NaN in the `neutral` and pooled `all` conditions. Such participants are dropped
-**listwise per (scope, emotion) grid** and the realised n is reported; they are
+degenerate (flat). (Participants with a missing video are not NaN: they are
+analysed on their available stimulus pairs, see eeg54.py.) Participants without
+any finite cell are dropped **listwise per (scope, emotion) grid** and the realised n is reported; they are
 never zero-filled, which would shrink the mean toward zero and claim a df the
 data do not support. n therefore varies between grids, so the sign matrix and
 the cluster-forming t threshold are built per realised n.

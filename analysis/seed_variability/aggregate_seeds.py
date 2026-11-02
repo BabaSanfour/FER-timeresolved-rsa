@@ -72,7 +72,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed-grids", required=True)
     ap.add_argument("--pretrained-grids", required=True)
-    ap.add_argument("--cohort-label", required=True)
     ap.add_argument("--out-prefix", required=True)
     args = ap.parse_args()
 
@@ -135,11 +134,11 @@ def main():
     n_fam = len({r["family"] for r in cmp_rows})
     all_exceed = [f for f in {r["family"] for r in cmp_rows}
                   if all(r["exceeds_all_seeds"] for r in cmp_rows if r["family"] == f)]
-    print(f"\n[{args.cohort_label}] families where EVERY trained variant exceeds every "
+    print(f"\nfamilies where EVERY trained variant exceeds every "
           f"random seed: {len(all_exceed)}/{n_fam} -> {sorted(all_exceed)}")
     inside = sorted({r["family"] for r in cmp_rows if not r["exceeds_all_seeds"]})
     if inside:
-        print(f"[{args.cohort_label}] families with at least one trained variant inside "
+        print(f"families with at least one trained variant inside "
               f"the seed range: {inside}")
 
 

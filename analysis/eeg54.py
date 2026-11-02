@@ -25,11 +25,6 @@ MODEL_EMOTION_ORDER = ("fear", "happy", "neutral")
 CONDITIONS = ("unmasked", "glasses", "masked")
 
 
-def upper(x):
-    iu = np.triu_indices(x.shape[-1], 1)
-    return x[..., iu[0], iu[1]]
-
-
 def model_order(eeg_dir=None):
     """Indices that put the pooled 54-stimulus EEG RDM into the model order."""
     names = json.loads(((eeg_dir or EEG) / "stimulus_order.json").read_text())["all_54"]

@@ -37,22 +37,15 @@ def spear(x, y):
     return np.corrcoef(x, y)[0, 1]
 
 
-def subjects():
-    return eeg54.subjects(EEG)
-
-
-def load_eeg(subjects_, emotion, scope_index):
-    return eeg54.load(subjects_, emotion, EEG)[:, scope_index]
-
-
 def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    subs = subjects()
+    subs = eeg54.subjects(EEG)
+    eeg_by_emotion = {emotion: eeg54.load(subs, emotion, EEG) for emotion in EMOTIONS}
     controls = {c: np.load(CTRL / f"{c}_rdm.npy") for c in CONTROLS}
     rows = []
     for oi, scope in enumerate(ROIS + ["wholescalp"]):
         for emotion in EMOTIONS:
-            eeg = load_eeg(subs, emotion, oi)  # subject, window, n, n
+            eeg = eeg_by_emotion[emotion][:, oi]  # subject, window, n, n
             ev = upper(eeg)
             group = np.nanmean(ev, 0)            # per pair, over the participants who have it
             total = np.nansum(ev, 0)

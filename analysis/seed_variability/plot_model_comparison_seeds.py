@@ -5,9 +5,9 @@ with the random-init bars replaced by the seed ensemble (mean +/- 1 SD).
 Redraws panel 3 of analysis/plot_maxr_barplots_allmodels.py (the paper's
 figures/new_model_comparison.pdf) on the same data as the regenerated Table 1:
 
-  random   per-seed grids in seed_variability/rsa_with-ceg; rho_max is taken per
+  random   per-seed grids in seed_variability/rsa_seeds; rho_max is taken per
            seed and only then averaged (see aggregate_seeds.py), error bar = SD
-  trained  seed_variability/rsa_with-ceg_pretrained, except the two Complete
+  trained  seed_variability/rsa_pretrained, except the two Complete
            VGGFace2 FaceNet rows, read from the layer-matched grids with the
            random 3-unit head dropped (as in layer_matched/build_table1.py)
 
@@ -32,12 +32,12 @@ HERE = ROOT / "analysis" / "seed_variability"
 sys.path.insert(0, str(ROOT / "analysis"))
 sys.path.insert(0, str(HERE))
 import build_maxr_table as B          # noqa: E402  (noise_ceilings)
-from rsa_grid_seeds import load_eeg   # noqa: E402
+from rsa_full_grid import load_eeg    # noqa: E402
 from aggregate_seeds import FAMILIES as SEED_FAMILIES  # noqa: E402
 
-SEED_DIR = HERE / "rsa_with-ceg"
-GRID_DIR = HERE / "rsa_with-ceg_pretrained"
-MATCHED_DIR = ROOT / "analysis" / "layer_matched" / "rsa_with-ceg"
+SEED_DIR = HERE / "rsa_seeds"
+GRID_DIR = HERE / "rsa_pretrained"
+MATCHED_DIR = ROOT / "analysis" / "layer_matched" / "rsa"
 
 EMOS = ["all", "fear", "happy", "neutral", "emo-avg"]
 N_ROI = 6
@@ -98,10 +98,10 @@ def load(path, drop_last=False):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, help="output path without extension")
-    ap.add_argument("--csv", default=str(HERE / "results" / "model_comparison_with-ceg.csv"))
+    ap.add_argument("--csv", default=str(HERE / "results" / "model_comparison.csv"))
     args = ap.parse_args()
 
-    eeg, subjects, _ = load_eeg("with-ceg")
+    eeg, subjects, _ = load_eeg()
     print(f"[eeg] {len(subjects)} subjects; computing noise ceilings ...")
     lo, _up = B.noise_ceilings(eeg)                    # (7, 4, W)
 

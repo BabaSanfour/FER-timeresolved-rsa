@@ -31,7 +31,6 @@ def main():
     eeg = {emotion: eeg54.load(subs, emotion, EEG) for emotion in EMOTIONS}
     W = eeg["all"].shape[2]
     bounds = np.load(EEG / "window_bounds.npy")
-    summary = []
 
     for tag in args.models:
         model_all = np.load(MDIR / f"{tag}.npy")

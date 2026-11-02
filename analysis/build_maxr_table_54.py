@@ -74,7 +74,7 @@ def ceilings(subjects):
     result = {}
     for ei, emotion in enumerate(EMOS):
         eeg = load_eeg(emotion, subjects)
-        S, O, W = eeg.shape[:3]
+        O, W = eeg.shape[1:3]
         lo, up = np.full((O, W), np.nan), np.full((O, W), np.nan)
         vec = upper(eeg)
         groups = eeg54.pair_groups(vec)
