@@ -11,11 +11,6 @@ from pathlib import Path
 
 import numpy as np
 
-ACTORS = [1, 2, 4, 7, 8, 11]
-EMO_FILE = {"fear": "Fear", "happy": "Hapiness", "neutral": "Neutral"}
-STIMS = [f"{e}_Actor{a:02d}" for e in EMO_FILE for a in ACTORS]
-
-
 def corr_distance_rdm(X):
     Xc = X - X.mean(1, keepdims=True)
     n = np.linalg.norm(Xc, axis=1, keepdims=True)
@@ -50,22 +45,16 @@ def load_stack(act_dir, names, suffix=""):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True, help="output_dir used by the extractor")
-    ap.add_argument("--out-dir",
-                    default="./analysis/model_rdms_canonical")
+    ap.add_argument("--out-dir", required=True)
     ap.add_argument("--out-name", required=True)
-    ap.add_argument("--manifest", default=None,
+    ap.add_argument("--manifest", required=True,
                     help="stimulus_manifest.json; activations are named by its 'stimulus' field")
     args = ap.parse_args()
 
     act_dir = Path(args.run_dir) / "activations"
-    if args.manifest:
-        stims = [r["stimulus"] for r in json.loads(Path(args.manifest).read_text())]
-        files = stims
-    else:
-        stims = STIMS
-        files = [f"{fpre}_Actor{a:02d}" for fpre in EMO_FILE.values() for a in ACTORS]
-    A = load_stack(act_dir, files)
-    V = load_stack(act_dir, files, "_vision")
+    stims = [r["stimulus"] for r in json.loads(Path(args.manifest).read_text())]
+    A = load_stack(act_dir, stims)
+    V = load_stack(act_dir, stims, "_vision")
     n_stim, T, L_dec, H = A.shape
     L_vis = V.shape[2]
     print(f"[in] {n_stim} stimuli x {T} timepoints: {L_vis} vision blocks x {V.shape[3]} + "
