@@ -2,7 +2,7 @@
 """Build corrected max-r summary table for the 54-stimulus study.
 
 Noise ceilings use the EEG in the model stimulus order; participants with a
-missing video use the pairs they have (see eeg54.py).
+missing video use the pairs they have (see rsa_core.py).
 """
 import csv
 import os
@@ -11,11 +11,10 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import rankdata
 
-import eeg54
+import rsa_core
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID = ROOT / "analysis/rsa_grid_54"
-EEG = ROOT / "eeg_rdms_complete"
 OUT = ROOT / "analysis/paper_stats_54"
 EMOS = ("all", "fear", "happy", "neutral")
 FAMILIES = {
@@ -66,18 +65,14 @@ def row_rho(x, y):
                      out=np.full(len(x), np.nan), where=denom > 0)
 
 
-def load_eeg(emotion, subjects):
-    return eeg54.load(subjects, emotion, EEG)
-
-
 def ceilings(subjects):
     result = {}
     for ei, emotion in enumerate(EMOS):
-        eeg = load_eeg(emotion, subjects)
+        eeg = rsa_core.load_eeg("54", emotion, subjects)[0]
         O, W = eeg.shape[1:3]
         lo, up = np.full((O, W), np.nan), np.full((O, W), np.nan)
         vec = upper(eeg)
-        groups = eeg54.pair_groups(vec)
+        groups = rsa_core.pair_groups(vec)
         for oi in range(O):
             for wi in range(W):
                 group = vec[:, oi, wi]

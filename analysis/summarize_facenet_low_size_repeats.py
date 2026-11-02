@@ -10,7 +10,8 @@ from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 
-from build_maxr_table import load_eeg, noise_ceilings, grid_path, EMOTIONS
+import rsa_core
+from build_maxr_table import noise_ceilings, grid_path, EMOTIONS
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID = ROOT / "analysis/rsa_grid_facenet_size_repeats"
@@ -139,7 +140,7 @@ def make(statistic, lo, up):
     plt.close(fig)
 
 
-eeg, _ = load_eeg()
+eeg = rsa_core.load_eeg("18")[0]
 lo, up = noise_ceilings(eeg)
 make("max_r", lo, up)
 make("mean_r", lo, up)

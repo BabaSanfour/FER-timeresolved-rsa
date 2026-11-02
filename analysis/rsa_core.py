@@ -1,0 +1,106 @@
+"""Shared pieces of the RSA analyses: EEG loading for both stimulus sets.
+
+EEG RDMs are returned as (subjects, 7 scopes, windows, n, n): six ROIs in
+`roi_order.npy` order, then the whole scalp, stimuli in the model order
+
+    18 stimuli: fear 0-5, happy 6-11, neutral 12-17 (actors 01 02 04 07 08 11)
+    54 stimuli: fear 0-17, happy 18-35, neutral 36-53, each block unmasked
+                (original), glasses, masked, actors as above
+
+so `EMOTIONS[stimuli][emotion]` indexes both the EEG and the model RDMs.
+
+18 stimuli: all 26 participants of the 18-stimulus folders.
+54 stimuli: 25 participants (CEG has no 54-stimulus data). The pooled files
+(`<subject>_all_rdms.npy`) are ordered happy, fear, neutral (`stimulus_order.json`)
+and are reordered here by stimulus name; the per-emotion files are blocks of
+the pooled file and are not needed. Eleven participants lack one video
+(neutral, glasses, index 3), stored as a NaN row and column: `pair_groups`
+groups participants by their available stimulus pairs, so each is analysed on
+the pairs they have (17 of 18 neutral stimuli, 53 of 54 pooled), and every
+rank statistic re-ranks both vectors on that subset.
+"""
+import json
+import os
+from pathlib import Path
+
+import numpy as np
+
+ROOT = Path(os.environ.get("FER_ROOT", "."))
+EEG_DIRS = {
+    "18": (ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full", "_windowed_rdms.npy",
+           ROOT / "eeg_data/Unmasked_avg_wholescalp_16win", "_wholescalp_rdms.npy"),
+    "54": (ROOT / "eeg_rdms_complete/perroi", "_all_rdms.npy",
+           ROOT / "eeg_rdms_complete/wholescalp", "_all_rdms.npy"),
+}
+META_DIRS = {"18": ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full",
+             "54": ROOT / "eeg_rdms_complete"}
+EMOTIONS = {
+    "18": {"all": np.arange(18), "fear": np.arange(0, 6),
+           "happy": np.arange(6, 12), "neutral": np.arange(12, 18)},
+    "54": {"all": np.arange(54), "fear": np.arange(0, 18),
+           "happy": np.arange(18, 36), "neutral": np.arange(36, 54)},
+}
+MODEL_EMOTION_ORDER = ("fear", "happy", "neutral")
+CONDITIONS_54 = ("unmasked", "glasses", "masked")
+
+
+def subjects(stimuli):
+    roi_dir, roi_suffix, ws_dir, ws_suffix = EEG_DIRS[stimuli]
+    roi = {p.name.removesuffix(roi_suffix) for p in roi_dir.glob(f"*{roi_suffix}")
+           if not p.name.startswith("group")}
+    ws = {p.name.removesuffix(ws_suffix) for p in ws_dir.glob(f"*{ws_suffix}")}
+    if roi != ws:
+        raise SystemExit(f"ABORT: subject mismatch: ROI-only={sorted(roi - ws)}, "
+                         f"whole-scalp-only={sorted(ws - roi)}")
+    return sorted(roi)
+
+
+def scopes(stimuli):
+    rois = np.load(META_DIRS[stimuli] / "roi_order.npy", allow_pickle=True)
+    return [str(x) for x in rois] + ["wholescalp"]
+
+
+def window_bounds(stimuli):
+    return np.load(META_DIRS[stimuli] / "window_bounds.npy")
+
+
+def model_order_54():
+    """Indices that put the pooled 54-stimulus EEG RDM into the model order."""
+    names = json.loads((META_DIRS["54"] / "stimulus_order.json").read_text())["all_54"]
+    return np.array([names.index(f"{e}_{c}_{i}") for e in MODEL_EMOTION_ORDER
+                     for c in CONDITIONS_54 for i in range(6)])
+
+
+def load_eeg(stimuli, emotion="all", subs=None):
+    """-> (eeg (S, 7, W, n, n) in the model order, subject ids, scope names)."""
+    subs = subjects(stimuli) if subs is None else subs
+    roi_dir, roi_suffix, ws_dir, ws_suffix = EEG_DIRS[stimuli]
+    roi = np.stack([np.load(roi_dir / f"{s}{roi_suffix}") for s in subs])
+    ws = np.stack([np.load(ws_dir / f"{s}{ws_suffix}") for s in subs])
+    if roi.ndim != 5 or ws.ndim != 4:
+        raise SystemExit(f"ABORT: unexpected EEG shapes {roi.shape} / {ws.shape}")
+    eeg = np.concatenate([roi, ws[:, None]], axis=1)
+    if stimuli == "54":
+        order = model_order_54()
+        eeg = eeg[..., order, :][..., order]
+    idx = EMOTIONS[stimuli][emotion]
+    if len(idx) != eeg.shape[-1]:
+        eeg = eeg[..., idx, :][..., idx]
+    return eeg, subs, scopes(stimuli)
+
+
+def pair_groups(vectors):
+    """vectors (S, ..., P) -> [(subject indices, bool pair mask)], most pairs first.
+
+    A pair must be finite in every scope and window of a participant or missing
+    in all of them; anything else is an error.
+    """
+    finite = np.isfinite(vectors).reshape(len(vectors), -1, vectors.shape[-1])
+    keep = finite.all(axis=1)
+    if not np.array_equal(keep, finite.any(axis=1)):
+        raise RuntimeError("missing EEG values differ across scopes or windows")
+    if (keep.sum(axis=1) < 3).any():
+        raise RuntimeError("a participant has fewer than three stimulus pairs")
+    patterns, inverse = np.unique(keep, axis=0, return_inverse=True)
+    groups = [(np.flatnonzero(inverse.ravel() == g), patterns[g]) for g in range(len(patterns))]
+    return sorted(groups, key=lambda g: -g[1].sum())

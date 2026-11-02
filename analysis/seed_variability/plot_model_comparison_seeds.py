@@ -28,11 +28,12 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
-HERE = ROOT / "analysis" / "seed_variability"
-sys.path.insert(0, str(ROOT / "analysis"))
-sys.path.insert(0, str(HERE))
+HERE = ROOT / "analysis" / "seed_variability"          # data
+CODE = Path(__file__).resolve().parent                  # code: imports come from here
+sys.path.insert(0, str(CODE.parent))
+sys.path.insert(0, str(CODE))
 import build_maxr_table as B          # noqa: E402  (noise_ceilings)
-from rsa_full_grid import load_eeg    # noqa: E402
+import rsa_core                       # noqa: E402
 from aggregate_seeds import FAMILIES as SEED_FAMILIES  # noqa: E402
 
 SEED_DIR = HERE / "rsa_seeds"
@@ -101,7 +102,7 @@ def main():
     ap.add_argument("--csv", default=str(HERE / "results" / "model_comparison.csv"))
     args = ap.parse_args()
 
-    eeg, subjects, _ = load_eeg()
+    eeg, subjects, _ = rsa_core.load_eeg("18")
     print(f"[eeg] {len(subjects)} subjects; computing noise ceilings ...")
     lo, _up = B.noise_ceilings(eeg)                    # (7, 4, W)
 

@@ -2,25 +2,21 @@
 """Time-locked RSA between five 54-stimulus control RDMs and complete EEG RDMs.
 
 EEG in the model stimulus order; participants with a missing video use the pairs
-they have, in the control RSA and in the noise ceilings (see eeg54.py).
+they have, in the control RSA and in the noise ceilings (see rsa_core.py).
 """
 import csv
-from pathlib import Path
 
 import numpy as np
 from scipy.stats import rankdata
 
-import eeg54
+import rsa_core
 
-ROOT = Path(".")
-EEG = ROOT / "eeg_rdms_complete"
+ROOT = rsa_core.ROOT
 CTRL = ROOT / "analysis/motion_controls_54/rdms"
 OUT = ROOT / "analysis/motion_controls_54/results/timelocked_control_rsa_54.csv"
-ROIS = [str(x) for x in np.load(EEG / "roi_order.npy", allow_pickle=True)]
 EMOTIONS = ["all", "fear", "happy", "neutral"]
 CONTROLS = ["identity", "identity_graded", "pixel_diff", "motion_energy", "optical_flow"]
-SLICES = {"all": np.arange(54), "fear": np.arange(18),
-          "happy": np.arange(18, 36), "neutral": np.arange(36, 54)}
+SLICES = rsa_core.EMOTIONS["54"]
 
 
 def upper(x):
@@ -39,11 +35,11 @@ def spear(x, y):
 
 def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    subs = eeg54.subjects(EEG)
-    eeg_by_emotion = {emotion: eeg54.load(subs, emotion, EEG) for emotion in EMOTIONS}
+    eeg_by_emotion = {emotion: rsa_core.load_eeg("54", emotion)[0] for emotion in EMOTIONS}
+    subs, scopes = rsa_core.subjects("54"), rsa_core.scopes("54")
     controls = {c: np.load(CTRL / f"{c}_rdm.npy") for c in CONTROLS}
     rows = []
-    for oi, scope in enumerate(ROIS + ["wholescalp"]):
+    for oi, scope in enumerate(scopes):
         for emotion in EMOTIONS:
             eeg = eeg_by_emotion[emotion][:, oi]  # subject, window, n, n
             ev = upper(eeg)

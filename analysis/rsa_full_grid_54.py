@@ -2,7 +2,7 @@
 """Time-locked EEG/model RSA for the 54-stimulus occlusion study.
 
 The pooled EEG is reordered to the model stimulus order, and participants with a
-missing video are analysed on the stimulus pairs they have (see eeg54.py).
+missing video are analysed on the stimulus pairs they have (see rsa_core.py).
 """
 import argparse
 import csv
@@ -10,11 +10,10 @@ from pathlib import Path
 
 import numpy as np
 
-import eeg54
+import rsa_core
 from rsa_full_grid import upper, rank_normalise
 
-ROOT = Path(".")
-EEG = ROOT / "eeg_rdms_complete"
+ROOT = rsa_core.ROOT
 MDIR = ROOT / "analysis/model_rdms_54"
 EMOTIONS = ("all", "fear", "happy", "neutral")
 
@@ -25,12 +24,11 @@ def main():
     ap.add_argument("--out-dir", default=str(ROOT / "analysis/rsa_grid_54"))
     args = ap.parse_args()
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
-    subs = eeg54.subjects(EEG)
-    rois = [str(x) for x in np.load(EEG / "roi_order.npy", allow_pickle=True)]
-    scopes = rois + ["wholescalp"]
-    eeg = {emotion: eeg54.load(subs, emotion, EEG) for emotion in EMOTIONS}
+    eeg = {emotion: rsa_core.load_eeg("54", emotion) for emotion in EMOTIONS}
+    _, subs, scopes = eeg["all"]
+    eeg = {emotion: value[0] for emotion, value in eeg.items()}
     W = eeg["all"].shape[2]
-    bounds = np.load(EEG / "window_bounds.npy")
+    bounds = rsa_core.window_bounds("54")
 
     for tag in args.models:
         model_all = np.load(MDIR / f"{tag}.npy")
@@ -44,7 +42,7 @@ def main():
             if erdm.shape[-1] != mrdm.shape[-1]:
                 raise RuntimeError(f"{tag}/{emotion}: EEG {erdm.shape}, model {mrdm.shape}")
             ev, mv = upper(erdm), upper(mrdm[:, :W])
-            for sidx, keep in eeg54.pair_groups(ev):
+            for sidx, keep in rsa_core.pair_groups(ev):
                 ez, eflat = rank_normalise(ev[sidx][..., keep])
                 mz, mflat = rank_normalise(mv[..., keep])
                 rsa = np.einsum("sowp,lwp->solw", ez, mz, optimize=True)

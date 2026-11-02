@@ -89,7 +89,7 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 The 18-stimulus folders contain 26 participants, and every 18-stimulus analysis uses all 26.
 The 54-stimulus folders contain 25:
 participant CEG has no 54-stimulus data. The pooled 54-stimulus EEG files (`*_all_rdms.npy`)
-are ordered happy, fear, neutral; `analysis/eeg54.py` reorders them to the model order (fear, happy,
+are ordered happy, fear, neutral; `analysis/rsa_core.py` reorders them to the model order (fear, happy,
 neutral) by stimulus name. Eleven participants (LC LJ LMB MD MDR MH NW RG RP TA YN) lack one video
 (neutral, glasses, index 3; NaN row and column): their neutral and pooled RSA, partial RSA, control
 RSA and noise ceilings use the pairs they have (17 of 18, 53 of 54 stimuli), so n = 25 everywhere.

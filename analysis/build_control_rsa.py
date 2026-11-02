@@ -22,15 +22,14 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import rankdata
 
+import rsa_core
+
 ROOT = Path(os.environ.get("FER_ROOT", "."))
-EEG_ROI_DIR = ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full"
-EEG_WS_DIR = ROOT / "eeg_data/Unmasked_avg_wholescalp_16win"
 RDM_DIR = ROOT / "analysis/motion_controls/rdms"
 RES_DIR = ROOT / "analysis/motion_controls/results"
 NC_OUT = ROOT / "analysis/paper_stats/noise_ceiling_16win.csv"
 
-EMOTIONS = {"all": np.arange(0, 18), "fear": np.arange(0, 6),
-            "happy": np.arange(6, 12), "neutral": np.arange(12, 18)}
+EMOTIONS = rsa_core.EMOTIONS["18"]
 CONTROLS = ["identity", "identity_graded", "pixel_diff", "motion_energy", "optical_flow"]
 
 
@@ -46,24 +45,13 @@ def spearman(x, y):
     return float(np.corrcoef(rx, ry)[0, 1])
 
 
-def load_eeg():
-    roi_f = sorted(p for p in EEG_ROI_DIR.glob("*_windowed_rdms.npy")
-                   if not p.name.startswith("group"))
-    ws_f = sorted(EEG_WS_DIR.glob("*_wholescalp_rdms.npy"))
-    roi = np.stack([np.load(p) for p in roi_f], 0)
-    ws = np.stack([np.load(p) for p in ws_f], 0)
-    rois = [str(x) for x in np.load(EEG_ROI_DIR / "roi_order.npy", allow_pickle=True)]
-    return np.concatenate([roi, ws[:, None]], 1), rois + ["wholescalp"]
-
-
 def main():
     RES_DIR.mkdir(parents=True, exist_ok=True)
     NC_OUT.parent.mkdir(parents=True, exist_ok=True)
 
-    eeg, scopes = load_eeg()
-    S, O, W = eeg.shape[0], eeg.shape[1], eeg.shape[2]
-    wb_p = EEG_ROI_DIR / "window_bounds.npy"
-    wb = np.load(wb_p) if wb_p.exists() else np.zeros((W, 2), int)
+    eeg, _, scopes = rsa_core.load_eeg("18")
+    S, W = eeg.shape[0], eeg.shape[2]
+    wb = rsa_core.window_bounds("18")
     print(f"[eeg] {eeg.shape} scopes={scopes}")
 
     ctrl_rdms = {}

@@ -24,20 +24,18 @@ Outputs (analysis/rsa_grid/):
 """
 import argparse
 import csv
-import os
 from pathlib import Path
 
 import numpy as np
 from scipy.stats import rankdata
 
-ROOT = Path(os.environ.get("FER_ROOT", "."))
-EEG_ROI_DIR = ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full"
-EEG_WS_DIR = ROOT / "eeg_data/Unmasked_avg_wholescalp_16win"
+import rsa_core
+
+ROOT = rsa_core.ROOT
 MDIR = ROOT / "analysis/model_rdms_canonical"
 OUT_DIR = ROOT / "analysis/rsa_grid"
 
-EMOTIONS = {"all": np.arange(0, 18), "fear": np.arange(0, 6),
-            "happy": np.arange(6, 12), "neutral": np.arange(12, 18)}
+EMOTIONS = rsa_core.EMOTIONS["18"]
 
 
 def upper(r):
@@ -52,31 +50,6 @@ def rank_normalise(v):
     rc = r - r.mean(-1, keepdims=True)
     n = np.linalg.norm(rc, axis=-1, keepdims=True)
     return np.divide(rc, np.clip(n, 1e-12, None)), (n[..., 0] < 1e-12)
-
-
-def load_eeg():
-    """-> (S, 7, 16, 18, 18), subject ids, scope names. ROIs first, wholescalp last.
-
-    All 26 participants of the 18-stimulus EEG folders.
-    """
-    roi_files = sorted(p for p in EEG_ROI_DIR.glob("*_windowed_rdms.npy")
-                       if not p.name.startswith("group"))
-    ws_files = sorted(EEG_WS_DIR.glob("*_wholescalp_rdms.npy"))
-    roi_subs = [p.name.replace("_windowed_rdms.npy", "") for p in roi_files]
-    ws_subs = [p.name.replace("_wholescalp_rdms.npy", "") for p in ws_files]
-    if roi_subs != ws_subs:
-        raise SystemExit(f"ABORT: subject mismatch between EEG sets\n"
-                         f"  per-ROI only: {sorted(set(roi_subs) - set(ws_subs))}\n"
-                         f"  wholescalp only: {sorted(set(ws_subs) - set(roi_subs))}")
-
-    roi = np.stack([np.load(p) for p in roi_files], 0)          # (S, 6, 16, 18, 18)
-    ws = np.stack([np.load(p) for p in ws_files], 0)            # (S, 16, 18, 18)
-    if roi.ndim != 5 or ws.ndim != 4:
-        raise SystemExit(f"ABORT: unexpected EEG shapes {roi.shape} / {ws.shape}")
-
-    rois = [str(x) for x in np.load(EEG_ROI_DIR / "roi_order.npy", allow_pickle=True)]
-    eeg = np.concatenate([roi, ws[:, None]], axis=1)            # (S, 7, 16, 18, 18)
-    return eeg, roi_subs, rois + ["wholescalp"]
 
 
 def main():
@@ -94,7 +67,7 @@ def main():
     out_dir = Path(args.out_dir) if args.out_dir else OUT_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    eeg, subjects, scopes = load_eeg()
+    eeg, subjects, scopes = rsa_core.load_eeg("18")
     if args.n_windows is not None:
         if args.n_windows <= 0 or args.n_windows > eeg.shape[2]:
             raise SystemExit(f"ABORT: --n-windows must be in [1,{eeg.shape[2]}]")
@@ -102,8 +75,7 @@ def main():
     S, O, W = eeg.shape[0], eeg.shape[1], eeg.shape[2]
     print(f"[eeg] {S} subjects x {O} scopes x {W} windows: {scopes}")
 
-    wb_path = EEG_ROI_DIR / "window_bounds.npy"
-    window_bounds = np.load(wb_path)[:W] if wb_path.exists() else np.zeros((W, 2))
+    window_bounds = rsa_core.window_bounds("18")[:W]
 
     tags = args.models or sorted(p.name[:-4] for p in model_dir.glob("*_weights.npy")
                                  if not p.name.endswith(("_fear.npy", "_happy.npy",

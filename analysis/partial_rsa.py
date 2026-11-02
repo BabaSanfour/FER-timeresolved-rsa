@@ -21,14 +21,13 @@ from __future__ import annotations
 
 import argparse
 import csv
-from pathlib import Path
 
 import numpy as np
 from scipy.stats import rankdata
 
-import eeg54
+import rsa_core
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = rsa_core.ROOT
 CONTROL_NAMES = ("identity", "pixel_diff", "motion_energy", "optical_flow")
 EMOTIONS = ("all", "fear", "happy", "neutral")
 
@@ -70,46 +69,6 @@ def residual_normalise(vectors: np.ndarray, basis: np.ndarray) -> tuple[np.ndarr
     return values, invalid
 
 
-def subject_ids_18() -> list[str]:
-    """All 26 participants of the 18-stimulus folders (incl. CEG, who has no 54-stimulus data)."""
-    directory = ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full"
-    return sorted(p.name.removesuffix("_windowed_rdms.npy") for p in directory.glob("*_windowed_rdms.npy")
-                  if not p.name.startswith("group"))
-
-
-def load_eeg_18(emotion: str, subjects: list[str]) -> tuple[np.ndarray, list[str]]:
-    roi_dir = ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full"
-    ws_dir = ROOT / "eeg_data/Unmasked_avg_wholescalp_16win"
-    roi = np.stack([np.load(roi_dir / f"{s}_windowed_rdms.npy") for s in subjects])
-    ws = np.stack([np.load(ws_dir / f"{s}_wholescalp_rdms.npy") for s in subjects])
-    scopes = [str(x) for x in np.load(roi_dir / "roi_order.npy", allow_pickle=True)] + ["wholescalp"]
-    eeg = np.concatenate([roi, ws[:, None]], axis=1)
-    indices = {
-        "all": np.arange(18), "fear": np.arange(6),
-        "happy": np.arange(6, 12), "neutral": np.arange(12, 18),
-    }[emotion]
-    return eeg[..., indices, :][..., indices], scopes
-
-
-def subject_ids_54() -> list[str]:
-    return eeg54.subjects(ROOT / "eeg_rdms_complete")
-
-
-def load_eeg_54(emotion: str, subjects: list[str]) -> tuple[np.ndarray, list[str]]:
-    """In the model stimulus order; missing stimuli stay NaN (see eeg54.py)."""
-    base = ROOT / "eeg_rdms_complete"
-    scopes = [str(x) for x in np.load(base / "roi_order.npy", allow_pickle=True)] + ["wholescalp"]
-    return eeg54.load(subjects, emotion, base), scopes
-
-
-def condition_indices(dataset: int, emotion: str) -> np.ndarray:
-    size = 6 if dataset == 18 else 18
-    return {
-        "all": np.arange(size * 3), "fear": np.arange(size),
-        "happy": np.arange(size, size * 2), "neutral": np.arange(size * 2, size * 3),
-    }[emotion]
-
-
 def model_tags(dataset: int) -> list[str]:
     grid_dir = ROOT / ("analysis/rsa_grid" if dataset == 18 else "analysis/rsa_grid_54")
     return sorted(p.name.removesuffix("_rsa_grid.npz") for p in grid_dir.glob("*_rsa_grid.npz"))
@@ -122,7 +81,7 @@ def main() -> None:
     args = parser.parse_args()
 
     dataset = args.dataset
-    subjects = subject_ids_18() if dataset == 18 else subject_ids_54()
+    subjects = rsa_core.subjects(str(dataset))
     model_dir = ROOT / ("analysis/model_rdms_canonical" if dataset == 18 else "analysis/model_rdms_54")
     control_dir = ROOT / ("analysis/motion_controls/rdms" if dataset == 18 else
                           "analysis/motion_controls_54/rdms")
@@ -142,10 +101,9 @@ def main() -> None:
         scopes_out = None
 
         for emotion in EMOTIONS:
-            eeg, scopes = (load_eeg_18(emotion, subjects) if dataset == 18 else
-                           load_eeg_54(emotion, subjects))
+            eeg, _, scopes = rsa_core.load_eeg(str(dataset), emotion, subjects)
             scopes_out = scopes
-            indices = condition_indices(dataset, emotion)
+            indices = rsa_core.EMOTIONS[str(dataset)][emotion]
             model_condition = model[..., indices, :][..., indices]
             model_vectors = upper(model_condition)
             eeg_vectors = upper(eeg)
@@ -156,7 +114,7 @@ def main() -> None:
 
             # Participants with a missing video are analysed on their available pairs:
             # ranks, nuisance basis and residuals are all recomputed on that subset.
-            groups = eeg54.pair_groups(eeg_vectors)
+            groups = rsa_core.pair_groups(eeg_vectors)
             for set_name, selected in control_sets:
                 grid = np.full(eeg_vectors.shape[:2] + model_vectors.shape[:2], np.nan, np.float32)
                 for gi, (sidx, keep) in enumerate(groups):

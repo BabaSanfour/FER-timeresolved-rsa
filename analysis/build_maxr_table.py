@@ -22,18 +22,17 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import rankdata
 
+import rsa_core
+
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID_DIRS = [
     ROOT / "analysis/rsa_grid",
     ROOT / "analysis/rsa_grid_today",
     ROOT / "analysis/rsa_grid_facenet_original_vggface2_affectnet_16win",
 ]
-EEG_ROI_DIR = ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full"
-EEG_WS_DIR = ROOT / "eeg_data/Unmasked_avg_wholescalp_16win"
 OUT = ROOT / "analysis/paper_stats"
 
-EMOTIONS = {"all": np.arange(0, 18), "fear": np.arange(0, 6),
-            "happy": np.arange(6, 12), "neutral": np.arange(12, 18)}
+EMOTIONS = rsa_core.EMOTIONS["18"]
 ROI_AVG, EMO_AVG = "ROI-avg", "emo-avg"
 
 # family -> [(state, rdm tag)]. vgg16bn_random doubles as the vgg16 control:
@@ -81,16 +80,6 @@ def spearman(x, y):
     return float(np.corrcoef(rx, ry)[0, 1])
 
 
-def load_eeg():
-    roi_f = sorted(p for p in EEG_ROI_DIR.glob("*_windowed_rdms.npy")
-                   if not p.name.startswith("group"))
-    ws_f = sorted(EEG_WS_DIR.glob("*_wholescalp_rdms.npy"))
-    roi = np.stack([np.load(p) for p in roi_f], 0)
-    ws = np.stack([np.load(p) for p in ws_f], 0)
-    rois = [str(x) for x in np.load(EEG_ROI_DIR / "roi_order.npy", allow_pickle=True)]
-    return np.concatenate([roi, ws[:, None]], 1), rois + ["wholescalp"]
-
-
 def noise_ceilings(eeg):
     """(S,O,W,18,18) -> lower/upper arrays (O, n_emotion, W)."""
     S, O, W = eeg.shape[0], eeg.shape[1], eeg.shape[2]
@@ -121,10 +110,8 @@ def grid_path(tag):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    eeg, scopes = load_eeg()
-    W = eeg.shape[2]
-    wb = np.load(EEG_ROI_DIR / "window_bounds.npy") if (EEG_ROI_DIR / "window_bounds.npy").exists() \
-        else np.zeros((W, 2), int)
+    eeg, _, scopes = rsa_core.load_eeg("18")
+    wb = rsa_core.window_bounds("18")
     print(f"[eeg] {eeg.shape}  scopes={scopes}")
 
     print("[nc] computing noise ceilings ...")
