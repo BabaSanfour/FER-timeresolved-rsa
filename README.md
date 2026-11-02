@@ -117,7 +117,7 @@ Alliance of Canada) H100 GPUs; `trillium/` holds the job scripts. Every run has 
 | VGGFace2-HQ training archives 01--06 (726,502 images) | `DEST=$FER_ROOT/data/vggface_dataset bash data/get_vggface2_hq.sh` (accept the dataset terms on HuggingFace first) | sizes of the six zips |
 | Image lists: full pool and validation | `python vggface_train/build_index.py --root $FER_ROOT/data/vggface_dataset/VGGface2_None_norm_512_true_bygfpgan --out vggface_train/index` | 715,810 train, 10,692 val |
 | Image lists: subsets | `python vggface_train/build_subset_indexes.py` (10k--500k, 10 repeats) | reproduce the lists on Drive byte for byte |
-| Decoded-image cache (36 GB) | `python vggface_train/build_decode_cache.py --data-root ... --index-dir vggface_train/index --out-dir $FER_ROOT/data/vggface_cache` (also built by `trillium/bench.sh`) | 200-image spot check |
+| Decoded-image cache (36 GB) | `python vggface_train/build_decode_cache.py --data-root ... --index-dir vggface_train/index --out-dir $FER_ROOT/data/vggface_cache` | 200-image spot check |
 | AffectNet, 3 classes | `bash data/get_affectnet_3class.sh` (Kaggle token) | archive checksum and per-class counts |
 | VGG-Face weights | `bash data/get_vgg_face.sh` | checksum |
 
@@ -135,8 +135,8 @@ Re-running it skips finished runs and resumes unfinished ones. Outputs go to
 | AffectNet fine-tuning: ResNet18, ResNet50, FaceNet (from their pretraining `best_weights.pt`) and VGG16 (from VGG-Face) | `affectnet_3class_train/train_affectnet.py`; epoch chosen on a fixed, class-balanced 10% of Train; Test evaluated once (`test_metrics.json`) | `results/finetune/<arch>/repeat_NN/` |
 | M3DFEL on DFEW fold 3 (not retrained: DFEW requires a licence) | `M3DFEL/prepare_dfew_3class.sh`, `M3DFEL/train_dfew_3class.sh` (5 folds; fold 3 used) | `M3DFEL/results/17812056/fold_3/best_weights.pt` |
 
-`trillium/bench.sh` measures throughput per model and packing (FaceNet: 9.1k images/s alone,
-16.1k with three runs per H100). The 180 runs took about 180 GPU-hours.
+Packing was chosen from a throughput benchmark (FaceNet: 9.1k images/s alone, 16.1k with three
+runs per H100). The 180 runs took about 180 GPU-hours.
 
 The first version of the paper used single training runs (18-epoch full-pool models, a bootstrap
 "800k" subset, AffectNet epochs chosen on the Test folder); their scripts are in the git history and
@@ -163,7 +163,7 @@ stimuli).
 
 | | Script | Output |
 |---|---|---|
-| 18 stimuli, 26 participants | `analysis/rsa_grid.py --stimuli 18 --models <tags> [--model-dir] [--out-dir]` (also called by the drivers above, and by `vggface_train/run_facenet_low_size_rsa.sh`; random-seed ensembles: `--model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
+| 18 stimuli, 26 participants | `analysis/rsa_grid.py --stimuli 18 --models <tags> [--model-dir] [--out-dir]` (random-seed ensembles: `--model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
 | 54 stimuli, 25 participants | `analysis/rsa_grid.py --stimuli 54 --models <tags> [--model-dir] [--out-dir]` | `analysis/rsa_grid_54/` |
 
 Each grid file holds the participant × scalp analysis (6 ROIs + whole scalp) × layer × condition
