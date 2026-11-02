@@ -69,11 +69,10 @@ def residual_normalise(vectors: np.ndarray, basis: np.ndarray) -> tuple[np.ndarr
 
 
 def subject_ids_18() -> list[str]:
+    """All 26 participants of the 18-stimulus folders (incl. CEG, who has no 54-stimulus data)."""
     directory = ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full"
-    complete = set(subject_ids_54())
     return sorted(p.name.removesuffix("_windowed_rdms.npy") for p in directory.glob("*_windowed_rdms.npy")
-                  if not p.name.startswith("group") and
-                  p.name.removesuffix("_windowed_rdms.npy") in complete)
+                  if not p.name.startswith("group"))
 
 
 def load_eeg_18(emotion: str, subjects: list[str]) -> tuple[np.ndarray, list[str]]:

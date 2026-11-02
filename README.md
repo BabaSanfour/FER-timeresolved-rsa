@@ -53,9 +53,9 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 
 | Result in the paper | Script | Command | Reads | Writes |
 |---|---|---|---|---|
-| **Table 1** (`tab:main-results`), 18 stimuli, ρ<sub>max</sub> per scalp analysis | `analysis/build_paper_tables.py` | `python analysis/build_maxr_table.py` (trained rows), then `python analysis/build_paper_tables.py` | trained rows: `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/` via `analysis/paper_stats/timelocked_maxr_over_layers.csv`; Random rows: `analysis/seed_variability/results/no-ceg_summary.csv` | `analysis/paper_stats/table_main_results.tex` |
-| ↳ Random rows (mean ± SD over seeds) | `analysis/seed_variability/` | RDMs: `STAGE=cnn sbatch analysis/seed_variability/run_extract_seeds.sh`, `STAGE=qwen sbatch …`; grids: `python analysis/seed_variability/rsa_grid_seeds.py --cohort no-ceg --model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_no-ceg`; summary: `python analysis/seed_variability/aggregate_seeds.py --seed-grids analysis/seed_variability/rsa_no-ceg --pretrained-grids analysis/seed_variability/rsa_noceg_pretrained --cohort-label no-ceg --out-prefix analysis/seed_variability/results/no-ceg` | `stim_frames/`, EEG RDMs | `analysis/seed_variability/{rdms,rsa_no-ceg,results}/` |
-| **Fig. 2**, matched training comparisons (`new_model_comparison.pdf`) | `analysis/seed_variability/plot_model_comparison_seeds.py` | `python analysis/seed_variability/plot_model_comparison_seeds.py --out analysis/seed_variability/results/new_model_comparison` | `analysis/seed_variability/rsa_no-ceg/`, `rsa_noceg_pretrained/`, `analysis/layer_matched/rsa_no-ceg/`; EEG RDMs (lower noise ceiling) | `analysis/seed_variability/results/new_model_comparison.{pdf,png}` |
+| **Table 1** (`tab:main-results`), 18 stimuli, ρ<sub>max</sub> per scalp analysis | `analysis/build_paper_tables.py` | `python analysis/build_maxr_table.py` (trained rows), then `python analysis/build_paper_tables.py` | trained rows: `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/` via `analysis/paper_stats/timelocked_maxr_over_layers.csv`; Random rows: `analysis/seed_variability/results/with-ceg_summary.csv` | `analysis/paper_stats/table_main_results.tex` |
+| ↳ Random rows (mean ± SD over seeds) | `analysis/seed_variability/` | RDMs: `STAGE=cnn sbatch analysis/seed_variability/run_extract_seeds.sh`, `STAGE=qwen sbatch …`; grids: `python analysis/seed_variability/rsa_grid_seeds.py --cohort with-ceg --model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_with-ceg`; summary: `python analysis/seed_variability/aggregate_seeds.py --seed-grids analysis/seed_variability/rsa_with-ceg --pretrained-grids analysis/seed_variability/rsa_with-ceg_pretrained --cohort-label with-ceg --out-prefix analysis/seed_variability/results/with-ceg` | `stim_frames/`, EEG RDMs | `analysis/seed_variability/{rdms,rsa_with-ceg,results}/` |
+| **Fig. 2**, matched training comparisons (`new_model_comparison.pdf`) | `analysis/seed_variability/plot_model_comparison_seeds.py` | `python analysis/seed_variability/plot_model_comparison_seeds.py --out analysis/seed_variability/results/new_model_comparison` | `analysis/seed_variability/rsa_with-ceg/`, `rsa_with-ceg_pretrained/`, `analysis/layer_matched/rsa_with-ceg/`; EEG RDMs (lower noise ceiling) | `analysis/seed_variability/results/new_model_comparison.{pdf,png}` |
 | ROI-averaged ρ<sub>max</sub> in Sections 4.1 and 4.3 | as Table 1 and the seed table | | | |
 | **Fig. 3**, FaceNet training-set size (`facenet_vggface2_size.pdf`) and its values in Section 4.2 | `analysis/summarize_facenet_low_size_repeats.py`, `analysis/plot_facenet_size_curve.py` | `python analysis/summarize_facenet_low_size_repeats.py && python analysis/plot_facenet_size_curve.py` | `analysis/rsa_grid_facenet_size_repeats/` (10 repeats per size; "800k" = `800k_bootstrap`) | `analysis/facenet_low_size_repeats/max_r_facenet_all_sizes.csv`, `facenet_vggface2_size_curve.pdf` |
 | 54-stimulus ρ<sub>max</sub> (Section 4.4) | `analysis/build_maxr_table_54.py` | `python analysis/build_maxr_table_54.py` | `analysis/rsa_grid_54/` | `analysis/paper_stats_54/timelocked_maxr_54.csv` |
@@ -73,7 +73,7 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | Scalp ROI definitions | `eeg/roi_definitions.json` | | | |
 | Model details: analyzed layers | the `layer_order` of each RDM's `.layers.json` (written by the extraction scripts) | | | |
 | Model details: training recipes and accuracies | `vggface_train/train.py`, `affectnet_3class_train/train_affectnet.py`, `M3DFEL/main.py` (see [Training](#3-training)) | `bash trillium/submit_all.sh` | | `results/*/repeat_NN/train.log`, `metrics.csv`, `test_metrics.json`; M3DFEL: `log.txt` |
-| Random-initialization variability table (`tab:seeds`) | `analysis/build_paper_tables.py` | as Table 1 | `analysis/seed_variability/results/no-ceg_{summary,per_seed}.csv` | `analysis/paper_stats/table_seeds.tex` |
+| Random-initialization variability table (`tab:seeds`) | `analysis/build_paper_tables.py` | as Table 1 | `analysis/seed_variability/results/with-ceg_{summary,per_seed}.csv` | `analysis/paper_stats/table_seeds.tex` |
 | Linear probing (18 and 54 videos) | `analysis/evaluate_all_models_linear_54.py`, `analysis/export_predictions_same_models_54.py` | no arguments | `analysis/model_rdms_54/` | `analysis/model_performance_54/complete_54/` |
 | Linear-probing figure (`model_accuracy_summary_54.pdf`) | `analysis/plot_accuracy_summary_54.py` | `python analysis/plot_accuracy_summary_54.py` | `analysis/model_performance_54/complete_54/performance_54_same_models.csv` | `analysis/model_performance_54/complete_54/model_accuracy_summary_54.pdf` |
 
@@ -86,10 +86,9 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | 18-stimulus per-ROI RDMs, `(6, 16, 18, 18)` per participant | `eeg/compute_windowed_eeg_rdms_16win.py` | Reads per-participant condition-averaged epochs `eeg_data/Unmasked_avg/*_avg.pkl` (not distributed); writes `eeg_data/Unmasked_avg_windowed_rdms_16win_full/` |
 | 18-stimulus whole-scalp RDMs, 54-stimulus per-ROI and whole-scalp RDMs | none | Distributed as data (`eeg_data/Unmasked_avg_wholescalp_16win/`, `eeg_rdms_complete/`) |
 
-The 18-stimulus folders contain 25 participants. The seed-ensemble analyses (Table 1 Random rows,
-the seed table, Fig. 2) use the 25 shared with the 54-stimulus set (`--cohort no-ceg`).
-`analysis/rsa_full_grid.py`, whose grids give Table 1's trained rows and the 18-stimulus cluster
-tests, and `build_control_rsa.py` (noise ceilings) read all 25. 
+The 18-stimulus folders contain 26 participants, and every 18-stimulus analysis uses all 26
+(`--cohort with-ceg`, the default of `analysis/rsa_full_grid.py`). The 54-stimulus folders contain 25:
+participant CEG has no 54-stimulus data.
 
 ### 2. Stimuli
 
@@ -161,7 +160,7 @@ stimuli).
 | | Script | Output |
 |---|---|---|
 | 18 stimuli, 26 participants | `analysis/rsa_full_grid.py --models <tags> [--model-dir] [--out-dir] [--cohort with-ceg]` (also called by the drivers above, and by `vggface_train/run_facenet_low_size_rsa.sh`, `run_facenet_repeated_rsa_summary.sh`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
-| 18 stimuli, 25 participants (Table 1, Figure 1) | `analysis/seed_variability/rsa_grid_seeds.py --cohort no-ceg` | `analysis/seed_variability/rsa_no-ceg/`, `rsa_noceg_pretrained/`, `analysis/layer_matched/rsa_no-ceg/` |
+| 18 stimuli, random-seed ensembles (Table 1, Fig. 2) | `analysis/seed_variability/rsa_grid_seeds.py --cohort with-ceg` | `analysis/seed_variability/rsa_with-ceg/`, `rsa_with-ceg_pretrained/`, `analysis/layer_matched/rsa_with-ceg/` |
 | 54 stimuli | `analysis/rsa_full_grid_54.py --models <tags>` | `analysis/rsa_grid_54/` |
 
 Each grid file holds the participant × scalp analysis (6 ROIs + whole scalp) × layer × condition

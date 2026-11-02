@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""ROI-averaged max_r bar plot (x = emotion) for all models, 25-subject cohort,
+"""ROI-averaged max_r bar plot (x = emotion) for all models, 26-subject cohort,
 with the random-init bars replaced by the seed ensemble (mean +/- 1 SD).
 
 Redraws panel 3 of analysis/plot_maxr_barplots_allmodels.py (the paper's
 figures/new_model_comparison.pdf) on the same data as the regenerated Table 1:
 
-  random   per-seed grids in seed_variability/rsa_no-ceg; rho_max is taken per
+  random   per-seed grids in seed_variability/rsa_with-ceg; rho_max is taken per
            seed and only then averaged (see aggregate_seeds.py), error bar = SD
-  trained  seed_variability/rsa_noceg_pretrained, except the two Complete
+  trained  seed_variability/rsa_with-ceg_pretrained, except the two Complete
            VGGFace2 FaceNet rows, read from the layer-matched grids with the
            random 3-unit head dropped (as in layer_matched/build_table1.py)
 
-Noise ceilings are recomputed on the same 25 subjects, at the window of each
+Noise ceilings are recomputed on the same 26 subjects, at the window of each
 per-cell maximum, and averaged exactly as build_maxr_table.py does. A random
 bar is grey when its seed-mean lies below the seed-mean lower ceiling.
 """
@@ -35,9 +35,9 @@ import build_maxr_table as B          # noqa: E402  (noise_ceilings)
 from rsa_grid_seeds import load_eeg   # noqa: E402
 from aggregate_seeds import FAMILIES as SEED_FAMILIES  # noqa: E402
 
-SEED_DIR = HERE / "rsa_no-ceg"
-GRID_DIR = HERE / "rsa_noceg_pretrained"
-MATCHED_DIR = ROOT / "analysis" / "layer_matched" / "rsa_no-ceg"
+SEED_DIR = HERE / "rsa_with-ceg"
+GRID_DIR = HERE / "rsa_with-ceg_pretrained"
+MATCHED_DIR = ROOT / "analysis" / "layer_matched" / "rsa_with-ceg"
 
 EMOS = ["all", "fear", "happy", "neutral", "emo-avg"]
 N_ROI = 6
@@ -98,10 +98,10 @@ def load(path, drop_last=False):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, help="output path without extension")
-    ap.add_argument("--csv", default=str(HERE / "results" / "model_comparison_no-ceg.csv"))
+    ap.add_argument("--csv", default=str(HERE / "results" / "model_comparison_with-ceg.csv"))
     args = ap.parse_args()
 
-    eeg, subjects, _ = load_eeg("no-ceg")
+    eeg, subjects, _ = load_eeg("with-ceg")
     print(f"[eeg] {len(subjects)} subjects; computing noise ceilings ...")
     lo, _up = B.noise_ceilings(eeg)                    # (7, 4, W)
 
