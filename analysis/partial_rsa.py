@@ -26,6 +26,8 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import rankdata
 
+import eeg54
+
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL_NAMES = ("identity", "pixel_diff", "motion_energy", "optical_flow")
 EMOTIONS = ("all", "fear", "happy", "neutral")
@@ -90,16 +92,14 @@ def load_eeg_18(emotion: str, subjects: list[str]) -> tuple[np.ndarray, list[str
 
 
 def subject_ids_54() -> list[str]:
-    directory = ROOT / "eeg_rdms_complete/perroi"
-    return sorted(p.name.removesuffix("_all_rdms.npy") for p in directory.glob("*_all_rdms.npy"))
+    return eeg54.subjects(ROOT / "eeg_rdms_complete")
 
 
 def load_eeg_54(emotion: str, subjects: list[str]) -> tuple[np.ndarray, list[str]]:
+    """In the model stimulus order; missing stimuli stay NaN (see eeg54.py)."""
     base = ROOT / "eeg_rdms_complete"
-    roi = np.stack([np.load(base / "perroi" / f"{s}_{emotion}_rdms.npy") for s in subjects])
-    ws = np.stack([np.load(base / "wholescalp" / f"{s}_{emotion}_rdms.npy") for s in subjects])
     scopes = [str(x) for x in np.load(base / "roi_order.npy", allow_pickle=True)] + ["wholescalp"]
-    return np.concatenate([roi, ws[:, None]], axis=1), scopes
+    return eeg54.load(subjects, emotion, base), scopes
 
 
 def condition_indices(dataset: int, emotion: str) -> np.ndarray:
@@ -154,14 +154,21 @@ def main() -> None:
             control_sets = [(name, [i]) for i, name in enumerate(CONTROL_NAMES)]
             control_sets.append(("joint", list(range(len(CONTROL_NAMES)))))
 
+            # Participants with a missing video are analysed on their available pairs:
+            # ranks, nuisance basis and residuals are all recomputed on that subset.
+            groups = eeg54.pair_groups(eeg_vectors)
             for set_name, selected in control_sets:
-                basis, retained_local = nuisance_basis([control_vectors[i] for i in selected])
-                retained = [CONTROL_NAMES[selected[i]] for i in retained_local]
-                ez, e_invalid = residual_normalise(eeg_vectors, basis)
-                mz, m_invalid = residual_normalise(model_vectors, basis)
-                grid = np.einsum("sowp,lwp->solw", ez, mz, optimize=True).astype(np.float32)
-                grid[np.broadcast_to(e_invalid[:, :, None, :], grid.shape)] = np.nan
-                grid[np.broadcast_to(m_invalid[None, None, :, :], grid.shape)] = np.nan
+                grid = np.full(eeg_vectors.shape[:2] + model_vectors.shape[:2], np.nan, np.float32)
+                for gi, (sidx, keep) in enumerate(groups):
+                    basis, retained_local = nuisance_basis([control_vectors[i][keep] for i in selected])
+                    if gi == 0:  # the group with the most pairs (all of them when anyone is complete)
+                        retained = [CONTROL_NAMES[selected[i]] for i in retained_local]
+                    ez, e_invalid = residual_normalise(eeg_vectors[sidx][..., keep], basis)
+                    mz, m_invalid = residual_normalise(model_vectors[..., keep], basis)
+                    part = np.einsum("sowp,lwp->solw", ez, mz, optimize=True).astype(np.float32)
+                    part[np.broadcast_to(e_invalid[:, :, None, :], part.shape)] = np.nan
+                    part[np.broadcast_to(m_invalid[None, None, :, :], part.shape)] = np.nan
+                    grid[sidx] = part
                 group = np.nanmean(grid, axis=0)
                 maxima = []
                 for oi, scope in enumerate(scopes):

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Time-locked RSA between five 54-stimulus control RDMs and complete EEG RDMs."""
+"""Time-locked RSA between five 54-stimulus control RDMs and complete EEG RDMs.
+
+EEG in the model stimulus order; participants with a missing video use the pairs
+they have, in the control RSA and in the noise ceilings (see eeg54.py).
+"""
 import csv
 from pathlib import Path
 
 import numpy as np
 from scipy.stats import rankdata
+
+import eeg54
 
 ROOT = Path(".")
 EEG = ROOT / "eeg_rdms_complete"
@@ -23,24 +29,20 @@ def upper(x):
 
 
 def spear(x, y):
-    x, y = rankdata(x), rankdata(y)
+    """Spearman on the pairs finite in both (a participant's available stimuli)."""
+    keep = np.isfinite(x) & np.isfinite(y)
+    x, y = rankdata(x[keep]), rankdata(y[keep])
     if x.std() == 0 or y.std() == 0:
         return np.nan
     return np.corrcoef(x, y)[0, 1]
 
 
 def subjects():
-    return sorted(p.name.removesuffix("_all_rdms.npy")
-                  for p in (EEG / "perroi").glob("*_all_rdms.npy"))
+    return eeg54.subjects(EEG)
 
 
 def load_eeg(subjects_, emotion, scope_index):
-    data = []
-    directory = EEG / ("perroi" if scope_index < 6 else "wholescalp")
-    for subject in subjects_:
-        arr = np.load(directory / f"{subject}_{emotion}_rdms.npy")
-        data.append(arr[scope_index] if scope_index < 6 else arr)
-    return np.stack(data)
+    return eeg54.load(subjects_, emotion, EEG)[:, scope_index]
 
 
 def main():
@@ -52,13 +54,14 @@ def main():
         for emotion in EMOTIONS:
             eeg = load_eeg(subs, emotion, oi)  # subject, window, n, n
             ev = upper(eeg)
-            group = ev.mean(0)
-            total = ev.sum(0)
+            group = np.nanmean(ev, 0)            # per pair, over the participants who have it
+            total = np.nansum(ev, 0)
+            count = np.isfinite(ev).sum(0).astype(ev.dtype)
             lower, upper_nc = [], []
             for w in range(ev.shape[1]):
                 upper_nc.append(np.nanmean([spear(ev[s, w], group[w]) for s in range(len(subs))]))
                 lower.append(np.nanmean([
-                    spear(ev[s, w], (total[w] - ev[s, w]) / (len(subs) - 1))
+                    spear(ev[s, w], (total[w] - ev[s, w]) / (count[w] - 1))
                     for s in range(len(subs))
                 ]))
             idx = SLICES[emotion]

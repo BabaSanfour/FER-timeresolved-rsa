@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Time-locked EEG/model RSA for the 54-stimulus occlusion study."""
+"""Time-locked EEG/model RSA for the 54-stimulus occlusion study.
+
+The pooled EEG is reordered to the model stimulus order, and participants with a
+missing video are analysed on the stimulus pairs they have (see eeg54.py).
+"""
 import argparse
 import csv
 from pathlib import Path
 
 import numpy as np
 
+import eeg54
 from rsa_full_grid import upper, rank_normalise
 
 ROOT = Path(".")
@@ -14,30 +19,16 @@ MDIR = ROOT / "analysis/model_rdms_54"
 EMOTIONS = ("all", "fear", "happy", "neutral")
 
 
-def subjects():
-    roi = {p.name.split("_", 1)[0] for p in (EEG / "perroi").glob("*_all_rdms.npy")}
-    ws = {p.name.split("_", 1)[0] for p in (EEG / "wholescalp").glob("*_all_rdms.npy")}
-    if roi != ws:
-        raise RuntimeError(f"subject mismatch: ROI-only={roi-ws}, WS-only={ws-roi}")
-    return sorted(roi)
-
-
-def load_eeg(subs, emotion):
-    roi = np.stack([np.load(EEG / "perroi" / f"{s}_{emotion}_rdms.npy") for s in subs])
-    ws = np.stack([np.load(EEG / "wholescalp" / f"{s}_{emotion}_rdms.npy") for s in subs])
-    return np.concatenate([roi, ws[:, None]], axis=1)
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="+", required=True)
     ap.add_argument("--out-dir", default=str(ROOT / "analysis/rsa_grid_54"))
     args = ap.parse_args()
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
-    subs = subjects()
+    subs = eeg54.subjects(EEG)
     rois = [str(x) for x in np.load(EEG / "roi_order.npy", allow_pickle=True)]
     scopes = rois + ["wholescalp"]
-    eeg = {emotion: load_eeg(subs, emotion) for emotion in EMOTIONS}
+    eeg = {emotion: eeg54.load(subs, emotion, EEG) for emotion in EMOTIONS}
     W = eeg["all"].shape[2]
     bounds = np.load(EEG / "window_bounds.npy")
     summary = []
@@ -54,12 +45,13 @@ def main():
             if erdm.shape[-1] != mrdm.shape[-1]:
                 raise RuntimeError(f"{tag}/{emotion}: EEG {erdm.shape}, model {mrdm.shape}")
             ev, mv = upper(erdm), upper(mrdm[:, :W])
-            ez, eflat = rank_normalise(ev)
-            mz, mflat = rank_normalise(mv)
-            rsa = np.einsum("sowp,lwp->solw", ez, mz, optimize=True)
-            rsa[np.broadcast_to(mflat[None, None], rsa.shape)] = np.nan
-            rsa[np.broadcast_to(eflat[:, :, None], rsa.shape)] = np.nan
-            grid[:, :, :, ei] = rsa.astype(np.float32)
+            for sidx, keep in eeg54.pair_groups(ev):
+                ez, eflat = rank_normalise(ev[sidx][..., keep])
+                mz, mflat = rank_normalise(mv[..., keep])
+                rsa = np.einsum("sowp,lwp->solw", ez, mz, optimize=True)
+                rsa[np.broadcast_to(mflat[None, None], rsa.shape)] = np.nan
+                rsa[np.broadcast_to(eflat[:, :, None], rsa.shape)] = np.nan
+                grid[sidx, :, :, ei] = rsa.astype(np.float32)
 
         np.savez_compressed(out_dir / f"{tag}_rsa_grid.npz", rsa=grid,
                             subjects=np.array(subs), scopes=np.array(scopes),

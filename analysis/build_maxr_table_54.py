@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Build corrected max-r summary table for the 54-stimulus study."""
+"""Build corrected max-r summary table for the 54-stimulus study.
+
+Noise ceilings use the EEG in the model stimulus order; participants with a
+missing video use the pairs they have (see eeg54.py).
+"""
 import csv
 import os
 from pathlib import Path
 
 import numpy as np
 from scipy.stats import rankdata
+
+import eeg54
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID = ROOT / "analysis/rsa_grid_54"
@@ -61,9 +67,7 @@ def row_rho(x, y):
 
 
 def load_eeg(emotion, subjects):
-    roi = np.stack([np.load(EEG / "perroi" / f"{s}_{emotion}_rdms.npy") for s in subjects])
-    ws = np.stack([np.load(EEG / "wholescalp" / f"{s}_{emotion}_rdms.npy") for s in subjects])
-    return np.concatenate([roi, ws[:, None]], 1)
+    return eeg54.load(subjects, emotion, EEG)
 
 
 def ceilings(subjects):
@@ -73,15 +77,20 @@ def ceilings(subjects):
         S, O, W = eeg.shape[:3]
         lo, up = np.full((O, W), np.nan), np.full((O, W), np.nan)
         vec = upper(eeg)
+        groups = eeg54.pair_groups(vec)
         for oi in range(O):
             for wi in range(W):
                 group = vec[:, oi, wi]
-                total = group.sum(0)
-                gm = group.mean(0)
-                up[oi, wi] = np.nanmean(row_rho(
-                    group, np.broadcast_to(gm, group.shape)))
-                lo[oi, wi] = np.nanmean(row_rho(
-                    group, (total[None] - group) / (S - 1)))
+                total = np.nansum(group, 0)       # per pair, over the participants who have it
+                count = np.isfinite(group).sum(0).astype(group.dtype)
+                gm = total / count
+                ups, los = [], []
+                for sidx, keep in groups:
+                    x = group[sidx][:, keep]
+                    ups.append(row_rho(x, np.broadcast_to(gm[keep], x.shape)))
+                    los.append(row_rho(x, (total[keep][None] - x) / (count[keep][None] - 1)))
+                up[oi, wi] = np.nanmean(np.concatenate(ups))
+                lo[oi, wi] = np.nanmean(np.concatenate(los))
         result[ei] = (lo, up)
     return result
 
