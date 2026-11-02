@@ -14,8 +14,8 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-from rho_max import cell_maxima, N_ROI, EMO_SPECIFIC  # noqa: E402
+sys.path.insert(0, str(HERE.parent))
+import rsa_core  # noqa: E402
 
 ANALYSIS = HERE.parent
 CNN_SEEDS = [42, 0, 1, 2, 3, 4, 5, 6, 7, 8]
@@ -53,12 +53,10 @@ COLS = ["Ant-L", "Ant-R", "Post-L", "Post-R", "Temp-L", "Temp-R", "Whole", "ROI 
 
 
 def eight_columns(rsa):
-    """The eight Table 1 numbers: 6 ROIs, wholescalp, ROI-average -- each the
-    mean over the three emotion-specific per-cell maxima."""
-    c = cell_maxima(rsa)
-    per_roi = [float(np.mean([c[(oi, ei)] for ei in EMO_SPECIFIC])) for oi in range(N_ROI)]
-    whole = float(np.mean([c[(6, ei)] for ei in EMO_SPECIFIC]))
-    return per_roi + [whole, float(np.mean(per_roi))]
+    """The eight Table 1 numbers: 6 ROIs, wholescalp, ROI-average, each averaged
+    over the three emotion-specific per-cell maxima (rsa_core.averaged_cells)."""
+    cells = rsa_core.averaged_cells(rsa_core.cell_maxima(rsa))
+    return [cells[oi, 4][0] for oi in range(8)]
 
 
 def load(grid_dir, tag):

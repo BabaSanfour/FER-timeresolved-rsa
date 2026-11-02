@@ -1,5 +1,5 @@
 """Shared pieces of the RSA analyses: EEG loading for both stimulus sets, the
-rank-correlation helpers and the noise ceilings.
+rank-correlation helpers, the noise ceilings, and the rho_max summary of a grid.
 
 EEG RDMs are returned as (subjects, 7 scopes, windows, n, n): six ROIs in
 `roi_order.npy` order, then the whole scalp, stimuli in the model order
@@ -43,6 +43,13 @@ EMOTIONS = {
            "happy": np.arange(18, 36), "neutral": np.arange(36, 54)},
 }
 MODEL_EMOTION_ORDER = ("fear", "happy", "neutral")
+# RSA grids (rsa_grid.py); for 18 stimuli the later folders only fill missing models
+GRID_DIRS = {"18": [ROOT / "analysis/rsa_grid", ROOT / "analysis/rsa_grid_today",
+                    ROOT / "analysis/rsa_grid_facenet_original_vggface2_affectnet_16win"],
+             "54": [ROOT / "analysis/rsa_grid_54"]}
+N_ROI = 6                    # scopes 0-5 are ROIs, 6 is the whole scalp
+EMO_SPECIFIC = (1, 2, 3)     # emotions are ordered all, fear, happy, neutral
+ROI_AVG, EMO_AVG = "ROI-avg", "emo-avg"
 CONDITIONS_54 = ("unmasked", "glasses", "masked")
 
 
@@ -171,3 +178,50 @@ def noise_ceilings(eeg, stimuli):
                 upper_nc[oi, ei, wi] = np.nanmean(np.concatenate(ups))
                 lower[oi, ei, wi] = np.nanmean(np.concatenate(los))
     return lower, upper_nc
+
+
+def grid_path(stimuli, tag):
+    for directory in GRID_DIRS[stimuli]:
+        path = directory / f"{tag}_rsa_grid.npz"
+        if path.exists():
+            return path
+    return None
+
+
+def cell_maxima(rsa, nc_lower=None, nc_upper=None):
+    """rsa (S, O, L, E, W) -> {(scope, emotion): (rho_max, nc_lower, nc_upper, layer, window)}.
+
+    The grid is averaged over participants first; the maximum over layer x window
+    is then taken separately in each scope x emotion cell (never after averaging
+    cells), and the ceilings (O, E, W) are read at that cell's window.
+    """
+    gm = np.nanmean(rsa, axis=0)                                   # (O, L, E, W)
+    cells = {}
+    for oi in range(gm.shape[0]):
+        for ei in range(gm.shape[2]):
+            block = gm[oi, :, ei, :]
+            if np.all(np.isnan(block)):
+                continue
+            li, wi = np.unravel_index(np.nanargmax(block), block.shape)
+            cells[oi, ei] = (float(block[li, wi]),
+                             np.nan if nc_lower is None else float(nc_lower[oi, ei, wi]),
+                             np.nan if nc_upper is None else float(nc_upper[oi, ei, wi]),
+                             int(li), int(wi))
+    return cells
+
+
+def averaged_cells(cells):
+    """Add the averaged scope (index 7, ROI-avg: the six ROIs) and emotion (index 4,
+    emo-avg: fear, happy, neutral); ROI-avg x emo-avg averages the 18 cells.
+    Values and ceilings are averaged; layer and window become -1."""
+    out = {}
+    for oi in range(N_ROI + 2):
+        for ei in range(len(EMO_SPECIFIC) + 2):
+            if oi <= N_ROI and ei <= len(EMO_SPECIFIC):
+                out[oi, ei] = cells[oi, ei]
+                continue
+            rois = range(N_ROI) if oi == N_ROI + 1 else [oi]
+            emos = EMO_SPECIFIC if ei == len(EMO_SPECIFIC) + 1 else [ei]
+            group = [cells[r, e] for r in rois for e in emos]
+            out[oi, ei] = tuple(float(np.mean([c[j] for c in group])) for j in range(3)) + (-1, -1)
+    return out

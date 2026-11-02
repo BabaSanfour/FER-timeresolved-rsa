@@ -2,7 +2,7 @@
 """Table 1 (tab:main-results) and the random-seed table (tab:seeds) of the paper.
 
 Trained rows: emotion-averaged rho_max from analysis/paper_stats/timelocked_maxr_over_layers.csv
-(written by analysis/build_maxr_table.py from the 18-stimulus RSA grids in
+(written by analysis/maxr_table.py --stimuli 18 from the 18-stimulus RSA grids in
 analysis/rsa_grid/, rsa_grid_today/ and rsa_grid_facenet_original_vggface2_affectnet_16win/).
 
 Random rows and seed ranges: analysis/seed_variability/results/seeds_summary.csv and

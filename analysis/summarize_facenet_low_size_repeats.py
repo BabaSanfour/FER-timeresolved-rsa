@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 
 import rsa_core
-from build_maxr_table import grid_path, EMOTIONS
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID = ROOT / "analysis/rsa_grid_facenet_size_repeats"
@@ -19,7 +18,7 @@ OUT = ROOT / "analysis/facenet_low_size_repeats"
 OUT.mkdir(parents=True, exist_ok=True)
 ROIS = ["Ant-Left", "Ant-Right", "Post-Left", "Post-Right", "Temp-Left", "Temp-Right"]
 SCOPES = ROIS + ["wholescalp", "ROI-avg"]
-EMOS = list(EMOTIONS) + ["emo-avg"]
+EMOS = list(rsa_core.EMOTIONS["18"]) + ["emo-avg"]
 SIZES = [
     ("10k", "10k"), ("50k", "50k"), ("100k", "100k"),
     ("200k", "200k"), ("300k", "300k"), ("500k", "500k"),
@@ -28,43 +27,25 @@ SIZES = [
 BELOW = "#C7C7C7"
 
 
-def aggregate_base(base):
-    out = {}
-    for oi, scope in enumerate(SCOPES):
-        for ei, emotion in enumerate(EMOS):
-            if oi < 7 and ei < 4:
-                cells = [base[oi, ei]]
-            elif oi == 7 and ei < 4:
-                cells = [base[ri, ei] for ri in range(6)]
-            elif oi < 7:
-                cells = [base[oi, xi] for xi in (1, 2, 3)]
-            else:
-                cells = [base[ri, xi] for ri in range(6) for xi in (1, 2, 3)]
-            out[scope, emotion] = tuple(float(np.mean([c[j] for c in cells]))
-                                         for j in range(3))
-    return out
-
-
 def summarize(path, lo, up, statistic):
+    """-> {(scope, emotion): (value, nc_lower, nc_upper)}; max_r is rho_max
+    (rsa_core.cell_maxima), mean_r the mean over layer x window, with the
+    window-averaged ceilings."""
     rsa = np.load(path, allow_pickle=True)["rsa"]
-    gm = np.nanmean(rsa, axis=0)
-    base = {}
-    for oi in range(7):
-        for ei in range(4):
-            if statistic == "max_r":
-                block = gm[oi, :, ei, :]
-                li, wi = np.unravel_index(np.nanargmax(block), block.shape)
-                value = block[li, wi]
-                lower, upper = lo[oi, ei, wi], up[oi, ei, wi]
-            else:
-                value = np.nanmean(gm[oi, :, ei, :])
-                lower, upper = lo[oi, ei].mean(), up[oi, ei].mean()
-            base[oi, ei] = (float(value), float(lower), float(upper))
-    return aggregate_base(base)
+    if statistic == "max_r":
+        cells = rsa_core.cell_maxima(rsa, lo, up)
+    else:
+        gm = np.nanmean(rsa, axis=0)
+        cells = {(oi, ei): (float(np.nanmean(gm[oi, :, ei, :])), float(lo[oi, ei].mean()),
+                            float(up[oi, ei].mean()), -1, -1)
+                 for oi in range(7) for ei in range(4)}
+    cells = rsa_core.averaged_cells(cells)
+    return {(scope, emotion): cells[oi, ei][:3]
+            for oi, scope in enumerate(SCOPES) for ei, emotion in enumerate(EMOS)}
 
 
 def fixed(tag, lo, up, statistic):
-    values = summarize(grid_path(tag), lo, up, statistic)
+    values = summarize(rsa_core.grid_path("18", tag), lo, up, statistic)
     return {key: (*cell, 0.0) for key, cell in values.items()}
 
 

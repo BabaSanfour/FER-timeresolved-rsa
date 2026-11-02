@@ -12,7 +12,7 @@ figures/new_model_comparison.pdf) on the same data as the regenerated Table 1:
            random 3-unit head dropped (as in layer_matched/build_table1.py)
 
 Noise ceilings are recomputed on the same 26 subjects, at the window of each
-per-cell maximum, and averaged exactly as build_maxr_table.py does. A random
+per-cell maximum, and averaged as in rsa_core.averaged_cells. A random
 bar is grey when its seed-mean lies below the seed-mean lower ceiling.
 """
 import argparse
@@ -75,19 +75,10 @@ GREY = "#B9B9B9"
 
 
 def roiavg_by_emotion(rsa, lo):
-    """-> {emo: (max_r, nc_lower)} for the ROI-avg scope, following
-    build_maxr_table.py: per-cell max over layer x window first, then average."""
-    gm = np.nanmean(rsa, axis=0)                       # (O, L, E, W)
-    v = np.zeros((N_ROI, 4)); l = np.zeros((N_ROI, 4))
-    for oi in range(N_ROI):
-        for ei in range(4):
-            block = gm[oi, :, ei, :]
-            li, ki = np.unravel_index(np.nanargmax(block), block.shape)
-            v[oi, ei] = block[li, ki]
-            l[oi, ei] = lo[oi, ei, ki]
-    out = {e: (v[:, ei].mean(), l[:, ei].mean()) for ei, e in enumerate(EMOS[:4])}
-    out["emo-avg"] = (v[:, 1:].mean(), l[:, 1:].mean())
-    return out
+    """-> {emo: (max_r, nc_lower)} for the ROI-avg scope: per-cell max over
+    layer x window first, then averaged (rsa_core.averaged_cells)."""
+    cells = rsa_core.averaged_cells(rsa_core.cell_maxima(rsa, lo))
+    return {e: cells[rsa_core.N_ROI + 1, ei][:2] for ei, e in enumerate(EMOS)}
 
 
 def load(path, drop_last=False):
