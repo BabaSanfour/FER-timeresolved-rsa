@@ -32,7 +32,7 @@ def main():
             out = f"{rdms}/{name}"
             resize = " --resize 112" if preproc == "half" else ""
             cnn.append(f"{out}\t^\\[ok\\] \\(\tpython {repo}/models/extract_model_rdms.py --arch {arch} "
-                       f"--checkpoint {ckpt} --preproc {preproc}{resize} --layers trainable --exclude-head "
+                       f"--checkpoint {ckpt} --preproc {preproc}{resize} "
                        f"--h5-dir {frames} --out-dir {out} --out-name {name}")
 
         def m3dfel(name, extra):
