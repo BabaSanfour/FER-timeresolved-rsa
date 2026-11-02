@@ -151,22 +151,32 @@ def row_spearman(x, y):
 def noise_ceilings(eeg, stimuli):
     """eeg (S, O, W, n, n) -> lower, upper, each (O, emotions, W).
 
-    Per scope, emotion and window, the mean over participants of
-      upper: Spearman(participant, group mean including the participant)
-      lower: Spearman(participant, leave-one-out group mean),
-    each on the stimulus pairs the participant has; a pair's group mean uses the
+    Rank-based ceilings for Spearman RSA (Nili et al., 2014): each participant's
+    RDM is rank-transformed (ranks standardised per participant, so participants
+    with fewer stimulus pairs weigh the same; on complete data this equals plain
+    ranks), then per scope, emotion and window the mean over participants of
+      upper: Spearman(participant, mean rank RDM including the participant)
+      lower: Spearman(participant, leave-one-out mean rank RDM),
+    each on the stimulus pairs the participant has; a pair's mean uses the
     participants who have that pair.
     """
     emotions = EMOTIONS[stimuli]
-    S, O, W = eeg.shape[:3]
+    O, W = eeg.shape[1:3]
     lower = np.full((O, len(emotions), W), np.nan)
     upper_nc = np.full((O, len(emotions), W), np.nan)
     for ei, idx in enumerate(emotions.values()):
         vec = upper(eeg[..., idx, :][..., idx])               # (S, O, W, P)
         groups = pair_groups(vec)
+        ranked = np.full(vec.shape, np.nan)
+        for sidx, keep in groups:                             # ranks over each participant's pairs
+            r = rankdata(vec[sidx][..., keep], axis=-1)
+            r = (r - r.mean(-1, keepdims=True)) / r.std(-1, keepdims=True)
+            sub = ranked[sidx]
+            sub[..., keep] = r
+            ranked[sidx] = sub
         for oi in range(O):
             for wi in range(W):
-                x = vec[:, oi, wi]
+                x = ranked[:, oi, wi]
                 total = np.nansum(x, 0)
                 count = np.isfinite(x).sum(0).astype(x.dtype)
                 mean = total / count
