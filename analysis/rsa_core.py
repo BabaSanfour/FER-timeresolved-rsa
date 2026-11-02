@@ -1,5 +1,5 @@
-"""Shared pieces of the RSA analyses: EEG loading for both stimulus sets, and the
-rank-correlation helpers.
+"""Shared pieces of the RSA analyses: EEG loading for both stimulus sets, the
+rank-correlation helpers and the noise ceilings.
 
 EEG RDMs are returned as (subjects, 7 scopes, windows, n, n): six ROIs in
 `roi_order.npy` order, then the whole scalp, stimuli in the model order
@@ -139,3 +139,35 @@ def row_spearman(x, y):
     denom = np.linalg.norm(rx, axis=1) * np.linalg.norm(ry, axis=1)
     return np.divide(np.sum(rx * ry, axis=1), denom,
                      out=np.full(len(x), np.nan), where=denom > 0)
+
+
+def noise_ceilings(eeg, stimuli):
+    """eeg (S, O, W, n, n) -> lower, upper, each (O, emotions, W).
+
+    Per scope, emotion and window, the mean over participants of
+      upper: Spearman(participant, group mean including the participant)
+      lower: Spearman(participant, leave-one-out group mean),
+    each on the stimulus pairs the participant has; a pair's group mean uses the
+    participants who have that pair.
+    """
+    emotions = EMOTIONS[stimuli]
+    S, O, W = eeg.shape[:3]
+    lower = np.full((O, len(emotions), W), np.nan)
+    upper_nc = np.full((O, len(emotions), W), np.nan)
+    for ei, idx in enumerate(emotions.values()):
+        vec = upper(eeg[..., idx, :][..., idx])               # (S, O, W, P)
+        groups = pair_groups(vec)
+        for oi in range(O):
+            for wi in range(W):
+                x = vec[:, oi, wi]
+                total = np.nansum(x, 0)
+                count = np.isfinite(x).sum(0).astype(x.dtype)
+                mean = total / count
+                ups, los = [], []
+                for sidx, keep in groups:
+                    xs = x[sidx][:, keep]
+                    ups.append(row_spearman(xs, np.broadcast_to(mean[keep], xs.shape)))
+                    los.append(row_spearman(xs, (total[keep][None] - xs) / (count[keep][None] - 1)))
+                upper_nc[oi, ei, wi] = np.nanmean(np.concatenate(ups))
+                lower[oi, ei, wi] = np.nanmean(np.concatenate(los))
+    return lower, upper_nc

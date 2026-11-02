@@ -11,7 +11,6 @@ from pathlib import Path
 import numpy as np
 
 import rsa_core
-from rsa_core import upper, row_spearman
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID = ROOT / "analysis/rsa_grid_54"
@@ -44,37 +43,13 @@ FAMILIES = {
 }
 
 
-def ceilings(subjects):
-    result = {}
-    for ei, emotion in enumerate(EMOS):
-        eeg = rsa_core.load_eeg("54", emotion, subjects)[0]
-        O, W = eeg.shape[1:3]
-        lo, up = np.full((O, W), np.nan), np.full((O, W), np.nan)
-        vec = upper(eeg)
-        groups = rsa_core.pair_groups(vec)
-        for oi in range(O):
-            for wi in range(W):
-                group = vec[:, oi, wi]
-                total = np.nansum(group, 0)       # per pair, over the participants who have it
-                count = np.isfinite(group).sum(0).astype(group.dtype)
-                gm = total / count
-                ups, los = [], []
-                for sidx, keep in groups:
-                    x = group[sidx][:, keep]
-                    ups.append(row_spearman(x, np.broadcast_to(gm[keep], x.shape)))
-                    los.append(row_spearman(x, (total[keep][None] - x) / (count[keep][None] - 1)))
-                up[oi, wi] = np.nanmean(np.concatenate(ups))
-                lo[oi, wi] = np.nanmean(np.concatenate(los))
-        result[ei] = (lo, up)
-    return result
-
-
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     sample = np.load(next(GRID.glob("*_rsa_grid.npz")), allow_pickle=True)
     subjects = [str(x) for x in sample["subjects"]]
     scopes = [str(x) for x in sample["scopes"]]
-    nc = ceilings(subjects)
+    eeg = rsa_core.load_eeg("54", subs=subjects)[0]
+    nc_lower, nc_upper = rsa_core.noise_ceilings(eeg, "54")   # (7, 4, W)
     rows = []
     for model, states in FAMILIES.items():
         for state, tag in states:
@@ -88,9 +63,8 @@ def main():
                 for ei in range(4):
                     block = gm[oi, :, ei, :]
                     li, wi = np.unravel_index(np.nanargmax(block), block.shape)
-                    lo, up = nc[ei]
-                    base[oi, ei] = (float(block[li, wi]), float(lo[oi, wi]),
-                                    float(up[oi, wi]), int(li), int(wi))
+                    base[oi, ei] = (float(block[li, wi]), float(nc_lower[oi, ei, wi]),
+                                    float(nc_upper[oi, ei, wi]), int(li), int(wi))
             for oi, scope in enumerate(scopes + ["ROI-avg"]):
                 for ei, emotion in enumerate(list(EMOS) + ["emo-avg"]):
                     if oi < 7 and ei < 4:

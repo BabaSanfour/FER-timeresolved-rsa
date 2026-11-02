@@ -32,7 +32,6 @@ HERE = ROOT / "analysis" / "seed_variability"          # data
 CODE = Path(__file__).resolve().parent                  # code: imports come from here
 sys.path.insert(0, str(CODE.parent))
 sys.path.insert(0, str(CODE))
-import build_maxr_table as B          # noqa: E402  (noise_ceilings)
 import rsa_core                       # noqa: E402
 from aggregate_seeds import FAMILIES as SEED_FAMILIES  # noqa: E402
 
@@ -104,7 +103,7 @@ def main():
 
     eeg, subjects, _ = rsa_core.load_eeg("18")
     print(f"[eeg] {len(subjects)} subjects; computing noise ceilings ...")
-    lo, _up = B.noise_ceilings(eeg)                    # (7, 4, W)
+    lo, _up = rsa_core.noise_ceilings(eeg, "18")       # (7, 4, W)
 
     data, rows = {}, []                                # data[model][state][emo] = (m, sd, nc)
     for model, trained in MODELS.items():

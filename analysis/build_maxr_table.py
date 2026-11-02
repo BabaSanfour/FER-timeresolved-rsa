@@ -22,7 +22,6 @@ from pathlib import Path
 import numpy as np
 
 import rsa_core
-from rsa_core import upper, spearman
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID_DIRS = [
@@ -68,26 +67,6 @@ FAMILIES = {
 }
 
 
-def noise_ceilings(eeg):
-    """(S,O,W,18,18) -> lower/upper arrays (O, n_emotion, W)."""
-    S, O, W = eeg.shape[0], eeg.shape[1], eeg.shape[2]
-    emos = list(EMOTIONS)
-    lo = np.full((O, len(emos), W), np.nan)
-    up = np.full((O, len(emos), W), np.nan)
-    for o in range(O):
-        for ei, emo in enumerate(emos):
-            idx = EMOTIONS[emo]
-            ev = upper(eeg[:, o][:, :, idx][:, :, :, idx])      # (S, W, P)
-            for k in range(W):
-                gm = ev[:, k].mean(0)
-                tot = ev[:, k].sum(0)
-                u = [spearman(ev[s, k], gm) for s in range(S)]
-                l = [spearman(ev[s, k], (tot - ev[s, k]) / (S - 1)) for s in range(S)]
-                up[o, ei, k] = np.nanmean(u)
-                lo[o, ei, k] = np.nanmean(l)
-    return lo, up
-
-
 def grid_path(tag):
     for directory in GRID_DIRS:
         path = directory / f"{tag}_rsa_grid.npz"
@@ -103,7 +82,7 @@ def main():
     print(f"[eeg] {eeg.shape}  scopes={scopes}")
 
     print("[nc] computing noise ceilings ...")
-    lo, up = noise_ceilings(eeg)                              # (7, 4, W)
+    lo, up = rsa_core.noise_ceilings(eeg, "18")              # (7, 4, W)
     scopes_x = scopes + [ROI_AVG]
     emos_x = list(EMOTIONS) + [EMO_AVG]
 

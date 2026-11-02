@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 import rsa_core
-from build_maxr_table import noise_ceilings, grid_path, EMOTIONS
+from build_maxr_table import grid_path, EMOTIONS
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 GRID = ROOT / "analysis/rsa_grid_facenet_size_repeats"
@@ -141,7 +141,7 @@ def make(statistic, lo, up):
 
 
 eeg = rsa_core.load_eeg("18")[0]
-lo, up = noise_ceilings(eeg)
+lo, up = rsa_core.noise_ceilings(eeg, "18")
 make("max_r", lo, up)
 make("mean_r", lo, up)
 print(f"[ok] all-size max_r/mean_r CSVs and plots -> {OUT}")

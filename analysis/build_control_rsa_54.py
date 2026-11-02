@@ -25,20 +25,12 @@ def main():
     subs, scopes = rsa_core.subjects("54"), rsa_core.scopes("54")
     controls = {c: np.load(CTRL / f"{c}_rdm.npy") for c in CONTROLS}
     rows = []
+    nc_lower, nc_upper = rsa_core.noise_ceilings(eeg_by_emotion["all"], "54")   # (7, 4, W)
     for oi, scope in enumerate(scopes):
-        for emotion in EMOTIONS:
+        for ei, emotion in enumerate(EMOTIONS):
             eeg = eeg_by_emotion[emotion][:, oi]  # subject, window, n, n
             ev = upper(eeg)
-            group = np.nanmean(ev, 0)            # per pair, over the participants who have it
-            total = np.nansum(ev, 0)
-            count = np.isfinite(ev).sum(0).astype(ev.dtype)
-            lower, upper_nc = [], []
-            for w in range(ev.shape[1]):
-                upper_nc.append(np.nanmean([spearman(ev[s, w], group[w]) for s in range(len(subs))]))
-                lower.append(np.nanmean([
-                    spearman(ev[s, w], (total[w] - ev[s, w]) / (count[w] - 1))
-                    for s in range(len(subs))
-                ]))
+            lower, upper_nc = nc_lower[oi, ei], nc_upper[oi, ei]
             idx = SLICES[emotion]
             for control, full_rdm in controls.items():
                 cv = upper(full_rdm[np.ix_(idx, idx)])

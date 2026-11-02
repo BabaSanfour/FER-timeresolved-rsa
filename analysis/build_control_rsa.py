@@ -53,17 +53,12 @@ def main():
         ctrl_rdms[c] = r
     print(f"[controls] {list(ctrl_rdms)}")
 
+    nc_lower, nc_upper = rsa_core.noise_ceilings(eeg, "18")     # (7, 4, W)
     nc_rows, rows = [], []
     for oi, sc in enumerate(scopes):
-        for emo, idx in EMOTIONS.items():
+        for ei, (emo, idx) in enumerate(EMOTIONS.items()):
             ev = upper(eeg[:, oi][:, :, idx][:, :, :, idx])         # (S, W, P)
-
-            lo = np.full(W, np.nan); up = np.full(W, np.nan)
-            for k in range(W):
-                gm = ev[:, k].mean(0); tot = ev[:, k].sum(0)
-                up[k] = np.nanmean([spearman(ev[s, k], gm) for s in range(S)])
-                lo[k] = np.nanmean([spearman(ev[s, k], (tot - ev[s, k]) / (S - 1))
-                                    for s in range(S)])
+            lo, up = nc_lower[oi, ei], nc_upper[oi, ei]
             nc_rows.append({"scope": sc, "roi": sc, "emotion": emo,
                             "lower_mean": round(float(np.nanmean(lo)), 5),
                             "upper_mean": round(float(np.nanmean(up)), 5)})
