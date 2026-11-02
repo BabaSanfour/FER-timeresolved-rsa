@@ -161,7 +161,7 @@ def noise_ceilings(eeg, stimuli):
     participants who have that pair.
     """
     emotions = EMOTIONS[stimuli]
-    S, O, W = eeg.shape[:3]
+    O, W = eeg.shape[1:3]
     lower = np.full((O, len(emotions), W), np.nan)
     upper_nc = np.full((O, len(emotions), W), np.nan)
     for ei, idx in enumerate(emotions.values()):
