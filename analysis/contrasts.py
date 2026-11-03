@@ -27,7 +27,8 @@ then over the pairs, then (pooled tests) over the contrasts. Tests: two-sided
 sign-flip (20,000 flips) on the participants' differences; 95% CI by bootstrap
 over participants (10,000 resamples).
 
-Output: analysis/paper_stats[_54]/contrasts.csv
+Outputs: analysis/paper_stats[_54]/contrasts.csv and contrasts_participants.csv (each
+participant's difference for every primary test, for the figure)
 """
 import argparse
 import csv
@@ -131,7 +132,7 @@ def main():
                 "n": len(d), "mean_difference": round(float(d.mean()), 5), "ci95_low": round(lo, 5),
                 "ci95_high": round(hi, 5), "n_positive": int((d > 0).sum()), "p": sign_flip_p(d, rng)}
 
-    primary, secondary = [], []
+    primary, secondary, participants = [], [], []
     for hyp, items in hypotheses().items():
         ds = []
         for label, a, b in items:
@@ -145,6 +146,8 @@ def main():
                 secondary.append(row("secondary", hyp, " ".join(v), " ".join(v), "8 pretrained image variants",
                                      dv, len(IMAGE_PRETRAINED)))
         r = row("primary", hyp, f"pooled over {len(items)}", "", "", np.mean(ds, axis=0), len(items))
+        participants += [{"hypothesis": hyp, "participant": i, "difference": round(float(v), 6)}
+                         for i, v in enumerate(np.mean(ds, axis=0))]
         if hyp.startswith("H3") and args.sesoi is not None:
             d = np.mean(ds, axis=0)
             r["p_equivalence"] = max(sign_flip_p(d, rng, -args.sesoi, "greater"),
@@ -159,6 +162,8 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields); w.writeheader(); w.writerows(rows)
+    with out.with_name("contrasts_participants.csv").open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(participants[0])); w.writeheader(); w.writerows(participants)
     for r in rows:
         extra = f"  Holm={r['p_holm']:.4f}" if "p_holm" in r else ""
         extra += f"  p_equiv={r['p_equivalence']:.4f}" if "p_equivalence" in r else ""
