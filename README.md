@@ -67,7 +67,7 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | Noise ceilings (rank-based, Nili et al., 2014), averaged over windows | `analysis/maxr_table.py` (`rsa_core.noise_ceilings`) | as Table 1 | EEG RDMs | `analysis/paper_stats{,_54}/noise_ceilings.csv` |
 | Comparisons between training regimes (Sections 4.1–4.3): four planned tests (pretrained vs random, face vs ImageNet, fine-tuned vs start, video vs image), Holm across the four; per-family contrasts with 95% CIs | `analysis/contrasts.py` | `python analysis/contrasts.py --stimuli 18` (and `54`; `--sesoi` adds the equivalence test for fine-tuning) | `analysis/rsa_grid{,_54}/` | `analysis/paper_stats{,_54}/contrasts.csv` |
 | Cluster-based permutation tests (Section 4.5), both stimulus sets: one test per variant on its grid averaged over its 10 seeds or runs, 20,000 sign flips, Holm within the model and across all grids of all variants | `analysis/cluster_permutation.py` | `sbatch analysis/submit_cluster_permutation.sh` (array task 0 = 54 stimuli, 1 = 18); on the joint partial grids: `python analysis/cluster_permutation.py --study 54 --partial joint` | `analysis/rsa_grid{,_54}/` | `analysis/cluster_permutation_{18,54}/` (`grid_summary.csv`, `clusters.csv`, `model_survivors.csv`, `*_cluster_masks.npz`) |
-| **Fig. 4**, layer × time maps of the Holm-surviving clusters (`layer_time_clusters.pdf`) | `analysis/plot_layer_time_clusters.py` | `python analysis/plot_layer_time_clusters.py` | `analysis/rsa_grid_54/`, `analysis/cluster_permutation_54/` | `analysis/cluster_permutation_54/plots/layer_time_clusters.pdf` |
+| **Fig. 4**, layer × time maps of every grid surviving the study-wide Holm correction, above its family's random initialisation (`layer_time_clusters.pdf`) | `analysis/plot_layer_time_clusters.py` | `python analysis/plot_layer_time_clusters.py` | `analysis/rsa_grid_54/`, `analysis/cluster_permutation_54/` | `analysis/cluster_permutation_54/plots/layer_time_clusters.pdf` |
 
 ### Appendix
 
@@ -77,6 +77,9 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | Model details: analyzed layers | the `layer_order` of each RDM's `.layers.json` (written by the extraction scripts) | | | |
 | Model details: training recipes and accuracies | `vggface_train/train.py`, `affectnet_3class_train/train_affectnet.py`, `M3DFEL/main.py` (see [Training](#3-training)) | `bash trillium/submit_all.sh` | | `results/*/repeat_NN/train.log`, `metrics.csv`, `test_metrics.json`; M3DFEL: `log.txt` |
 | Random-initialization variability table (`tab:seeds`) | `analysis/build_paper_tables.py` | as Table 1 | `analysis/paper_stats/rho_max.csv` | `analysis/paper_stats/table_seeds.tex` |
+| 54-video counterpart of Table 1 (appendix) | `analysis/build_paper_tables.py` | as Table 1, with `--stimuli 54` for `rsa_grid.py` and `maxr_table.py` | `analysis/paper_stats_54/rho_max.csv` | `analysis/paper_stats_54/table_main_results_54.tex` |
+| Nuisance-control table, rho_max of each control RDM per scalp analysis (appendix) | `analysis/build_paper_tables.py` | after `analysis/control_rdms.py`, as Table 1 | `analysis/paper_stats{,_54}/rho_max.csv` | `analysis/paper_stats{,_54}/table_controls{,_54}.tex` |
+| Partial-RSA table, ROI- and emotion-averaged rho_max raw and after each control and all jointly (appendix) | `analysis/build_paper_tables.py` | `python analysis/partial_rsa.py --stimuli 18` (and `54`), `python analysis/maxr_table.py --stimuli 18 --partial <set>` for every set, then `python analysis/build_paper_tables.py` | `analysis/paper_stats{,_54}/rho_max_partial_*.csv` | `analysis/paper_stats{,_54}/table_partial{,_54}.tex` |
 
 ## Full pipeline
 

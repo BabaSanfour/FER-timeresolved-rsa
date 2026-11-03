@@ -5,8 +5,9 @@ Participant-mean Spearman rho of each variant's grid averaged over its RDMs
 (rsa_core.variant_grid, as tested), with the outline of every cluster that is
 significant within its grid (grid FWER < .05) in a grid that survives Holm
 across all grids of all variants (cluster_permutation.py, p_holm_study). Layers
-are plotted by relative depth. The panels follow the clusters that survive:
-revisit PANELS, SCOPE and EMOTION once the cluster test has run.
+are plotted by relative depth. One column per surviving grid (variant, scope,
+condition): the variant on top, its family's random initialisation (same scope
+and condition) below.
 
 Reads analysis/rsa_grid_54/ and analysis/cluster_permutation_54/ and writes
 analysis/cluster_permutation_54/plots/layer_time_clusters.pdf.
@@ -23,9 +24,7 @@ import variants
 
 RESULTS = rsa_core.ROOT / "analysis/cluster_permutation_54"
 OUTPUT = RESULTS / "plots/layer_time_clusters.pdf"
-SCOPE, EMOTION = "Post-Right", "fear"
 STRUCTURE = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])   # four-neighbour, as in the test
-PANELS = [("FaceNet", "VGGFace2"), ("FaceNet", "Random"), ("Qwen3-VL", "Pretrained"), ("Qwen3-VL", "Random")]
 VMAX = .1
 
 
@@ -40,19 +39,26 @@ def outer(mask):
 
 def main():
     summary = pd.read_csv(RESULTS / "grid_summary.csv")
+    survivors = summary[summary.survives_holm_study == 1].sort_values(["family", "variant", "scope", "emotion"])
+    if survivors.empty:
+        raise SystemExit("no grid survives the study-wide Holm correction: nothing to plot")
     tags = {(f, v): t for g, f, v, t in variants.variants("54") if g == "main"}
-    fig, axes = plt.subplots(2, 2, figsize=(7, 3.4), sharex=True, sharey=True)
-    for ax, (family, variant) in zip(axes.flat, PANELS):
+    panels = [[(r.family, r.variant, r.scope, r.emotion) for r in survivors.itertuples()],
+              [(r.family, "Random", r.scope, r.emotion) for r in survivors.itertuples()]]
+    ncol = len(survivors)
+    fig, axes = plt.subplots(2, ncol, figsize=(3.5 * ncol, 3.4), sharex=True, sharey=True, squeeze=False)
+    for ax, (family, variant, scope, emotion) in zip(axes.flat, panels[0] + panels[1]):
         model = rsa_core.slug(family, variant)
         rsa, z = rsa_core.variant_grid("54", tags[family, variant])
-        si = [str(s) for s in z["scopes"]].index(SCOPE)
-        ei = [str(e) for e in z["emotions"]].index(EMOTION)
+        si = [str(s) for s in z["scopes"]].index(scope)
+        ei = [str(e) for e in z["emotions"]].index(emotion)
         grid = np.nanmean(rsa[:, si, :, ei, :], axis=0)                     # layers x windows
         n_layers, n_windows = grid.shape
         im = ax.imshow(grid, aspect="auto", origin="lower", cmap="RdBu_r", vmin=-VMAX, vmax=VMAX,
                        extent=(0, 1000, 0, 1), interpolation="nearest")
-        row = summary[(summary.model == model) & (summary.scope == SCOPE) & (summary.emotion == EMOTION)].iloc[0]
-        title = f"{family}, {variant.lower() if variant == 'Random' else variant}"
+        row = summary[(summary.model == model) & (summary.scope == scope) & (summary.emotion == emotion)].iloc[0]
+        title = f"{family}, {variant.lower() if variant == 'Random' else variant}, {scope}"
+        title += "" if emotion == "all" else f", {emotion}"
         if row.survives_holm_study:
             sig = np.load(RESULTS / f"{model}_cluster_masks.npz")["significant"][si, :, ei, :]
             labels, count = label(sig, structure=STRUCTURE)
