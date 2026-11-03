@@ -77,8 +77,6 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | Model details: analyzed layers | the `layer_order` of each RDM's `.layers.json` (written by the extraction scripts) | | | |
 | Model details: training recipes and accuracies | `vggface_train/train.py`, `affectnet_3class_train/train_affectnet.py`, `M3DFEL/main.py` (see [Training](#3-training)) | `bash trillium/submit_all.sh` | | `results/*/repeat_NN/train.log`, `metrics.csv`, `test_metrics.json`; M3DFEL: `log.txt` |
 | Random-initialization variability table (`tab:seeds`) | `analysis/build_paper_tables.py` | as Table 1 | `analysis/paper_stats/rho_max.csv` | `analysis/paper_stats/table_seeds.tex` |
-| Linear probing (18 and 54 videos) | `analysis/evaluate_all_models_linear_54.py`, `analysis/export_predictions_same_models_54.py` | no arguments | `analysis/model_rdms_54/` | `analysis/model_performance_54/complete_54/` |
-| Linear-probing figure (`model_accuracy_summary_54.pdf`) | `analysis/plot_accuracy_summary_54.py` | `python analysis/plot_accuracy_summary_54.py` | `analysis/model_performance_54/complete_54/performance_54_same_models.csv` | `analysis/model_performance_54/complete_54/model_accuracy_summary_54.pdf` |
 
 ## Full pipeline
 
@@ -178,22 +176,18 @@ in [Which script gives which result](#which-script-gives-which-result).
 
 ## Data on Google Drive
 
-Folder: **`<DRIVE_LINK>`**. `MANIFEST.tsv` at its root lists every file with its size and SHA-256.
+Folder: **`<DRIVE_LINK>`** (to be published with the revision; planned layout below, as under
+`$FER_ROOT`). `MANIFEST.tsv` at its root will list every file with its size and SHA-256.
 
 | Folder | Content |
 |---|---|
-| `net_weights/` | ImageNet weights for ResNet18/50, VGG16, VGG16-BN and FaceNet; grayscale VGG16-BN trained on VGGFace (`vgg16_bn_1D_VGGFace3`); VGG-Face (`vgg16_vggface`); FaceNet Complete-VGGFace2 → AffectNet fine-tune used in Table 1 (`best_inceptionresnetv1_fer.pt`) |
-| `vggface_train/results/` | VGGFace2-trained ResNet18/50/FaceNet; FaceNet 300k/500k; all 70 training-set-size checkpoints, with training logs and metrics |
-| `vggface_train/index/`, `indexes/`, `indexes_repeated/` | VGGFace2 split (715,810 train / 10,692 val images, 5,346 identities) and every subset index (300k/500k; 10 repeats × 7 sizes, each with `sampling.json`) |
-| `affectnet_3class_train/results/17810319/` | AffectNet fine-tuned ResNet18, ResNet50, FaceNet, VGG-Face |
-| `M3DFEL/results/17812056/fold_3/`, `M3DFEL/pretrained/` | DFEW fine-tuned M3DFEL, and the Kinetics-400 R3D-18 backbone |
-| `torch_cache/checkpoints/` | facenet-pytorch `20180402-114759-vggface2.pt` (FaceNet "Complete VGGFace2") |
-| `random_init_weights/` | Every random-initialization model in the paper, each checked to reproduce the paper's RDMs exactly: Table 1 seed ensemble (ResNet18, ResNet50, VGG16-BN, FaceNet; seeds 42, 0–8), 18-stimulus seed-42 CNNs, 54-stimulus seed-42 CNNs, M3DFEL (seeds 42, 0–8), Qwen3-VL-8B (seeds 42, 0–3, HuggingFace format). See `random_init_weights/README_random.txt` |
-| `eeg_data/`, `eeg_rdms_complete/` | EEG RDMs: 18 stimuli per ROI and whole scalp; 54 stimuli per ROI and whole scalp (with per-emotion 18 × 18 RDMs) |
-| `analysis/model_rdms_*`, `analysis/layer_matched/rdms/`, `analysis/seed_variability/rdms/` | Model RDMs with `.layers.json` provenance |
-| `analysis/rsa_grid*/`, `seed_variability/rsa_*/`, `layer_matched/rsa_*/` | RSA grids |
-| `analysis/cluster_permutation_{18,54}/` | Cluster permutation tests |
-| `analysis/paper_stats*/`, `motion_controls*/`, `partial_rsa_{18,54}/`, `facenet_low_size_repeats/`, `model_performance_54/`, `seed_variability/results/`, `layer_matched/results/` | Noise ceilings, control RDMs and RSA, partial RSA, summary tables, linear separability |
+| `eeg_data/`, `eeg_rdms_complete/` | EEG RDMs: 18 stimuli per ROI and whole scalp (26 participants); 54 stimuli per ROI and whole scalp (25) |
+| `rdms/set18/`, `rdms/set54/` | Model RDMs, one folder per RDM (`analysis/variants.py`), with `.layers.json` (layers, weights, preprocessing, stimulus order) |
+| `results/{pretrain,sizecurve,stepmatched,finetune}/` | The retrained models (`best_weights.pt`), with training logs, metrics and `test_metrics.json` |
+| `random_weights/` | The saved random-initialization weights the random variants load |
+| `analysis/rsa_grid/`, `rsa_grid_54/` | RSA grids |
+| `analysis/paper_stats/`, `paper_stats_54/` | rho_max tables (`rho_max.csv`, `rho_max_per_rdm.csv`), noise ceilings, paper tables and figures |
+| `analysis/cluster_permutation_{18,54}/`, `motion_controls{,_54}/`, `partial_rsa_{18,54}/` | Cluster tests, control RDMs and RSA, partial RSA |
 
 Qwen3-VL-8B-Instruct pretrained weights are not copied: download `Qwen/Qwen3-VL-8B-Instruct` at
 revision `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`. Stimulus videos and frames are not distributed.
@@ -212,16 +206,8 @@ These steps were done by hand or with code that no longer exists. Their outputs 
   The 18-stimulus whole-scalp RDMs and the unoccluded part of the 54-stimulus RDMs agree exactly,
   and the per-ROI RDMs to within 5e-7, so all of them come from the same averaged data.
 - **The AffectNet three-class subset** (the Kaggle archive was already reduced).
-- **Four checkpoints obtained outside this code**: `net_weights/best_inceptionresnetv1_fer.pt`,
-  `vgg16_bn_1D_VGGFace3`, `vgg16_vggface` (VGG-Face conversion) and `FaceNet_imagenet`.
-- **The 18-stimulus "VGGFace2 800k" FaceNet** (`facenet_vggface3_16f`): its checkpoint is lost. Its
-  RDMs and RSA grids are on Drive, but it cannot be re-extracted.
-- **Two untrained heads**: the random 3-unit `logits` layer of FaceNet "Complete VGGFace2" and the
-  untrained MIL head (`lstm`, `to_qkv`, `norm`) of Kinetics-pretrained M3DFEL. Their weights were not
-  saved, and current code draws different ones (all other layers of these models reproduce exactly).
-  The FaceNet `logits` layer is the last layer of the 379-layer grids (Table 1, 18-stimulus cluster
-  tests) and of the 54-stimulus grids; the 133-layer grids of Fig. 2 exclude it. Both stimulus sets
-  include the M3DFEL head layers. Their RDMs and RSA grids are on Drive.
+- **Two ImageNet checkpoints from the authors' earlier study** (MFRS): FaceNet and ResNet50
+  (`resnet50_None_imagenet`); the ResNet18 and VGG16 ImageNet weights are torchvision's.
 
 ## License
 
