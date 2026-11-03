@@ -7,7 +7,9 @@
   table_controls[_54].tex      the same for the nuisance RDMs
   table_partial[_54].tex       ROI- and emotion-averaged rho_max of every variant, raw
                                and after partialling out each control and all jointly
-  table_seeds.tex              spread of the random seeds (18 videos)
+  table_seeds.tex              18 videos, ROI- and emotion-averaged rho_max of each
+                               regime (random, generic, face, emotion): mean +/- SD
+                               [range] over its seeds or training runs
 
 Reads analysis/paper_stats[_54]/rho_max.csv and rho_max_partial_<set>.csv; writes the
 .tex rows next to them.
@@ -17,6 +19,8 @@ import csv
 import rsa_core
 import variants
 
+REGIMES = [{"Random"}, {"ImageNet", "Kinetics-400", "Pretrained"}, {"VGGFace2", "VGG-Face"},
+           {"AffectNet FT", "DFEW FT"}]
 SCOPES = ["Ant-Left", "Ant-Right", "Post-Left", "Post-Right", "Temp-Left", "Temp-Right",
           "wholescalp", rsa_core.ROI_AVG]
 
@@ -79,11 +83,17 @@ def main():
         if s == "18":
             seed_lines = []
             for family, rows in variants.MAIN.items():
-                (_, seeds), *trained = rows
-                r = table["main", family, "Random", rsa_core.ROI_AVG]
-                lowest = min(float(table["main", family, v, rsa_core.ROI_AVG]["max_r"]) for v, _ in trained)
-                seed_lines.append(f"{family} & {len(seeds)} & {three(r['max_r'])} $\\pm$ {three(r['sd'])} & "
-                                  f"{three(r['min'])}--{three(r['max'])} & {three(lowest)} \\\\")
+                cells = []
+                for regime in REGIMES:
+                    match = [(v, t) for v, t in rows if v in regime]
+                    if not match:
+                        cells.append("--")
+                        continue
+                    (variant, tags), = match
+                    r = table["main", family, variant, rsa_core.ROI_AVG]
+                    cells.append(three(r["max_r"]) + " (1 model)" if len(tags) == 1 else
+                                 f"{three(r['max_r'])}$\\pm${three(r['sd'])} [{three(r['min'])}, {three(r['max'])}]")
+                seed_lines.append(f"{family} & " + " & ".join(cells) + r" \\")
             outputs["table_seeds.tex"] = seed_lines
         for name, lines in outputs.items():
             (stats / name).write_text("\n".join(lines) + "\n")
