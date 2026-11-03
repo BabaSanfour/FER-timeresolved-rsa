@@ -55,7 +55,7 @@ def main():
     ncol = len(survivors)
     fig, axes = plt.subplots(2, ncol, figsize=(2.75 * ncol, 3.3), squeeze=False,
                              gridspec_kw=dict(height_ratios=[1.15, 1], hspace=0.42, wspace=0.3,
-                                              left=0.1, right=0.88, top=0.92, bottom=0.13))
+                                              left=0.1, right=0.85, top=0.92, bottom=0.13))
     grids = {}
     for col, r in enumerate(survivors.itertuples()):
         for variant in (r.variant, "Random"):
@@ -86,10 +86,10 @@ def main():
         ax.set_ylabel("relative layer depth" if col == 0 else "")
         ax.set_xticks([0, 250, 500, 750, 1000])
         ax.set_xticklabels([])
-        st.panel_label(ax, "ab"[col] if ncol == 2 else chr(97 + col), x=-0.2 if col == 0 else -0.08)
+        st.panel_label(ax, "ab"[col] if ncol == 2 else chr(97 + col), x=-0.2 if col == 0 else -0.14)
 
         ax = axes[1, col]
-        for grid, color, name in ((rnd, st.REGIME_COLORS["Random"], "random (10 seeds)"),
+        for grid, color, name in ((rnd, st.REGIME_COLORS["Random"], "random\n(10 seeds)"),
                                   (rsa, st.REGIME_COLORS[st.REGIME_OF[r.variant]], r.variant.lower())):
             trace = grid[:, si, best, ei, :]
             m = np.nanmean(trace, 0)
@@ -111,17 +111,19 @@ def main():
         ax.set_ylabel(r"$\rho$ at the marked layer" if col == 0 else "")
         ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
         ax.set_ylim(min(-0.05, ax.get_ylim()[0]), top + 0.05)
-        if col == 0:
-            ax.legend(loc="upper left", handlelength=1.4, borderaxespad=0.1)
-        st.panel_label(ax, chr(97 + ncol + col), x=-0.2 if col == 0 else -0.08)
+        st.panel_label(ax, chr(97 + ncol + col), x=-0.2 if col == 0 else -0.14)
     for ax in axes[1, 1:]:
         ax.sharey(axes[1, 0])
-    cax = fig.add_axes([0.9, axes[0, -1].get_position().y0, 0.012, axes[0, -1].get_position().height])
+    cax = fig.add_axes([0.87, axes[0, -1].get_position().y0, 0.012, axes[0, -1].get_position().height])
     cbar = fig.colorbar(im, cax=cax)
     cbar.set_label(r"participant-mean $\rho$", fontsize=6)
     cbar.ax.tick_params(labelsize=5.5, width=0.5, length=2)
     cbar.outline.set_linewidth(0.5)
     cbar.ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    handles, names = axes[1, 0].get_legend_handles_labels()
+    pos = axes[1, -1].get_position()
+    fig.legend(handles[::-1], names[::-1], loc="upper left", bbox_to_anchor=(pos.x1 + 0.01, pos.y1),
+               handlelength=1.4, borderaxespad=0)
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")
