@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Layer x time RSA maps for the clusters that survive Holm correction (54 stimuli).
 
-Participant-mean Spearman rho for FaceNet Complete VGGFace2 and pretrained
-Qwen3-VL (fear, right posterior ROI) next to their random-init counterparts
-(seed 42), with the outline of every cluster surviving Holm correction across
-the model's 28 grids. Layers are plotted by relative depth.
+Participant-mean Spearman rho of the tested model of each variant (training run 1,
+random seed 42; analysis/variants.py) for FaceNet VGGFace2 and pretrained Qwen3-VL
+(fear, right posterior ROI) next to their random-init counterparts, with the outline
+of every cluster surviving Holm correction across the model's 28 grids. Layers are
+plotted by relative depth. The panels follow the clusters that survive: revisit
+PANELS, SCOPE and EMOTION once cluster_permutation.py has run.
 
 Reads analysis/rsa_grid_54/ and analysis/cluster_permutation_54/ (written by
-cluster_permutation_rsa_54.py --study 54) and writes
+cluster_permutation.py --study 54) and writes
 analysis/cluster_permutation_54/plots/layer_time_clusters.pdf.
 """
 import os
@@ -26,10 +28,10 @@ RESULTS = ROOT / "analysis/cluster_permutation_54"
 OUTPUT = RESULTS / "plots/layer_time_clusters.pdf"
 SCOPE, EMOTION = "Post-Right", "fear"
 STRUCTURE = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])   # four-neighbour, as in the test
-PANELS = [("vggface_complete_16f_pretrained", "FaceNet, complete VGGFace2"),
-          ("facenet_random_16f_weights", "FaceNet, random init"),
-          ("qwen3vl_pretrained_16f_weights", "Qwen3-VL, pretrained"),
-          ("qwen3vl_random_16f_weights", "Qwen3-VL, random init")]
+PANELS = [("facenet_vggface2_r01", "FaceNet, VGGFace2"),
+          ("facenet_random_s42", "FaceNet, random init"),
+          ("qwen_released", "Qwen3-VL, pretrained"),
+          ("qwen_random_s42", "Qwen3-VL, random init")]
 VMAX = .1
 
 

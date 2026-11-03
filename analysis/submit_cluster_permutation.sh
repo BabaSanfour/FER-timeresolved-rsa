@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=clusterperm
-#SBATCH --account=YOUR_ALLOCATION
+#SBATCH --account=rrg-kjerbi_cpu
 #SBATCH --array=0-1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -13,9 +13,9 @@
 #
 #   sbatch submit_cluster_permutation.sh
 #
-# The script is serial (~6 s per scope x emotion grid, 28 grids per model), so
-# it runs for roughly an hour per study -- too long for the login node, whose
-# user slice is cgroup-capped at 6 CPUs.
+# One model per variant (21 per study, analysis/variants.py). The script is
+# serial (~6 s per scope x emotion grid of a 40-layer model, 28 grids per model),
+# about 1-2 h per study -- too long for the login node.
 set -euo pipefail
 
 ROOT=$(realpath "${FER_ROOT:-.}")
@@ -28,5 +28,5 @@ export PYTHONUNBUFFERED=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREA
 
 STUDY=$([ "$SLURM_ARRAY_TASK_ID" -eq 0 ] && echo 54 || echo 18)
 echo "[task $SLURM_ARRAY_TASK_ID] study $STUDY"
-"$PY" "$ROOT/analysis/cluster_permutation_rsa_54.py" --study "$STUDY"
+"$PY" "$(dirname "$0")/cluster_permutation.py" --study "$STUDY"
 echo "[done] study $STUDY"
