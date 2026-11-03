@@ -57,17 +57,16 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | Result in the paper | Script | Command | Reads | Writes |
 |---|---|---|---|---|
 | **Fig. 1**, study design (`fig1_study_design.pdf`) | `analysis/figures/fig1_study_design.py` | `python analysis/figures/fig1_study_design.py --stimuli <dir with set18/ and set54/> --out <path>` | verified stimulus videos, `eeg/roi_definitions.json`; panels d–f are schematic (synthetic matrices) | `<path>.pdf`, `<path>.png` |
-| **Table 1** (`tab:main-results`), 18 stimuli, ρ<sub>max</sub> per scalp analysis | `analysis/build_paper_tables.py` | `python analysis/maxr_table.py --stimuli 18` (trained rows), then `python analysis/build_paper_tables.py` | trained rows: `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/` via `analysis/paper_stats/timelocked_maxr_over_layers.csv`; Random rows: `analysis/seed_variability/results/seeds_summary.csv` | `analysis/paper_stats/table_main_results.tex` |
-| ↳ Random rows (mean ± SD over seeds) | `analysis/seed_variability/` | RDMs: `STAGE=cnn sbatch analysis/seed_variability/run_extract_seeds.sh`, `STAGE=qwen sbatch …`; grids: `python analysis/rsa_grid.py --stimuli 18 --model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`; summary: `python analysis/seed_variability/aggregate_seeds.py --seed-grids analysis/seed_variability/rsa_seeds --pretrained-grids analysis/seed_variability/rsa_pretrained --out-prefix analysis/seed_variability/results/seeds` | `stim_frames/`, EEG RDMs | `analysis/seed_variability/{rdms,rsa_seeds,results}/` |
-| **Fig. 2**, matched training comparisons (`new_model_comparison.pdf`) | `analysis/seed_variability/plot_model_comparison_seeds.py` | `python analysis/seed_variability/plot_model_comparison_seeds.py --out analysis/seed_variability/results/new_model_comparison` | `analysis/seed_variability/rsa_seeds/`, `rsa_pretrained/`, `analysis/layer_matched/rsa/`; EEG RDMs (lower noise ceiling) | `analysis/seed_variability/results/new_model_comparison.{pdf,png}` |
+| **Table 1** (`tab:main-results`), 18 stimuli, ρ<sub>max</sub> per scalp analysis, mean ± SD over 10 seeds or training runs | `analysis/build_paper_tables.py` | `python analysis/rsa_grid.py --stimuli 18` (every RDM of `analysis/variants.py`), then `python analysis/maxr_table.py --stimuli 18`, then `python analysis/build_paper_tables.py` | `rdms/set18/`, EEG RDMs | `analysis/paper_stats/rho_max.csv`, `rho_max_per_rdm.csv`, `table_main_results.tex` |
+| **Fig. 2**, matched training comparisons | `analysis/plot_model_comparison.py` | as Table 1, then `python analysis/plot_model_comparison.py` | `analysis/paper_stats/rho_max.csv` | `analysis/paper_stats/fig2_model_comparison.{pdf,png}` |
 | ROI-averaged ρ<sub>max</sub> in Sections 4.1 and 4.3 | as Table 1 and the seed table | | | |
-| **Fig. 3**, FaceNet training-set size (`facenet_vggface2_size.pdf`) and its values in Section 4.2 | `analysis/summarize_facenet_low_size_repeats.py`, `analysis/plot_facenet_size_curve.py` | `python analysis/summarize_facenet_low_size_repeats.py && python analysis/plot_facenet_size_curve.py` | `analysis/rsa_grid_facenet_size_repeats/` (10 repeats per size; "800k" = `800k_bootstrap`) | `analysis/facenet_low_size_repeats/max_r_facenet_all_sizes.csv`, `facenet_vggface2_size_curve.pdf` |
-| 54-stimulus ρ<sub>max</sub> (Section 4.4) | `analysis/maxr_table.py` | `python analysis/maxr_table.py --stimuli 54` | `analysis/rsa_grid_54/` | `analysis/paper_stats_54/timelocked_maxr_54.csv` |
+| **Fig. 3**, FaceNet training-set size and the step-matched check, values in Section 4.2 | `analysis/plot_facenet_size_curve.py` | as Table 1, then `python analysis/plot_facenet_size_curve.py` | `analysis/paper_stats/rho_max.csv` (groups `size`, `step`) | `analysis/paper_stats/fig3_facenet_size_curve.{pdf,png}` |
+| 54-stimulus ρ<sub>max</sub> (Section 4.4) | `analysis/maxr_table.py` | `python analysis/rsa_grid.py --stimuli 54`, then `python analysis/maxr_table.py --stimuli 54` | `rdms/set54/`, EEG RDMs | `analysis/paper_stats_54/rho_max.csv`, `rho_max_per_rdm.csv` |
 | Nuisance RDMs and their RSA, 18 stimuli (Section 4.4) | `analysis/compute_{identity,identity_graded,pixel_diff,optical_flow,motion_energy}_rdm.py` → `analysis/control_rsa.py` | run each `compute_*` script, then `python analysis/control_rsa.py --stimuli 18` | `Stims_Videos/` (via `analysis/_stim_loader_v2.py`) | `analysis/motion_controls/{rdms,results}/` |
 | Nuisance RDMs and their RSA, 54 stimuli | `analysis/build_control_rdms_54.py` → `analysis/control_rsa.py` | `python analysis/control_rsa.py --stimuli 54` | stimulus videos, 54-stimulus EEG RDMs | `analysis/motion_controls_54/{rdms,results}/` |
 | Partial RSA (single and joint nuisance controls) | `analysis/partial_rsa.py` | `python analysis/partial_rsa.py --dataset 54` (and `--dataset 18`) | model, EEG and nuisance RDMs | `analysis/partial_rsa_{18,54}/partial_rsa_maxima.csv` |
 | Noise ceilings (rank-based, Nili et al., 2014), averaged over windows | `analysis/control_rsa.py` (`rsa_core.noise_ceilings`) | `python analysis/control_rsa.py --stimuli 18` (and `54`) | EEG RDMs | `analysis/paper_stats{,_54}/noise_ceiling_16win.csv` |
-| Cluster-based permutation tests (Section 4.5), both stimulus sets | `analysis/cluster_permutation_rsa_54.py` | `sbatch analysis/submit_cluster_permutation.sh` (array task 0 = 54 stimuli, 1 = 18) | `analysis/rsa_grid*/` | `analysis/cluster_permutation_{18,54}/` (`grid_summary.csv`, `clusters.csv`, `model_survivors.csv`, `*_cluster_masks.npz`) |
+| Cluster-based permutation tests (Section 4.5), both stimulus sets, one model per variant (seed 42 / run 1) | `analysis/cluster_permutation.py` | `sbatch analysis/submit_cluster_permutation.sh` (array task 0 = 54 stimuli, 1 = 18) | `analysis/rsa_grid{,_54}/` | `analysis/cluster_permutation_{18,54}/` (`grid_summary.csv`, `clusters.csv`, `model_survivors.csv`, `*_cluster_masks.npz`) |
 | **Fig. 4**, layer × time maps of the Holm-surviving clusters (`layer_time_clusters.pdf`) | `analysis/plot_layer_time_clusters.py` | `python analysis/plot_layer_time_clusters.py` | `analysis/rsa_grid_54/`, `analysis/cluster_permutation_54/` | `analysis/cluster_permutation_54/plots/layer_time_clusters.pdf` |
 
 ### Appendix
@@ -77,9 +76,7 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | Scalp ROI definitions | `eeg/roi_definitions.json` | | | |
 | Model details: analyzed layers | the `layer_order` of each RDM's `.layers.json` (written by the extraction scripts) | | | |
 | Model details: training recipes and accuracies | `vggface_train/train.py`, `affectnet_3class_train/train_affectnet.py`, `M3DFEL/main.py` (see [Training](#3-training)) | `bash trillium/submit_all.sh` | | `results/*/repeat_NN/train.log`, `metrics.csv`, `test_metrics.json`; M3DFEL: `log.txt` |
-| Random-initialization variability table (`tab:seeds`) | `analysis/build_paper_tables.py` | as Table 1 | `analysis/seed_variability/results/seeds_{summary,per_seed}.csv` | `analysis/paper_stats/table_seeds.tex` |
-| Linear probing (18 and 54 videos) | `analysis/evaluate_all_models_linear_54.py`, `analysis/export_predictions_same_models_54.py` | no arguments | `analysis/model_rdms_54/` | `analysis/model_performance_54/complete_54/` |
-| Linear-probing figure (`model_accuracy_summary_54.pdf`) | `analysis/plot_accuracy_summary_54.py` | `python analysis/plot_accuracy_summary_54.py` | `analysis/model_performance_54/complete_54/performance_54_same_models.csv` | `analysis/model_performance_54/complete_54/model_accuracy_summary_54.pdf` |
+| Random-initialization variability table (`tab:seeds`) | `analysis/build_paper_tables.py` | as Table 1 | `analysis/paper_stats/rho_max.csv` | `analysis/paper_stats/table_seeds.tex` |
 
 ## Full pipeline
 
@@ -168,31 +165,29 @@ stimuli).
 
 | | Script | Output |
 |---|---|---|
-| 18 stimuli, 26 participants | `analysis/rsa_grid.py --stimuli 18 --models <tags> [--model-dir] [--out-dir]` (random-seed ensembles: `--model-dir analysis/seed_variability/rdms --out-dir analysis/seed_variability/rsa_seeds`) | `analysis/rsa_grid/`, `rsa_grid_today/`, `rsa_grid_facenet_original_vggface2_affectnet_16win/`, `rsa_grid_facenet_size_repeats/` |
-| 54 stimuli, 25 participants | `analysis/rsa_grid.py --stimuli 54 --models <tags> [--model-dir] [--out-dir]` | `analysis/rsa_grid_54/` |
+| 18 stimuli, 26 participants | `analysis/rsa_grid.py --stimuli 18 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid/` |
+| 54 stimuli, 25 participants | `analysis/rsa_grid.py --stimuli 54 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid_54/` |
 
-Each grid file holds the participant × scalp analysis (6 ROIs + whole scalp) × layer × condition
+Models: every RDM listed in `analysis/variants.py` (21 variants; random seeds 42, 0–8 and training
+runs r01–r10 have ten RDMs each), read from `rdms/set18|set54/<name>/<name>.npy`; each RDM's stimulus
+order is checked against the EEG's. Each grid file holds the participant × scalp analysis (6 ROIs + whole scalp) × layer × condition
 (all, fear, happy, neutral) × EEG window array of Spearman ρ. Statistics, controls and tables are
 in [Which script gives which result](#which-script-gives-which-result).
 
 ## Data on Google Drive
 
-Folder: **`<DRIVE_LINK>`**. `MANIFEST.tsv` at its root lists every file with its size and SHA-256.
+Folder: **`<DRIVE_LINK>`** (to be published with the revision; planned layout below, as under
+`$FER_ROOT`). `MANIFEST.tsv` at its root will list every file with its size and SHA-256.
 
 | Folder | Content |
 |---|---|
-| `net_weights/` | ImageNet weights for ResNet18/50, VGG16, VGG16-BN and FaceNet; grayscale VGG16-BN trained on VGGFace (`vgg16_bn_1D_VGGFace3`); VGG-Face (`vgg16_vggface`); FaceNet Complete-VGGFace2 → AffectNet fine-tune used in Table 1 (`best_inceptionresnetv1_fer.pt`) |
-| `vggface_train/results/` | VGGFace2-trained ResNet18/50/FaceNet; FaceNet 300k/500k; all 70 training-set-size checkpoints, with training logs and metrics |
-| `vggface_train/index/`, `indexes/`, `indexes_repeated/` | VGGFace2 split (715,810 train / 10,692 val images, 5,346 identities) and every subset index (300k/500k; 10 repeats × 7 sizes, each with `sampling.json`) |
-| `affectnet_3class_train/results/17810319/` | AffectNet fine-tuned ResNet18, ResNet50, FaceNet, VGG-Face |
-| `M3DFEL/results/17812056/fold_3/`, `M3DFEL/pretrained/` | DFEW fine-tuned M3DFEL, and the Kinetics-400 R3D-18 backbone |
-| `torch_cache/checkpoints/` | facenet-pytorch `20180402-114759-vggface2.pt` (FaceNet "Complete VGGFace2") |
-| `random_init_weights/` | Every random-initialization model in the paper, each checked to reproduce the paper's RDMs exactly: Table 1 seed ensemble (ResNet18, ResNet50, VGG16-BN, FaceNet; seeds 42, 0–8), 18-stimulus seed-42 CNNs, 54-stimulus seed-42 CNNs, M3DFEL (seeds 42, 0–8), Qwen3-VL-8B (seeds 42, 0–3, HuggingFace format). See `random_init_weights/README_random.txt` |
-| `eeg_data/`, `eeg_rdms_complete/` | EEG RDMs: 18 stimuli per ROI and whole scalp; 54 stimuli per ROI and whole scalp (with per-emotion 18 × 18 RDMs) |
-| `analysis/model_rdms_*`, `analysis/layer_matched/rdms/`, `analysis/seed_variability/rdms/` | Model RDMs with `.layers.json` provenance |
-| `analysis/rsa_grid*/`, `seed_variability/rsa_*/`, `layer_matched/rsa_*/` | RSA grids |
-| `analysis/cluster_permutation_{18,54}/` | Cluster permutation tests |
-| `analysis/paper_stats*/`, `motion_controls*/`, `partial_rsa_{18,54}/`, `facenet_low_size_repeats/`, `model_performance_54/`, `seed_variability/results/`, `layer_matched/results/` | Noise ceilings, control RDMs and RSA, partial RSA, summary tables, linear separability |
+| `eeg_data/`, `eeg_rdms_complete/` | EEG RDMs: 18 stimuli per ROI and whole scalp (26 participants); 54 stimuli per ROI and whole scalp (25) |
+| `rdms/set18/`, `rdms/set54/` | Model RDMs, one folder per RDM (`analysis/variants.py`), with `.layers.json` (layers, weights, preprocessing, stimulus order) |
+| `results/{pretrain,sizecurve,stepmatched,finetune}/` | The retrained models (`best_weights.pt`), with training logs, metrics and `test_metrics.json` |
+| `random_weights/` | The saved random-initialization weights the random variants load |
+| `analysis/rsa_grid/`, `rsa_grid_54/` | RSA grids |
+| `analysis/paper_stats/`, `paper_stats_54/` | rho_max tables (`rho_max.csv`, `rho_max_per_rdm.csv`), noise ceilings, paper tables and figures |
+| `analysis/cluster_permutation_{18,54}/`, `motion_controls{,_54}/`, `partial_rsa_{18,54}/` | Cluster tests, control RDMs and RSA, partial RSA |
 
 Qwen3-VL-8B-Instruct pretrained weights are not copied: download `Qwen/Qwen3-VL-8B-Instruct` at
 revision `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`. Stimulus videos and frames are not distributed.
@@ -211,16 +206,8 @@ These steps were done by hand or with code that no longer exists. Their outputs 
   The 18-stimulus whole-scalp RDMs and the unoccluded part of the 54-stimulus RDMs agree exactly,
   and the per-ROI RDMs to within 5e-7, so all of them come from the same averaged data.
 - **The AffectNet three-class subset** (the Kaggle archive was already reduced).
-- **Four checkpoints obtained outside this code**: `net_weights/best_inceptionresnetv1_fer.pt`,
-  `vgg16_bn_1D_VGGFace3`, `vgg16_vggface` (VGG-Face conversion) and `FaceNet_imagenet`.
-- **The 18-stimulus "VGGFace2 800k" FaceNet** (`facenet_vggface3_16f`): its checkpoint is lost. Its
-  RDMs and RSA grids are on Drive, but it cannot be re-extracted.
-- **Two untrained heads**: the random 3-unit `logits` layer of FaceNet "Complete VGGFace2" and the
-  untrained MIL head (`lstm`, `to_qkv`, `norm`) of Kinetics-pretrained M3DFEL. Their weights were not
-  saved, and current code draws different ones (all other layers of these models reproduce exactly).
-  The FaceNet `logits` layer is the last layer of the 379-layer grids (Table 1, 18-stimulus cluster
-  tests) and of the 54-stimulus grids; the 133-layer grids of Fig. 2 exclude it. Both stimulus sets
-  include the M3DFEL head layers. Their RDMs and RSA grids are on Drive.
+- **Two ImageNet checkpoints from the authors' earlier study** (MFRS): FaceNet and ResNet50
+  (`resnet50_None_imagenet`); the ResNet18 and VGG16 ImageNet weights are torchvision's.
 
 ## License
 

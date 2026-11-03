@@ -43,10 +43,15 @@ EMOTIONS = {
            "happy": np.arange(18, 36), "neutral": np.arange(36, 54)},
 }
 MODEL_EMOTION_ORDER = ("fear", "happy", "neutral")
-# RSA grids (rsa_grid.py); for 18 stimuli the later folders only fill missing models
-GRID_DIRS = {"18": [ROOT / "analysis/rsa_grid", ROOT / "analysis/rsa_grid_today",
-                    ROOT / "analysis/rsa_grid_facenet_original_vggface2_affectnet_16win"],
-             "54": [ROOT / "analysis/rsa_grid_54"]}
+ACTORS = ("01", "02", "04", "07", "08", "11")
+# stimulus names in the model RDMs' .layers.json (build_stimuli_h5_16frames.py)
+MODEL_STIMULI = {
+    "18": [f"{e}_Actor{a}" for e in MODEL_EMOTION_ORDER for a in ACTORS],
+    "54": [f"{e}_{c}_Actor{a}" for e in MODEL_EMOTION_ORDER
+           for c in ("original", "glasses", "masked") for a in ACTORS],
+}
+RDM_DIRS = {s: ROOT / f"rdms/set{s}" for s in ("18", "54")}       # <name>/<name>.npy
+GRID_DIRS = {"18": ROOT / "analysis/rsa_grid", "54": ROOT / "analysis/rsa_grid_54"}
 N_ROI = 6                    # scopes 0-5 are ROIs, 6 is the whole scalp
 EMO_SPECIFIC = (1, 2, 3)     # emotions are ordered all, fear, happy, neutral
 ROI_AVG, EMO_AVG = "ROI-avg", "emo-avg"
@@ -191,11 +196,17 @@ def noise_ceilings(eeg, stimuli):
 
 
 def grid_path(stimuli, tag):
-    for directory in GRID_DIRS[stimuli]:
-        path = directory / f"{tag}_rsa_grid.npz"
-        if path.exists():
-            return path
-    return None
+    return GRID_DIRS[stimuli] / f"{tag}_rsa_grid.npz"
+
+
+def load_model_rdm(stimuli, tag, rdm_dir=None):
+    """(L, frames, n, n) model RDM; checks its stimulus order against the EEG's."""
+    folder = Path(rdm_dir or RDM_DIRS[stimuli]) / tag
+    meta = json.loads((folder / f"{tag}.layers.json").read_text())
+    stimuli_order = meta.get("stimuli") or meta.get("stim_order")
+    if stimuli_order != MODEL_STIMULI[stimuli]:
+        raise SystemExit(f"ABORT {tag}: stimulus order differs from the EEG's")
+    return np.load(folder / f"{tag}.npy")
 
 
 def cell_maxima(rsa, nc_lower=None, nc_upper=None):

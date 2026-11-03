@@ -26,6 +26,7 @@ import numpy as np
 from scipy.stats import rankdata
 
 import rsa_core
+import variants
 from rsa_core import upper
 
 ROOT = rsa_core.ROOT
@@ -65,34 +66,25 @@ def residual_normalise(vectors: np.ndarray, basis: np.ndarray) -> tuple[np.ndarr
     return values, invalid
 
 
-def model_tags(dataset: int) -> list[str]:
-    grid_dir = ROOT / ("analysis/rsa_grid" if dataset == 18 else "analysis/rsa_grid_54")
-    return sorted(p.name.removesuffix("_rsa_grid.npz") for p in grid_dir.glob("*_rsa_grid.npz"))
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=int, choices=(18, 54), required=True)
-    parser.add_argument("--models", nargs="*", help="optional model RDM basenames")
+    parser.add_argument("--models", nargs="*",
+                        help="RDM names (default: every RDM of the main variants, analysis/variants.py)")
     args = parser.parse_args()
 
     dataset = args.dataset
     subjects = rsa_core.subjects(str(dataset))
-    model_dir = ROOT / ("analysis/model_rdms_canonical" if dataset == 18 else "analysis/model_rdms_54")
     control_dir = ROOT / ("analysis/motion_controls/rdms" if dataset == 18 else
                           "analysis/motion_controls_54/rdms")
     output_dir = ROOT / f"analysis/partial_rsa_{dataset}"
     output_dir.mkdir(parents=True, exist_ok=True)
-    tags = args.models or model_tags(dataset)
+    tags = args.models or [t for g, *_, ts in variants.variants(str(dataset)) if g == "main" for t in ts]
     controls = {name: np.load(control_dir / f"{name}_rdm.npy") for name in CONTROL_NAMES}
     rows: list[dict[str, object]] = []
 
     for tag in tags:
-        path = model_dir / f"{tag}.npy"
-        if not path.exists():
-            print(f"[skip] missing {path}", flush=True)
-            continue
-        model = np.load(path)
+        model = rsa_core.load_model_rdm(str(dataset), tag)
         joint_by_emotion = []
         scopes_out = None
 

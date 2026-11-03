@@ -14,6 +14,9 @@ Emotions: all, fear, happy, neutral; the model RDM is sliced with the same
 --stimuli 18: 26 participants; 54: 25 participants, and participants with a
 missing video are analysed on the stimulus pairs they have (rsa_core.py).
 
+Models: every RDM of analysis/variants.py (or --models), from rdms/set<stimuli>/<name>/;
+each RDM's stimulus order is checked against the EEG's.
+
 Output: <out-dir>/<model>_rsa_grid.npz
   rsa (S, 7, L, 4, W) float32, subjects, scopes, emotions, n_layers, window_bounds
 """
@@ -23,22 +26,19 @@ from pathlib import Path
 import numpy as np
 
 import rsa_core
+import variants
 from rsa_core import upper, rank_normalise
-
-DEFAULTS = {"18": ("analysis/model_rdms_canonical", "analysis/rsa_grid"),
-            "54": ("analysis/model_rdms_54", "analysis/rsa_grid_54")}
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
     ap.add_argument("--models", nargs="+", default=None,
-                    help="RDM basenames in --model-dir (default: every *_weights.npy)")
-    ap.add_argument("--model-dir", default=None)
-    ap.add_argument("--out-dir", default=None)
+                    help="RDM names (default: every RDM of analysis/variants.py)")
+    ap.add_argument("--rdm-dir", default=None, help="default: $FER_ROOT/rdms/set<stimuli>")
+    ap.add_argument("--out-dir", default=None, help="default: rsa_core.GRID_DIRS")
     args = ap.parse_args()
-    model_dir = Path(args.model_dir) if args.model_dir else rsa_core.ROOT / DEFAULTS[args.stimuli][0]
-    out_dir = Path(args.out_dir) if args.out_dir else rsa_core.ROOT / DEFAULTS[args.stimuli][1]
+    out_dir = Path(args.out_dir) if args.out_dir else rsa_core.GRID_DIRS[args.stimuli]
     out_dir.mkdir(parents=True, exist_ok=True)
 
     eeg, subjects, scopes = rsa_core.load_eeg(args.stimuli)
@@ -46,20 +46,23 @@ def main():
     window_bounds = rsa_core.window_bounds(args.stimuli)[:W]
     emotions = rsa_core.EMOTIONS[args.stimuli]
     print(f"[eeg] {args.stimuli} stimuli: {S} subjects x {O} scopes x {W} windows")
+    # the EEG side is the same for every model: rank it once per emotion and pair set
+    eeg_ranked = []
+    for idx in emotions.values():
+        ev = upper(eeg[..., idx, :][..., idx])                    # (S, O, W, P)
+        eeg_ranked.append([(sidx, keep, *rank_normalise(ev[sidx][..., keep]))
+                           for sidx, keep in rsa_core.pair_groups(ev)])
 
-    tags = args.models or sorted(p.name[:-4] for p in model_dir.glob("*_weights.npy"))
-    for tag in tags:
-        model = np.load(model_dir / f"{tag}.npy")               # (L, frames, n, n)
+    for tag in args.models or variants.all_rdms(args.stimuli):
+        model = rsa_core.load_model_rdm(args.stimuli, tag, args.rdm_dir)   # (L, frames, n, n)
         if model.shape[1] < W or model.shape[-1] != eeg.shape[-1]:
             raise SystemExit(f"ABORT {tag}: model {model.shape}, EEG {eeg.shape}")
         model = model[:, :W]
         L = model.shape[0]
         grid = np.full((S, O, L, len(emotions), W), np.nan, dtype=np.float32)
         for ei, idx in enumerate(emotions.values()):
-            ev = upper(eeg[..., idx, :][..., idx])                # (S, O, W, P)
             mv = upper(model[..., idx, :][..., idx])              # (L, W, P)
-            for sidx, keep in rsa_core.pair_groups(ev):
-                ez, e_flat = rank_normalise(ev[sidx][..., keep])
+            for sidx, keep, ez, e_flat in eeg_ranked[ei]:
                 mz, m_flat = rank_normalise(mv[..., keep])
                 r = np.einsum("sowp,lwp->solw", ez, mz, optimize=True)
                 # Constant RDMs have no correlation (the dot product would be 0).
@@ -71,7 +74,7 @@ def main():
             scopes=np.array(scopes), emotions=np.array(list(emotions)),
             n_layers=L, window_bounds=window_bounds)
         best = np.nanmax(np.nanmean(grid[:, :, :, 0], axis=0))
-        print(f"  {tag:46s} L={L:3d}  best mean RSA (all) = {best:+.4f}")
+        print(f"  {tag:28s} L={L:3d}  best mean RSA (all) = {best:+.4f}", flush=True)
 
 
 if __name__ == "__main__":

@@ -20,10 +20,9 @@ from scipy.ndimage import label
 from scipy.stats import t as tdist
 
 import rsa_core
+import variants
 
 ROOT = rsa_core.ROOT
-GRID_DIR = rsa_core.GRID_DIRS["54"][0]
-OUT = ROOT / "analysis/cluster_permutation_54"
 N_PERM = 2000
 SEED = 42
 ALPHA = .05
@@ -100,20 +99,15 @@ def threshold_for(n, cache={}):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--study", choices=["18", "54"], default="54")
+    parser.add_argument("--study", choices=["18", "54"], required=True)
     args = parser.parse_args()
     global OUT
-    if args.study == "54":
-        paths = sorted(GRID_DIR.glob("*_rsa_grid.npz"))
-    else:
-        OUT = ROOT / "analysis/cluster_permutation_18"
-        # Later directories in this list only fill missing tags; never test a
-        # duplicated model twice.
-        by_tag = {}
-        for directory in rsa_core.GRID_DIRS["18"]:
-            for path in sorted(directory.glob("*_rsa_grid.npz")):
-                by_tag.setdefault(path.name.removesuffix("_rsa_grid.npz"), path)
-        paths = [by_tag[tag] for tag in sorted(by_tag)]
+    OUT = ROOT / f"analysis/cluster_permutation_{args.study}"
+    # one model per variant: random seed 42, training run 1, or the released model
+    paths = [rsa_core.grid_path(args.study, tag) for tag in variants.representatives(args.study)]
+    missing = [p for p in paths if not p.exists()]
+    if missing:
+        raise SystemExit(f"ABORT: missing grids {missing[:3]}")
     OUT.mkdir(parents=True, exist_ok=True)
     grid_rows, cluster_rows = [], []
 
