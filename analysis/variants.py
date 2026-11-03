@@ -3,8 +3,8 @@
 A variant has one RDM (a released model: ImageNet, VGG-Face, Kinetics-400, DFEW,
 Qwen3-VL) or ten: random initialisation seeds 42, 0-8 (saved weights), or training
 runs r01-r10 (training seeds 1001-1010). rho_max is computed for each RDM and then
-averaged, mean +/- SD over the ten. The first RDM of a variant (seed 42, run 1)
-represents it in the cluster tests and the layer x time maps.
+averaged, mean +/- SD over the ten; the cluster tests and the layer x time maps
+use the variant's grid averaged over its RDMs (rsa_core.variant_grid).
 
 RDMs: $FER_ROOT/rdms/set{18,54}/<name>/<name>.npy (trillium/extract_tasks.py).
 The size curve and the step-matched check (FaceNet) exist for 18 stimuli only.
@@ -65,8 +65,3 @@ def variants(stimuli):
 def all_rdms(stimuli):
     """Every RDM once (the full-pool FaceNet runs are in the main table and the size curve)."""
     return list(dict.fromkeys(tag for *_, tags in variants(stimuli) for tag in tags))
-
-
-def representatives(stimuli, group="main"):
-    """The first RDM of each variant (seed 42 or run 1), for the cluster tests."""
-    return [tags[0] for g, *_, tags in variants(stimuli) if g == group]
