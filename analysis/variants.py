@@ -8,6 +8,8 @@ represents it in the cluster tests and the layer x time maps.
 
 RDMs: $FER_ROOT/rdms/set{18,54}/<name>/<name>.npy (trillium/extract_tasks.py).
 The size curve and the step-matched check (FaceNet) exist for 18 stimuli only.
+The nuisance controls (analysis/control_rdms.py) are one-layer RDMs in the same
+place, group "control"; occlusion exists for 54 stimuli only.
 """
 SEEDS = (42, 0, 1, 2, 3, 4, 5, 6, 7, 8)
 SIZES = ("10k", "50k", "100k", "200k", "300k", "500k")
@@ -41,14 +43,22 @@ MAIN = {
 SIZE_CURVE = [(size, runs(f"facenet_size{size}")) for size in SIZES] + [
     (FULL_POOL, runs("facenet_vggface2"))]
 STEP_MATCHED = [(size, runs(f"facenet_step{size}")) for size in SIZES[:-1]]
+CONTROLS = [("Identity", "identity"), ("Occlusion", "occlusion"), ("Pixel", "pixel"),
+            ("Optical flow", "optical_flow"), ("Motion energy", "motion_energy")]
+
+
+def controls(stimuli):
+    """-> [(label, control name)] for this stimulus set."""
+    return [(label, name) for label, name in CONTROLS if stimuli == "54" or name != "occlusion"]
 
 
 def variants(stimuli):
-    """-> [(group, family, variant, RDM names)]; groups: main, size, step."""
+    """-> [(group, family, variant, RDM names)]; groups: main, size, step, control."""
     out = [("main", family, variant, tags) for family, rows in MAIN.items() for variant, tags in rows]
     if stimuli == "18":
         out += [("size", "FaceNet", size, tags) for size, tags in SIZE_CURVE]
         out += [("step", "FaceNet", size, tags) for size, tags in STEP_MATCHED]
+    out += [("control", "Control", label, [f"control_{name}"]) for label, name in controls(stimuli)]
     return out
 
 

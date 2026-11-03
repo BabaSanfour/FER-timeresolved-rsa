@@ -13,8 +13,6 @@ paper/*.synctex.gz
 paper/main.pdf
 # Data, weights and derived outputs are not distributed
 net_weights/
-stim_frames/
-stim_frames_54/
 eeg_rdms_complete/
 *.npy
 *.npz

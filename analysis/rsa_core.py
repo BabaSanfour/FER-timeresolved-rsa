@@ -48,6 +48,8 @@ EMOTIONS = {s: {"all": np.arange(len(names)),
             for s, names in STIMULI.items()}
 RDM_DIRS = {s: ROOT / f"rdms/set{s}" for s in ("18", "54")}       # <name>/<name>.npy
 GRID_DIRS = {"18": ROOT / "analysis/rsa_grid", "54": ROOT / "analysis/rsa_grid_54"}
+# partial-RSA grids (partial_rsa.py), one folder per control set
+PARTIAL_DIRS = {"18": ROOT / "analysis/partial_rsa", "54": ROOT / "analysis/partial_rsa_54"}
 N_ROI = 6                    # scopes 0-5 are ROIs, 6 is the whole scalp
 EMO_SPECIFIC = (1, 2, 3)     # emotions are ordered all, fear, happy, neutral
 ROI_AVG, EMO_AVG = "ROI-avg", "emo-avg"
@@ -164,8 +166,10 @@ def noise_ceilings(eeg, stimuli):
     return lower, upper_nc
 
 
-def grid_path(stimuli, tag):
-    return GRID_DIRS[stimuli] / f"{tag}_rsa_grid.npz"
+def grid_path(stimuli, tag, partial=None):
+    """Grid of an RDM; partial = a control set of partial_rsa.py."""
+    folder = GRID_DIRS[stimuli] if partial is None else PARTIAL_DIRS[stimuli] / partial
+    return folder / f"{tag}_rsa_grid.npz"
 
 
 def load_model_rdm(stimuli, tag, rdm_dir=None):
@@ -183,7 +187,9 @@ def cell_maxima(rsa, nc_lower=None, nc_upper=None):
 
     The grid is averaged over participants first; the maximum over layer x window
     is then taken separately in each scope x emotion cell (never after averaging
-    cells), and the ceilings (O, E, W) are read at that cell's window.
+    cells), and the ceilings (O, E, W) are read at that cell's window. A cell with
+    no defined value (a constant RDM, e.g. identity within one emotion of the 18
+    stimuli) is NaN with layer and window -1.
     """
     gm = np.nanmean(rsa, axis=0)                                   # (O, L, E, W)
     cells = {}
@@ -191,6 +197,7 @@ def cell_maxima(rsa, nc_lower=None, nc_upper=None):
         for ei in range(gm.shape[2]):
             block = gm[oi, :, ei, :]
             if np.all(np.isnan(block)):
+                cells[oi, ei] = (np.nan, np.nan, np.nan, -1, -1)
                 continue
             li, wi = np.unravel_index(np.nanargmax(block), block.shape)
             cells[oi, ei] = (float(block[li, wi]),
@@ -203,7 +210,7 @@ def cell_maxima(rsa, nc_lower=None, nc_upper=None):
 def averaged_cells(cells):
     """Add the averaged scope (index 7, ROI-avg: the six ROIs) and emotion (index 4,
     emo-avg: fear, happy, neutral); ROI-avg x emo-avg averages the 18 cells.
-    Values and ceilings are averaged; layer and window become -1."""
+    Values and ceilings are averaged (NaN if a cell is undefined); layer and window become -1."""
     out = {}
     for oi in range(N_ROI + 2):
         for ei in range(len(EMO_SPECIFIC) + 2):
