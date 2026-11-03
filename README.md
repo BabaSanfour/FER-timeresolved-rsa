@@ -91,9 +91,9 @@ The 18-stimulus folders contain 26 participants, and every 18-stimulus analysis 
 The 54-stimulus folders contain 25:
 participant CEG has no 54-stimulus data. The pooled 54-stimulus EEG files (`*_all_rdms.npy`)
 are ordered happy, fear, neutral; `analysis/rsa_core.py` reorders them to the model order (fear, happy,
-neutral) by stimulus name. Eleven participants (LC LJ LMB MD MDR MH NW RG RP TA YN) lack one video
-(neutral, glasses, index 3; NaN row and column): their neutral and pooled RSA, partial RSA, control
-RSA and noise ceilings use the pairs they have (17 of 18, 53 of 54 stimuli), so n = 25 everywhere.
+neutral) by stimulus name. Eleven participants (LC LJ LMB MD MDR MH NW RG RP TA YN) have no EEG
+response to one video (neutral, glasses, actor 07), so that video is excluded for everyone: the
+54-stimulus analyses use 53 videos (17 neutral) and all 25 participants (`rsa_core.STIMULI`).
 
 ### 2. Stimuli
 
