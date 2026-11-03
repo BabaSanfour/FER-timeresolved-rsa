@@ -11,8 +11,7 @@ Every cell is kept, so nothing is collapsed before the summaries.
 Scopes  : the 6 ROIs (roi_order.npy) + "wholescalp"                      -> 7
 Emotions: all, fear, happy, neutral; the model RDM is sliced with the same
           indices as the EEG (rsa_core.EMOTIONS)                          -> 4
---stimuli 18: 26 participants; 54: 25 participants, and participants with a
-missing video are analysed on the stimulus pairs they have (rsa_core.py).
+--stimuli 18: 26 participants; 54: 25 participants and 53 stimuli (rsa_core.py).
 
 Models: every RDM of analysis/variants.py (or --models), from rdms/set<stimuli>/<name>/;
 each RDM's stimulus order is checked against the EEG's.
@@ -46,12 +45,9 @@ def main():
     window_bounds = rsa_core.window_bounds(args.stimuli)[:W]
     emotions = rsa_core.EMOTIONS[args.stimuli]
     print(f"[eeg] {args.stimuli} stimuli: {S} subjects x {O} scopes x {W} windows")
-    # the EEG side is the same for every model: rank it once per emotion and pair set
-    eeg_ranked = []
-    for idx in emotions.values():
-        ev = upper(eeg[..., idx, :][..., idx])                    # (S, O, W, P)
-        eeg_ranked.append([(sidx, keep, *rank_normalise(ev[sidx][..., keep]))
-                           for sidx, keep in rsa_core.pair_groups(ev)])
+    # the EEG side is the same for every model: rank it once per emotion
+    eeg_ranked = [rank_normalise(upper(eeg[..., idx, :][..., idx]))     # (S, O, W, P)
+                  for idx in emotions.values()]
 
     for tag in args.models or variants.all_rdms(args.stimuli):
         model = rsa_core.load_model_rdm(args.stimuli, tag, args.rdm_dir)   # (L, frames, n, n)
@@ -61,14 +57,13 @@ def main():
         L = model.shape[0]
         grid = np.full((S, O, L, len(emotions), W), np.nan, dtype=np.float32)
         for ei, idx in enumerate(emotions.values()):
-            mv = upper(model[..., idx, :][..., idx])              # (L, W, P)
-            for sidx, keep, ez, e_flat in eeg_ranked[ei]:
-                mz, m_flat = rank_normalise(mv[..., keep])
-                r = np.einsum("sowp,lwp->solw", ez, mz, optimize=True)
-                # Constant RDMs have no correlation (the dot product would be 0).
-                r[np.broadcast_to(m_flat[None, None], r.shape)] = np.nan
-                r[np.broadcast_to(e_flat[:, :, None], r.shape)] = np.nan
-                grid[sidx, :, :, ei] = r.astype(np.float32)
+            ez, e_flat = eeg_ranked[ei]
+            mz, m_flat = rank_normalise(upper(model[..., idx, :][..., idx]))   # (L, W, P)
+            r = np.einsum("sowp,lwp->solw", ez, mz, optimize=True)
+            # Constant RDMs have no correlation (the dot product would be 0).
+            r[np.broadcast_to(m_flat[None, None], r.shape)] = np.nan
+            r[np.broadcast_to(e_flat[:, :, None], r.shape)] = np.nan
+            grid[:, :, :, ei] = r.astype(np.float32)
         np.savez_compressed(
             out_dir / f"{tag}_rsa_grid.npz", rsa=grid, subjects=np.array(subjects),
             scopes=np.array(scopes), emotions=np.array(list(emotions)),

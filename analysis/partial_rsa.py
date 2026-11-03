@@ -80,7 +80,8 @@ def main() -> None:
     output_dir = ROOT / f"analysis/partial_rsa_{dataset}"
     output_dir.mkdir(parents=True, exist_ok=True)
     tags = args.models or [t for g, *_, ts in variants.variants(str(dataset)) if g == "main" for t in ts]
-    controls = {name: np.load(control_dir / f"{name}_rdm.npy") for name in CONTROL_NAMES}
+    controls = {name: rsa_core.select_stimuli(np.load(control_dir / f"{name}_rdm.npy"), str(dataset))
+                for name in CONTROL_NAMES}
     rows: list[dict[str, object]] = []
 
     for tag in tags:
@@ -100,21 +101,14 @@ def main() -> None:
             control_sets = [(name, [i]) for i, name in enumerate(CONTROL_NAMES)]
             control_sets.append(("joint", list(range(len(CONTROL_NAMES)))))
 
-            # Participants with a missing video are analysed on their available pairs:
-            # ranks, nuisance basis and residuals are all recomputed on that subset.
-            groups = rsa_core.pair_groups(eeg_vectors)
             for set_name, selected in control_sets:
-                grid = np.full(eeg_vectors.shape[:2] + model_vectors.shape[:2], np.nan, np.float32)
-                for gi, (sidx, keep) in enumerate(groups):
-                    basis, retained_local = nuisance_basis([control_vectors[i][keep] for i in selected])
-                    if gi == 0:  # the group with the most pairs (all of them when anyone is complete)
-                        retained = [CONTROL_NAMES[selected[i]] for i in retained_local]
-                    ez, e_invalid = residual_normalise(eeg_vectors[sidx][..., keep], basis)
-                    mz, m_invalid = residual_normalise(model_vectors[..., keep], basis)
-                    part = np.einsum("sowp,lwp->solw", ez, mz, optimize=True).astype(np.float32)
-                    part[np.broadcast_to(e_invalid[:, :, None, :], part.shape)] = np.nan
-                    part[np.broadcast_to(m_invalid[None, None, :, :], part.shape)] = np.nan
-                    grid[sidx] = part
+                basis, retained_local = nuisance_basis([control_vectors[i] for i in selected])
+                retained = [CONTROL_NAMES[selected[i]] for i in retained_local]
+                ez, e_invalid = residual_normalise(eeg_vectors, basis)
+                mz, m_invalid = residual_normalise(model_vectors, basis)
+                grid = np.einsum("sowp,lwp->solw", ez, mz, optimize=True).astype(np.float32)
+                grid[np.broadcast_to(e_invalid[:, :, None, :], grid.shape)] = np.nan
+                grid[np.broadcast_to(m_invalid[None, None, :, :], grid.shape)] = np.nan
                 group = np.nanmean(grid, axis=0)
                 maxima = []
                 for oi, scope in enumerate(scopes):

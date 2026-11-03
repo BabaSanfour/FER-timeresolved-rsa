@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 """Grid-wide cluster permutation tests over layer × time RSA grids.
 
-Missing data
-------------
-`rsa_grid.py` writes NaN for a participant x condition whose EEG RDM is
-degenerate (flat). (Participants with a missing video are not NaN: they are
-analysed on their available stimulus pairs, see rsa_core.py.) Participants without
-any finite cell are dropped **listwise per (scope, emotion) grid** and the realised n is reported; they are
-never zero-filled, which would shrink the mean toward zero and claim a df the
-data do not support. n therefore varies between grids, so the sign matrix and
-the cluster-forming t threshold are built per realised n.
+Every participant enters every grid (the EEG has no missing values, rsa_core.py).
+A cell is NaN only where a model RDM is constant (no correlation), and then for
+every participant; such cells are left out of the clustering.
 """
 import csv
 import json
@@ -26,7 +20,6 @@ ROOT = rsa_core.ROOT
 N_PERM = 2000
 SEED = 42
 ALPHA = .05
-MIN_SUBJECTS = 3
 STRUCTURE = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=int)
 
 
@@ -117,37 +110,18 @@ def main():
         rsa = np.asarray(z["rsa"], np.float32)
         scopes = [str(x) for x in z["scopes"]]
         emotions = [str(x) for x in z["emotions"]]
-        subjects = ([str(x) for x in z["subjects"]] if "subjects" in z
-                    else [str(i) for i in range(rsa.shape[0])])
+        n = rsa.shape[0]
         model_rows = []
         masks = np.zeros(rsa.shape[1:], dtype=np.uint8)  # scope, layer, emotion, window
         for si, scope in enumerate(scopes):
             for ei, emotion in enumerate(emotions):
                 raw = rsa[:, si, :, ei, :]
-                finite = np.isfinite(raw).reshape(raw.shape[0], -1)
-                keep = finite.any(axis=1)
-                n = int(keep.sum())
-                dropped = [subjects[i] for i in np.flatnonzero(~keep)]
-                base = {
-                    "model": tag, "scope": scope, "emotion": emotion,
-                    "n": n, "n_dropped": len(dropped),
-                    "dropped_subjects": ";".join(dropped),
-                }
-                if n < MIN_SUBJECTS:
-                    model_rows.append({
-                        **base, "n_layers": raw.shape[1],
-                        "n_windows": raw.shape[2], "t_threshold": float("nan"),
-                        "n_permutations": 0, "n_valid_cells": 0,
-                        "n_cells": raw.shape[1] * raw.shape[2],
-                        "n_clusters": 0, "max_t": float("nan"),
-                        "min_cluster_p": 1.0, "survives_grid_fwer": 0,
-                    })
-                    continue
-                x = raw[keep]
-                # A cell enters clustering only if every retained participant
-                # has it; zero-filling here touches no retained cell.
-                valid = np.isfinite(x).all(axis=0)
-                x = np.where(np.isfinite(x), x, 0.).astype(np.float32)
+                valid = np.isfinite(raw).all(axis=0)
+                if not np.array_equal(valid, np.isfinite(raw).any(axis=0)):
+                    raise SystemExit(f"ABORT {tag} {scope} {emotion}: NaN for some participants only")
+                base = {"model": tag, "scope": scope, "emotion": emotion, "n": n}
+                # invalid cells are excluded from clustering; zero-filling touches no valid cell
+                x = np.where(valid, raw, 0.).astype(np.float32)
                 threshold = threshold_for(n)
                 signs = signs_for(n)
                 observed_t = np.where(valid, t_values(x), 0.)
@@ -168,7 +142,7 @@ def main():
                         "window_min": int(where[:, 1].min()),
                         "window_max": int(where[:, 1].max()),
                         "peak_t": float(observed_t[mask].max()),
-                        "mean_rho": float(np.nanmean(raw[keep][:, mask])),
+                        "mean_rho": float(np.mean(raw[:, mask])),
                         "p_grid_fwer": p,
                     })
                 model_rows.append({
@@ -187,14 +161,10 @@ def main():
             row["p_holm_28_grids"] = float(adj)
             row["survives_holm_28_grids"] = int(adj < ALPHA)
         grid_rows.extend(model_rows)
-        shape = (len(scopes), len(emotions))
         np.savez_compressed(
             OUT / f"{tag}_cluster_masks.npz", significant=masks,
             scopes=np.asarray(scopes), emotions=np.asarray(emotions),
-            # n and the t threshold now vary per grid with listwise deletion.
-            n=np.asarray([r["n"] for r in model_rows], np.int16).reshape(shape),
-            threshold=np.asarray([r["t_threshold"] for r in model_rows],
-                                 np.float64).reshape(shape),
+            n=n, threshold=threshold_for(n),
             n_permutations=N_PERM,
         )
         print(f"[{pi}/{len(paths)}] {tag}: "
@@ -214,8 +184,7 @@ def main():
         rows = [row for row in grid_rows if row["model"] == tag]
         survivors.append({
             "model": tag,
-            "n_min": min(r["n"] for r in rows),
-            "n_max": max(r["n"] for r in rows),
+            "n": rows[0]["n"],
             "n_grid_fwer_survivors": sum(r["survives_grid_fwer"] for r in rows),
             "n_holm_survivors": sum(r["survives_holm_28_grids"] for r in rows),
             "model_survives_grid_fwer": int(any(r["survives_grid_fwer"] for r in rows)),
@@ -235,11 +204,7 @@ def main():
         "within_grid_correction": "maximum cluster mass FWER",
         "n_permutations": N_PERM, "seed": SEED,
         "across_grid_correction": "Holm across 7 scopes x 4 emotions per model",
-        "missing_data": ("listwise deletion per (scope, emotion) grid; "
-                         "participants with no finite cell are dropped and the "
-                         "realised n is reported per grid, from which the sign "
-                         "matrix and the t threshold are derived"),
-        "min_subjects_tested": MIN_SUBJECTS,
+        "missing_data": "none: every participant in every grid; cells of a constant model RDM are excluded",
     }, indent=2))
     print(f"[ok] -> {OUT}")
 

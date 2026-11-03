@@ -43,14 +43,14 @@ def main():
     nc_path.parent.mkdir(parents=True, exist_ok=True)
 
     eeg, subjects, scopes = rsa_core.load_eeg(args.stimuli)
-    S, W, n = eeg.shape[0], eeg.shape[2], eeg.shape[-1]
+    S, W = eeg.shape[0], eeg.shape[2]
     wb = rsa_core.window_bounds(args.stimuli)
     controls = {}
     for c in CONTROLS:
         rdm = np.load(rdm_dir / f"{c}_rdm.npy")
-        if rdm.shape != (n, n):
-            raise SystemExit(f"ABORT {c}: shape {rdm.shape}, expected {(n, n)}")
-        controls[c] = rdm
+        if rdm.shape != (len(rsa_core.MODEL_STIMULI[args.stimuli]),) * 2:
+            raise SystemExit(f"ABORT {c}: shape {rdm.shape}, expected one row per stimulus")
+        controls[c] = rsa_core.select_stimuli(rdm, args.stimuli)
     print(f"[eeg] {eeg.shape}; controls {list(controls)}")
 
     nc_lower, nc_upper = rsa_core.noise_ceilings(eeg, args.stimuli)   # (7, 4, W)
