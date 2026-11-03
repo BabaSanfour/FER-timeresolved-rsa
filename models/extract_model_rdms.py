@@ -5,7 +5,9 @@ random weights), hooks every layer with learned parameters except the output
 layer, runs the 16 frames of every stimulus (Slide{1..16}.h5 +
 stimulus_manifest.json from build_stimuli_h5_16frames.py) and writes
 <out-name>.npy (n_layers, 16, n_stim, n_stim) correlation-distance RDMs,
-.layers.json (provenance) and .predictions.csv. Example:
+.layers.json (provenance) and .predictions.csv; with --features also
+<out-name>.features.npy (n_stim, 16, d), the input to the output layer (the
+final-layer features of the linear probe). Example:
 
     python models/extract_model_rdms.py --arch resnet50 --checkpoint <weights> --preproc imagenet \
         --h5-dir <frames> --out-dir <dir> --out-name resnet50_imagenet
@@ -204,6 +206,8 @@ def main():
     ap.add_argument("--h5-dir", required=True, help="frames from build_stimuli_h5_16frames.py")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--out-name", required=True)
+    ap.add_argument("--features", action="store_true",
+                    help="also save the input to the output layer, per stimulus and frame")
     args = ap.parse_args()
     h5_dir, out_dir = Path(args.h5_dir), Path(args.out_dir)
     manifest_path = h5_dir / "stimulus_manifest.json"
@@ -241,6 +245,11 @@ def main():
                 acts[k] = o.detach().cpu().float().numpy().reshape(o.size(0), -1)
             return hook
         handles.append(mod.register_forward_hook(mk(name)))
+    final, per_slide_features = {}, []
+    if args.features:
+        head = dict(model.named_modules())[dropped_head_layer]
+        handles.append(head.register_forward_pre_hook(
+            lambda _m, i: final.__setitem__("x", i[0].detach().cpu().float().numpy().reshape(i[0].size(0), -1))))
 
     pp = PREPROCS[args.preproc]
     per_slide, order, preds = [], None, []
@@ -256,6 +265,8 @@ def main():
             if order is None:
                 order = list(acts.keys())
             per_slide.append(np.stack([corr_distance_rdm(acts[k]) for k in order], 0))
+            if args.features:
+                per_slide_features.append(final["x"])
             pr = out.argmax(1).cpu().numpy() if out.ndim == 2 else np.full(len(x), -1)
             if len(stim_names) != len(pr):
                 raise RuntimeError(f"manifest has {len(stim_names)} stimuli but slide has {len(pr)}")
@@ -269,6 +280,8 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{args.out_name}.npy"
     np.save(out, rdms)
+    if args.features:
+        np.save(out_dir / f"{args.out_name}.features.npy", np.stack(per_slide_features, 1).astype(np.float32))
     (out_dir / f"{args.out_name}.layers.json").write_text(json.dumps(
         {"layer_order": order, "shape": list(rdms.shape), "arch": args.arch,
          "checkpoint": args.checkpoint, "preproc": args.preproc, "num_classes": nc,
