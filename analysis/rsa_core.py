@@ -172,6 +172,18 @@ def grid_path(stimuli, tag, partial=None):
     return folder / f"{tag}_rsa_grid.npz"
 
 
+def variant_grid(stimuli, tags, partial=None):
+    """Participant-level grid of a variant: the mean over its RDMs' grids (its ten
+    seeds or training runs; a released model has one) -> (rsa, npz of the first)."""
+    first = np.load(grid_path(stimuli, tags[0], partial), allow_pickle=True)
+    rsa = np.mean([np.load(grid_path(stimuli, t, partial))["rsa"] for t in tags], axis=0)
+    return rsa.astype(np.float32), first
+
+
+def slug(family, variant):
+    return f"{family}_{variant}".lower().replace(" ", "_").replace("-", "")
+
+
 def load_model_rdm(stimuli, tag, rdm_dir=None):
     """(L, frames, n, n) model RDM over STIMULI; checks its stimulus order first."""
     folder = Path(rdm_dir or RDM_DIRS[stimuli]) / tag

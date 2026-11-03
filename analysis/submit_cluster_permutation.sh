@@ -13,9 +13,8 @@
 #
 #   sbatch submit_cluster_permutation.sh
 #
-# One model per variant (21 per study, analysis/variants.py). The script is
-# serial (~6 s per scope x emotion grid of a 40-layer model, 28 grids per model),
-# about 1-2 h per study -- too long for the login node.
+# One test per variant (21 per study, analysis/variants.py), on its grid averaged
+# over its RDMs; 20,000 sign flips. Serial: about 10-30 min per study.
 set -euo pipefail
 
 ROOT=$(realpath "${FER_ROOT:-.}")

@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Grid-wide cluster permutation tests over layer × time RSA grids.
+"""Grid-wide cluster permutation tests over layer × time RSA grids (--study 18 | 54).
+
+One test per variant (analysis/variants.py, main group) on its participant-level
+grid averaged over its ten seeds or training runs (rsa_core.variant_grid; a
+released model has one RDM), for each of the 7 scopes x 4 conditions (28 grids).
+Within a grid: one-sided sign-flip test of the cluster mass (sum of t over
+4-neighbour clusters of cells with t above the one-sided .05 threshold), FWER
+from the maximum cluster mass. Across grids: Holm over the 28 grids of a model
+(p_holm_within_model) and over all grids of all variants (p_holm_study).
 
 Every participant enters every grid (the EEG has no missing values, rsa_core.py).
 A cell is NaN only where a model RDM is constant (no correlation), and then for
@@ -17,7 +25,9 @@ import rsa_core
 import variants
 
 ROOT = rsa_core.ROOT
-N_PERM = 2000
+# 20,000 sign flips: the smallest p is 1/20,001, so a grid can survive Holm across
+# all grids of all variants (21 x 28 = 588: 588 / 20,001 = .029 < .05)
+N_PERM = 20000
 SEED = 42
 ALPHA = .05
 STRUCTURE = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=int)
@@ -99,19 +109,17 @@ def main():
     global OUT
     OUT = ROOT / (f"analysis/cluster_permutation_{args.study}"
                   + (f"_partial_{args.partial}" if args.partial else ""))
-    # one model per variant: random seed 42, training run 1, or the released model
-    paths = [rsa_core.grid_path(args.study, tag, args.partial)
-             for tag in variants.representatives(args.study)]
-    missing = [p for p in paths if not p.exists()]
+    tested = [(fam, var, tags) for g, fam, var, tags in variants.variants(args.study) if g == "main"]
+    missing = [t for *_, tags in tested for t in tags
+               if not rsa_core.grid_path(args.study, t, args.partial).exists()]
     if missing:
-        raise SystemExit(f"ABORT: missing grids {missing[:3]}")
+        raise SystemExit(f"ABORT: {len(missing)} grids missing, e.g. {missing[:3]}")
     OUT.mkdir(parents=True, exist_ok=True)
     grid_rows, cluster_rows = [], []
 
-    for pi, path in enumerate(paths, 1):
-        tag = path.name.removesuffix("_rsa_grid.npz")
-        z = np.load(path, allow_pickle=True)
-        rsa = np.asarray(z["rsa"], np.float32)
+    for pi, (family, variant, tags) in enumerate(tested, 1):
+        tag = rsa_core.slug(family, variant)
+        rsa, z = rsa_core.variant_grid(args.study, tags, args.partial)
         scopes = [str(x) for x in z["scopes"]]
         emotions = [str(x) for x in z["emotions"]]
         n = rsa.shape[0]
@@ -123,7 +131,8 @@ def main():
                 valid = np.isfinite(raw).all(axis=0)
                 if not np.array_equal(valid, np.isfinite(raw).any(axis=0)):
                     raise SystemExit(f"ABORT {tag} {scope} {emotion}: NaN for some participants only")
-                base = {"model": tag, "scope": scope, "emotion": emotion, "n": n}
+                base = {"model": tag, "family": family, "variant": variant, "n_rdms": len(tags),
+                        "scope": scope, "emotion": emotion, "n": n}
                 # invalid cells are excluded from clustering; zero-filling touches no valid cell
                 x = np.where(valid, raw, 0.).astype(np.float32)
                 threshold = threshold_for(n)
@@ -162,8 +171,8 @@ def main():
                 })
         adjusted = holm([row["min_cluster_p"] for row in model_rows])
         for row, adj in zip(model_rows, adjusted):
-            row["p_holm_28_grids"] = float(adj)
-            row["survives_holm_28_grids"] = int(adj < ALPHA)
+            row["p_holm_within_model"] = float(adj)
+            row["survives_holm_within_model"] = int(adj < ALPHA)
         grid_rows.extend(model_rows)
         np.savez_compressed(
             OUT / f"{tag}_cluster_masks.npz", significant=masks,
@@ -171,10 +180,14 @@ def main():
             n=n, threshold=threshold_for(n),
             n_permutations=N_PERM,
         )
-        print(f"[{pi}/{len(paths)}] {tag}: "
+        print(f"[{pi}/{len(tested)}] {tag} ({len(tags)} RDMs): "
               f"{sum(r['survives_grid_fwer'] for r in model_rows)} grid-FWER, "
-              f"{sum(r['survives_holm_28_grids'] for r in model_rows)} Holm, "
-              f"n={sorted(set(r['n'] for r in model_rows))}", flush=True)
+              f"{sum(r['survives_holm_within_model'] for r in model_rows)} Holm within model", flush=True)
+
+    # study-wide: Holm over every grid of every variant
+    for row, adj in zip(grid_rows, holm([row["min_cluster_p"] for row in grid_rows])):
+        row["p_holm_study"] = float(adj)
+        row["survives_holm_study"] = int(adj < ALPHA)
 
     with (OUT / "grid_summary.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=grid_rows[0].keys())
@@ -187,14 +200,14 @@ def main():
     for tag in sorted(set(row["model"] for row in grid_rows)):
         rows = [row for row in grid_rows if row["model"] == tag]
         survivors.append({
-            "model": tag,
-            "n": rows[0]["n"],
+            "model": tag, "family": rows[0]["family"], "variant": rows[0]["variant"],
+            "n_rdms": rows[0]["n_rdms"], "n": rows[0]["n"],
             "n_grid_fwer_survivors": sum(r["survives_grid_fwer"] for r in rows),
-            "n_holm_survivors": sum(r["survives_holm_28_grids"] for r in rows),
-            "model_survives_grid_fwer": int(any(r["survives_grid_fwer"] for r in rows)),
-            "model_survives_holm": int(any(r["survives_holm_28_grids"] for r in rows)),
+            "n_holm_within_model_survivors": sum(r["survives_holm_within_model"] for r in rows),
+            "n_holm_study_survivors": sum(r["survives_holm_study"] for r in rows),
             "best_cluster_p": min(r["min_cluster_p"] for r in rows),
-            "best_holm_p": min(r["p_holm_28_grids"] for r in rows),
+            "best_holm_within_model_p": min(r["p_holm_within_model"] for r in rows),
+            "best_holm_study_p": min(r["p_holm_study"] for r in rows),
         })
     with (OUT / "model_survivors.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=survivors[0].keys())
@@ -207,7 +220,9 @@ def main():
         "cluster_forming_alpha": ALPHA,
         "within_grid_correction": "maximum cluster mass FWER",
         "n_permutations": N_PERM, "seed": SEED,
-        "across_grid_correction": "Holm across 7 scopes x 4 emotions per model",
+        "tested_grid": "per variant, the mean of its RDMs' participant-level grids (10 seeds or runs)",
+        "across_grid_correction": {"within_model": "Holm across the 7 scopes x 4 conditions of a model",
+                                   "study": f"Holm across all {len(grid_rows)} grids of all {len(tested)} variants"},
         "missing_data": "none: every participant in every grid; cells of a constant model RDM are excluded",
     }, indent=2))
     print(f"[ok] -> {OUT}")
