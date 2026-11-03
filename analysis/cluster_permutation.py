@@ -93,11 +93,15 @@ def threshold_for(n, cache={}):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--study", choices=["18", "54"], required=True)
+    parser.add_argument("--partial", default=None,
+                        help="test the partial-RSA grids of this control set (partial_rsa.py)")
     args = parser.parse_args()
     global OUT
-    OUT = ROOT / f"analysis/cluster_permutation_{args.study}"
+    OUT = ROOT / (f"analysis/cluster_permutation_{args.study}"
+                  + (f"_partial_{args.partial}" if args.partial else ""))
     # one model per variant: random seed 42, training run 1, or the released model
-    paths = [rsa_core.grid_path(args.study, tag) for tag in variants.representatives(args.study)]
+    paths = [rsa_core.grid_path(args.study, tag, args.partial)
+             for tag in variants.representatives(args.study)]
     missing = [p for p in paths if not p.exists()]
     if missing:
         raise SystemExit(f"ABORT: missing grids {missing[:3]}")
