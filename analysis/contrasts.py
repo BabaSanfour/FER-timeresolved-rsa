@@ -253,6 +253,13 @@ def main():
     for key, value in obs.items():
         r = tests(value, null[key], rng)
         if key[0] == "time":
+            if key[1] == H1:
+                centre = null[key].mean(0)
+                for oi, sc in enumerate(scopes):
+                    for wi in range(W):
+                        for pi, v in enumerate(value[:, oi, wi] - centre[oi, wi]):
+                            participant_rows.append({"hypothesis": "time " + H1, "scope": sc, "window": wi,
+                                                     "participant": pi, "difference": round(float(v), 5)})
             for oi, sc in enumerate(scopes):
                 for wi in range(W):
                     time_rows.append({"contrast": "pooled" if key[1] == H1 else key[1], "scope": sc,
