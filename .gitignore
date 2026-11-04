@@ -13,7 +13,8 @@ paper/*.synctex.gz
 paper/main.pdf
 # Data, weights and derived outputs are not distributed
 net_weights/
-eeg_rdms_complete/
+eeg_raw/
+eeg_rdms/
 *.npy
 *.npz
 *.h5

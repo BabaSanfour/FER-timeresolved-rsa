@@ -26,7 +26,7 @@ pip install ".[models]" && pip install --no-deps facenet-pytorch==2.6.0
 ```
 
 Download the Drive folder and merge its contents into the repository root, so that
-for example `net_weights/`, `eeg_data/` and `analysis/rsa_grid_54/` sit next to the code.
+for example `net_weights/`, `eeg_rdms/` and `analysis/rsa_grid_54/` sit next to the code.
 Its folders use the same relative paths as the scripts. Alternatively, keep the data elsewhere
 and set `FER_ROOT` to a directory that contains both the code and the data.
 
