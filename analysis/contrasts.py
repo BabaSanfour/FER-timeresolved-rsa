@@ -309,6 +309,8 @@ def main():
     ap.add_argument("--design", choices=["ckpt", "ids"], default=None,
                     help="a FaceNet learning design instead: checkpoints along training or identity counts")
     ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
+    ap.add_argument("--eeg-dir", default=None,
+                    help="EEG RDMs from another build (e.g. eeg_rdms_correct): participant grids recomputed from them")
     ap.add_argument("--emotion", choices=["fear", "happy", "neutral"], default=None,
                     help="one emotion instead of the mean over the three (selection and tests within that emotion)")
     ap.add_argument("--drop-actor", type=int, default=None,
@@ -334,7 +336,9 @@ def main():
     s = args.stimuli
     tags = {(f, v if g == "main" else f"{g} {v}"): t for g, f, v, t in variants.variants(s) if g in ("main", "size", "step", "ckpt", "ids")}
     cache, scale = {}, {}
-    observed = {} if args.drop_actor is not None else None
+    if args.eeg_dir:
+        rsa_core.EEG_DIR = rsa_core.ROOT / args.eeg_dir
+    observed = {} if (args.drop_actor is not None or args.eeg_dir) else None
 
     def grid(tag):
         if observed is not None and tag in observed:
@@ -399,7 +403,7 @@ def main():
     suffix = (f"_{args.design}" if args.design else "_sizes" if args.sizes else "") + \
         (f"_{args.partial}" if args.partial else "") + ("_nc" if args.normalize else "") + \
         (f"_dropactor{args.drop_actor}" if args.drop_actor is not None else "") + \
-        (f"_{args.emotion}" if args.emotion else "")
+        (f"_{args.emotion}" if args.emotion else "") + (f"_{args.eeg_dir}" if args.eeg_dir else "")
     out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
     out.mkdir(parents=True, exist_ok=True)
     for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows),
