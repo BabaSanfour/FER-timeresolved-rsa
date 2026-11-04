@@ -161,7 +161,7 @@ stimuli).
 
 | Family (layers) | Variants | Extractor |
 |---|---|---|
-| ResNet18 (40), ResNet50 (106), FaceNet (245), VGG16 (15): every layer with parameters except the output layer | random (10 seeds), ImageNet, face (VGGFace2-HQ, 10 runs; VGG16: VGG-Face), AffectNet (10 runs); FaceNet size curve and step-matched check (18 videos) | `models/extract_model_rdms.py` |
+| ResNet18 (40), ResNet50 (106), FaceNet (245), VGG16 (15): every layer with parameters except the output layer | random (10 seeds), ImageNet, face (VGGFace2-HQ, 10 runs; VGG16: VGG-Face), AffectNet (10 runs); FaceNet size curve and step-matched check (both stimulus sets) | `models/extract_model_rdms.py` |
 | M3DFEL (40): R3D-18 backbone convolutions and batch norms | random (10 seeds), Kinetics-400, DFEW fold 3 | `models/m3dfel_extract_rdms.py` |
 | Qwen3-VL-8B (64): 27 vision blocks, embedding output, 36 decoder blocks; float32 | released, random (10 seeds) | `models/vlm/vlm_extract_video_mode.py`, `compute_rdms_from_vlm_activations.py` |
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Task lists for the RDM extraction on Trillium (same line format as make_tasks.py).
 
-Every variant, both stimulus sets (the size curve and step-matched check: 18 videos only).
+Every variant, both stimulus sets, including the FaceNet size curve and step-matched check.
 --features: the main variants' final-layer features for the linear probe instead,
 into features/set*/ (Qwen3-VL: from the activations kept by its RDM run).
 Layers: every layer with learned parameters except the output layer; M3DFEL: backbone
@@ -68,7 +68,7 @@ def main():
                 else:
                     image(f"{arch}_vggface2_r{i:02d}", arch, f"{res}/pretrain/{arch}/{rep}/best_weights.pt", "half")
                     image(f"{arch}_affectnet_r{i:02d}", arch, f"{res}/finetune/{arch}/{rep}/best_weights.pt", "half")
-                if arch == "facenet" and s == "18" and not a.features:
+                if arch == "facenet" and not a.features:
                     for size in SIZES:
                         image(f"facenet_size{size}_r{i:02d}", arch,
                               f"{res}/sizecurve/{rep}/{size}/best_weights.pt", "half")

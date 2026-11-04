@@ -7,7 +7,7 @@ averaged, mean +/- SD over the ten; the cluster tests and the layer x time maps
 use the variant's grid averaged over its RDMs (rsa_core.variant_grid).
 
 RDMs: $FER_ROOT/rdms/set{18,54}/<name>/<name>.npy (trillium/extract_tasks.py).
-The size curve and the step-matched check (FaceNet) exist for 18 stimuli only.
+The size curve and the step-matched check (FaceNet) exist for both stimulus sets.
 The nuisance controls (analysis/control_rdms.py) are one-layer RDMs in the same
 place, group "control"; occlusion exists for 54 stimuli only.
 """
@@ -55,9 +55,8 @@ def controls(stimuli):
 def variants(stimuli):
     """-> [(group, family, variant, RDM names)]; groups: main, size, step, control."""
     out = [("main", family, variant, tags) for family, rows in MAIN.items() for variant, tags in rows]
-    if stimuli == "18":
-        out += [("size", "FaceNet", size, tags) for size, tags in SIZE_CURVE]
-        out += [("step", "FaceNet", size, tags) for size, tags in STEP_MATCHED]
+    out += [("size", "FaceNet", size, tags) for size, tags in SIZE_CURVE]
+    out += [("step", "FaceNet", size, tags) for size, tags in STEP_MATCHED]
     out += [("control", "Control", label, [f"control_{name}"]) for label, name in controls(stimuli)]
     return out
 
