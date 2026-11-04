@@ -117,7 +117,7 @@ def curve(ax, raw, joint, hyp, regime, scope, best, top, bottom, best_joint=None
             for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
                 ax.plot([t0[a], t1[b - 1]], [yb, yb], color=color, lw=lw, solid_capstyle="butt")
     ax.axhline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2)))
-    ax.set_xlim(0, 800); ax.set_xticks([0, 200, 400, 600, 800], ["0", "", "400", "", "800"])
+    ax.set_xlim(0, 500); ax.set_xticks([0, 100, 200, 300, 400, 500], ["0", "", "200", "", "400", ""])
     ax.set_ylim(bottom - 0.02, top + 0.02)
     ax.tick_params(labelsize=5.8, length=2, pad=1)
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
@@ -164,7 +164,7 @@ def main():
     for i, (hyp, name, regime) in enumerate(COMPARISONS):
         y0 = f(top0 + i * (row_h + gap) + row_h); h = row_h / H
         vals = [v for sc in CURVES for t in (raw, joint, best, best_joint) for k in ("corrected",) + (("low", "high") if t is raw else ())
-                for v in series(t[hyp, sc], k)]
+                for v in series(t[hyp, sc][:8], k)]                    # windows shown (0-500 ms)
         top, bottom = max(vals) + 0.06, min(vals) - 0.06
         for j, sc in enumerate(CURVES):
             ax = fig.add_axes([xc[j], y0, cw, h])
