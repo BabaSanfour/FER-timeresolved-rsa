@@ -258,7 +258,7 @@ def main():
                  fontsize=6, color=INK, va="center", rotation=90)
         for c, k in enumerate(FRAMES_SHOWN):
             ax = fig.add_axes([x_img0 + c * (size + gap), y, size, h])
-            ax.imshow(thumb(frames[k], width=480))
+            ax.imshow(thumb(frames[k], width=300), interpolation="none")
             ax.axis("off")
     y_arrow = y - 0.035
     ax_t = fig.add_axes([x_img0, y_arrow, 4 * size + 3 * gap, 0.02])
@@ -276,7 +276,7 @@ def main():
     for c, fname in enumerate([f"Fear_Glasses_Actor{ACTOR}.mp4", f"Fear_Masked_Actor{ACTOR}.mp4"]):
         frames = sixteen_frames(args.stimuli / "set54" / fname)
         ax = fig.add_axes([x_o + c * (size_o + gap_o), y_o, size_o, h_o])
-        ax.imshow(thumb(frames[15], width=480))
+        ax.imshow(thumb(frames[15], width=300), interpolation="none")
         ax.axis("off")
     fig.text(x_o + 2 * (size_o + gap_o) + 0.006, y_o + h_o / 2,
              "54-video set: each clip\nalso with sunglasses\nor a mask", fontsize=5.5, color=INK,
