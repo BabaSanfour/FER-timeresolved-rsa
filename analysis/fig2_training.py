@@ -93,20 +93,18 @@ def scope_label(scope):
 
 
 def variant_panel(ax, scope, table):
-    """table[s]: {(family variant, scope): row} of the variant rows."""
+    """table: {(family variant, scope): row} of the variant rows of one stimulus set / control set."""
     xs = {regime: i for i, regime in enumerate(st.REGIMES)}
     by_regime = {regime: [] for regime in st.REGIMES}
-    by_regime18 = {regime: [] for regime in st.REGIMES}
     chance = {regime: [] for regime in st.REGIMES}
     for fi, (family, vrows) in enumerate(variants.MAIN.items()):
         pts = []
         for variant, _ in vrows:
             regime = st.REGIME_OF[variant]
             x = xs[regime] - 0.12 + (fi - 2.5) * 0.07
-            y54 = float(table["54"][f"{family} {variant}", scope]["observed"])
-            y18 = float(table["18"][f"{family} {variant}", scope]["observed"])
-            chance[regime].append(float(table["54"][f"{family} {variant}", scope]["null_mean"]))
-            pts.append((x, y54, regime)); by_regime[regime].append(y54); by_regime18[regime].append(y18)
+            y54 = float(table[f"{family} {variant}", scope]["observed"])
+            chance[regime].append(float(table[f"{family} {variant}", scope]["null_mean"]))
+            pts.append((x, y54, regime)); by_regime[regime].append(y54)
         ax.plot([p[0] for p in pts], [p[1] for p in pts], color=st.RULE, lw=0.5, zorder=2)
         m = st.MARKERS[family]
         for x, y54, regime in pts:
@@ -144,19 +142,19 @@ def significant(r, contrast):
 
 def contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rng, sets=("54",)):
     color = st.REGIME_COLORS[regime]
-    pick = {s: {(r["contrast"], r["scope"]): r for r in comparisons[s] if r["hypothesis"] == hyp} for s in STATS}
-    pos = scope_positions({sc for c, sc in pick["54"] if c == series[0][0]})
+    pick = {s: {(r["contrast"], r["scope"]): r for r in comparisons[s] if r["hypothesis"] == hyp} for s in sets}
+    pos = scope_positions({sc for c, sc in pick[sets[0]] if c == series[0][0]})
     n = len(sets) * len(series)
     step = 0.34 if n == 2 else 0.3
     top = 0.105
     for sc, x in pos.items():
-        if series[0][0] == "pooled":
+        if series[0][0] == "pooled" and participants is not None:
             d = np.array([float(r["difference"]) for r in participants if r["hypothesis"] == hyp and r["scope"] == sc])
-            d = d + float(pick["54"]["pooled", sc]["null_mean"])
+            d = d + float(pick[sets[0]]["pooled", sc]["null_mean"])
             ax.scatter(x - 0.36 + rng.uniform(-0.06, 0.06, len(d)), d, s=1.4, color=st.PARTICIPANT, lw=0, zorder=2)
         k = 0
         for contrast, marker in series:
-            for s, filled in ((x, x == "54") for x in sets):
+            for s, filled in ((x, x == sets[0]) for x in sets):
                 r = pick[s][contrast, sc]
                 dx = (k - (n - 1) / 2) * step + (0.08 if series[0][0] == "pooled" else 0); k += 1
                 c0 = float(r["null_mean"])
@@ -166,7 +164,8 @@ def contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rn
                             ms=st.size(marker) - (1.8 if marker == "*" else 1.2), mfc=color if filled else "white",
                             mec=color, mew=0.6, ecolor=color, elinewidth=0.7, capsize=0, zorder=4)
                 if significant(r, contrast):
-                    ax.text(x + dx, top, "*", ha="center", va="center", fontsize=6.5, color=st.INK)
+                    ax.text(x + dx, top, "*", ha="center", va="center", fontsize=6.5,
+                            color=st.INK if filled else st.MUTED)
     ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
     ax.set_xticks(list(pos.values()), ["whole\nscalp" if s == "wholescalp" else s.split("-")[1] for s in pos],
                   fontsize=5.4)
@@ -182,63 +181,122 @@ def contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rn
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
-def legend_block(fig):
+CONTROL_SETS = [("", "raw"), ("identity", "identity"), ("occlusion", "occlusion"), ("pixel", "pixel"),
+                ("optical_flow", "optical flow"), ("motion_energy", "motion energy"), ("joint", "all jointly")]
+OT = ["OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R"]
+
+
+def control_panel(ax, hyp, scopes, regime):
+    """One comparison at a few ROIs under each control set: observed difference, 95% CI, chance dash."""
+    color = st.REGIME_COLORS[regime]
+    markers = {"OccipitoTemporal-L": "<", "OccipitoTemporal-M": "o", "OccipitoTemporal-R": ">"}
+    for k, (name, label) in enumerate(CONTROL_SETS):
+        table = rows(STATS["54"] / f"contrasts{'_' + name if name else ''}.csv")
+        for j, sc in enumerate(scopes):
+            r = next(r for r in table if r["hypothesis"] == hyp and r["contrast"] == "pooled" and r["scope"] == sc)
+            x = k + (j - 1) * 0.24
+            c0 = float(r["null_mean"])
+            m, lo, hi = float(r["observed"]), float(r["low"]) + c0, float(r["high"]) + c0
+            ax.plot([x - 0.08, x + 0.08], [c0, c0], color=st.INK2, lw=1.0, solid_capstyle="butt", zorder=5)
+            ax.errorbar(x, m, yerr=[[m - lo], [hi - m]], fmt=markers[sc], ms=3, mfc=color, mec=color,
+                        ecolor=color, elinewidth=0.7, capsize=0, zorder=4)
+            if float(r["p_maxT"]) < .05:
+                ax.text(x, 0.105, "*", ha="center", va="center", fontsize=6.5, color=st.INK)
+    ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
+    ax.set_xticks(range(len(CONTROL_SETS)), [label for _, label in CONTROL_SETS], fontsize=5.4, rotation=30,
+                  ha="right", rotation_mode="anchor")
+    ax.set_xlabel("removed from the EEG and model RDMs", fontsize=5.6)
+    ax.set_xlim(-0.6, len(CONTROL_SETS) - 0.4)
+    ax.set_ylim(-0.03, 0.117)
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    ax.legend(handles=[Line2D([], [], marker=markers[sc], ls="none", ms=3, mfc=color, mec=color,
+                              label=scope_label(sc)) for sc in scopes],
+              loc="lower left", ncol=3, handletextpad=0.1, columnspacing=0.6, borderaxespad=0.2, fontsize=5.4)
+
+
+def regime_row(fig, gs_row, scopes, table, layout, title=None):
+    axes = [fig.add_subplot(gs_row[0, j]) for j in range(len(scopes))]
+    for ax, sc in zip(axes, scopes):
+        variant_panel(ax, sc, table)
+    hi = max(ax.get_ylim()[1] for ax in axes)
+    for j, ax in enumerate(axes):
+        ax.set_ylim(0, hi * 1.2)
+        sensor_inset(ax, scopes[j], layout)
+        if j:
+            ax.tick_params(labelleft=False)
+    axes[0].set_ylabel(r"$\rho_{\max}$")
+    if title:
+        fig.text(0.5 * (axes[0].get_position().x0 + axes[-1].get_position().x1), axes[0].get_position().y1 + 0.045,
+                 title, ha="center", fontsize=6.5)
+    return axes
+
+
+def legend_block(fig, height):
     regimes = [Patch(fc=st.REGIME_COLORS[r], ec="none", label=f"{st.REGIME_LABELS[r]} ({st.REGIME_LABELS[r][0]})")
                for r in st.REGIMES]
     families = [Line2D([], [], marker=m, ls="none", ms=st.size(m), mfc=st.INK2, mec="white", mew=0.4, label=f)
                 for f, m in st.MARKERS.items()]
-    sets = [Line2D([], [], marker="o", ls="none", ms=3, mfc=st.INK2, mec=st.INK2, label="54 videos"),
-            Line2D([], [], marker="o", ls="none", ms=3, mfc="white", mec=st.INK2, label="18 videos (b)"),
-            Line2D([], [], marker="o", ls="none", ms=1.8, mfc=st.PARTICIPANT, mec="none", label="participants (54)"),
-            Line2D([], [], color=st.INK2, lw=1.1, label="chance")]
+    marks = [Line2D([], [], marker="o", ls="none", ms=3, mfc=st.INK2, mec=st.INK2, label="raw"),
+             Line2D([], [], marker="o", ls="none", ms=3, mfc="white", mec=st.INK2, label="after joint controls"),
+             Line2D([], [], color=st.INK2, lw=1.1, label="chance"),
+             Line2D([], [], marker="$*$", ls="none", ms=4, color=st.INK, label="p < .05, corrected")]
     kw = dict(frameon=False, handletextpad=0.3, columnspacing=1.1, borderaxespad=0, fontsize=6, loc="lower left")
-    for y, title, handles in ((0.072, "Training regime", regimes), (0.038, "Model family", families),
-                              (0.004, "Stimulus set", sets)):
-        fig.text(0.02, y + 0.008, title, fontsize=6, fontweight="bold", va="center")
+    dy = 0.16 / height
+    for y, title, handles in ((2 * dy, "Training regime", regimes), (dy, "Model family", families),
+                              (0.0, "Estimates", marks)):
+        fig.text(0.02, y + 0.04 / height, title, fontsize=6, fontweight="bold", va="center")
         fig.legend(handles=handles, ncol=len(handles), bbox_to_anchor=(0.16, y), handlelength=1.4, **kw)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(STATS["54"] / "fig2_training"), help="output path without extension")
+    ap.add_argument("--layout", choices=["occlusion", "face"], default="occlusion",
+                    help="occlusion: raw and controlled OT panels, control breakdown, face per ROI; "
+                         "face: raw OT panels, face and Qwen3-VL per ROI after controls")
+    ap.add_argument("--out", default=None, help="output path without extension")
     args = ap.parse_args()
+    out = args.out or str(STATS["54"] / f"fig2_{args.layout}")
     st.setup()
-    comparisons = {s: rows(STATS[s] / "contrasts.csv") for s in STATS}
-    participants = rows(STATS["54"] / "contrasts_participants.csv")
-    table = {s: {(r["contrast"], r["scope"]): r for r in comparisons[s] if r["hypothesis"] == "variant"} for s in STATS}
-    fig = plt.figure(figsize=(5.5, 6.6))
-    gs_a = fig.add_gridspec(2, 6, left=0.08, right=0.99, top=0.955, bottom=0.66, wspace=0.12, hspace=0.42)
-    axes_a = np.array([[fig.add_subplot(gs_a[i, j]) for j in range(6)] for i in range(2)])
-    for i, row in enumerate(GRID):
-        for j, scope in enumerate(row):
-            variant_panel(axes_a[i, j], scope, table)
-    lo = min(ax.get_ylim()[0] for ax in axes_a.flat); hi = max(ax.get_ylim()[1] for ax in axes_a.flat)
+    raw, joint = rows(STATS["54"] / "contrasts.csv"), rows(STATS["54"] / "contrasts_joint.csv")
+    variant = lambda t: {(r["contrast"], r["scope"]): r for r in t if r["hypothesis"] == "variant"}
+    scopes = OT + ["wholescalp"]
     layout = sensor_layout()
-    for i, j in np.ndindex(axes_a.shape):
-        axes_a[i, j].set_ylim(0, hi * 1.2)
-        sensor_inset(axes_a[i, j], GRID[i][j], layout)
-        if j:
-            axes_a[i, j].tick_params(labelleft=False)
-    fig.text(0.015, 0.81, r"$\rho_{\max}$", rotation=90, va="center", fontsize=6.5)
-    gs_b = fig.add_gridspec(2, 2, left=0.08, right=0.99, top=0.58, bottom=0.165, hspace=0.72, wspace=0.08)
-    rng = np.random.default_rng(0)
-    axes_b = []
-    for k, (hyp, title, regime, series) in enumerate(PANELS):
-        ax = fig.add_subplot(gs_b[k // 2, k % 2])
-        contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rng,
-                       ("54", "18") if hyp.startswith("H1") else ("54",))
-        if k % 2:
-            ax.tick_params(labelleft=False)
-        else:
-            ax.set_ylabel(r"difference in $\rho_{\max}$")
-        axes_b.append(ax)
-    st.panel_label(axes_a[0, 0], "a", x=-0.5)
-    for ax, letter in zip(axes_b, "bcde"):
-        st.panel_label(ax, letter, x=-0.16 if ax in axes_b[::2] else -0.05)
-    legend_block(fig)
+    comparisons = {"raw": raw, "joint": joint}
+    if args.layout == "occlusion":
+        fig = plt.figure(figsize=(5.5, 6.4))
+        a = regime_row(fig, fig.add_gridspec(1, 4, left=0.09, right=0.99, top=0.93, bottom=0.75, wspace=0.12),
+                       scopes, variant(raw), layout, "raw")
+        b = regime_row(fig, fig.add_gridspec(1, 4, left=0.09, right=0.99, top=0.66, bottom=0.48, wspace=0.12),
+                       scopes, variant(joint), layout, "after removing identity, occlusion, pixel, optical flow and motion energy")
+        gs = fig.add_gridspec(1, 2, left=0.09, right=0.99, top=0.39, bottom=0.17, wspace=0.18, width_ratios=[1, 1.3])
+        c, d = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
+        control_panel(c, "H1 pretrained vs random", OT, "Generic")
+        c.set_title("pretrained − random, occipito-temporal")
+        c.set_ylabel(r"difference in $\rho_{\max}$")
+        contrast_panel(d, "H2 face vs ImageNet", "face − ImageNet pretraining", "Face", comparisons, None,
+                       (("pooled", "o"),), None, ("raw", "joint"))
+        d.set_ylim(-0.06, 0.117)
+        for ax, letter, x in ((a[0], "a", -0.38), (b[0], "b", -0.38), (c, "c", -0.2), (d, "d", -0.1)):
+            st.panel_label(ax, letter, x=x)
+    else:
+        fig = plt.figure(figsize=(5.5, 4.6))
+        a = regime_row(fig, fig.add_gridspec(1, 4, left=0.09, right=0.99, top=0.92, bottom=0.66, wspace=0.12),
+                       scopes, variant(raw), layout)
+        gs = fig.add_gridspec(1, 2, left=0.09, right=0.99, top=0.54, bottom=0.24, wspace=0.08)
+        b, c = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
+        contrast_panel(b, "H2 face vs ImageNet", "face − ImageNet pretraining", "Face", comparisons, None,
+                       (("pooled", "o"),), None, ("raw", "joint"))
+        contrast_panel(c, "H4 video vs image", "Qwen3-VL − image models", "Generic", comparisons, None,
+                       (("Qwen3-VL Pretrained", "*"),), None, ("raw", "joint"))
+        b.set_ylabel(r"difference in $\rho_{\max}$"); c.tick_params(labelleft=False)
+        for ax in (b, c):
+            ax.set_ylim(-0.06, 0.117)
+        for ax, letter, x in ((a[0], "a", -0.38), (b, "b", -0.16), (c, "c", -0.05)):
+            st.panel_label(ax, letter, x=x)
+    legend_block(fig, fig.get_figheight())
     for ext in ("pdf", "png"):
-        fig.savefig(f"{args.out}.{ext}")
-    print(f"[ok] -> {args.out}.{{pdf,png}}")
+        fig.savefig(f"{out}.{ext}")
+    print(f"[ok] -> {out}.{{pdf,png}}")
 
 
 if __name__ == "__main__":
