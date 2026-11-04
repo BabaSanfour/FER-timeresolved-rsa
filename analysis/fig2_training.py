@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Fig. 2: what each step of training contributes to EEG alignment (54 videos).
+"""Fig. 2: what each step of training contributes to EEG alignment, in every ROI.
 
-  a     rho_max of every variant by training regime in four scalp regions (frontal,
-        central, centro-parietal, occipito-temporal; the mean of the region's ROIs,
-        emotion average): one marker per family (mean over its seeds or runs), lines join
-        a family's regimes, bars are the mean over families
-  b-e   the planned comparisons (contrasts.py) in each ROI and on the whole scalp (c: each
-        video model against the image models, by family marker, before the controls):
-        each participant's difference minus the null mean (grey), the mean and 95%
-        bootstrap CI (filled), and the same after removing identity, occlusion, pixel,
-        optical-flow and motion-energy structure jointly (open); * maxT-corrected p < .05
-        across ROIs (whole scalp: Holm across H1-H4), grey * after the controls
+All values are rho_max minus the mean of its own permutation null (contrasts.py), so that
+models with many layers, whose best cell is high by chance, are comparable with the others.
 
-Reads analysis/paper_stats_54/rho_max.csv, contrasts.csv, contrasts_participants.csv and
-contrasts_joint.csv; writes analysis/paper_stats_54/fig2_training.{pdf,png}.
+  a     each variant in each of the 11 ROIs and on the whole scalp, by training regime: one
+        marker per family (54 videos, joined across a family's regimes), filled bars are the mean
+        over families (54 videos), open bars the same mean for 18 videos
+  b-e   the planned comparisons in each ROI and on the whole scalp: each participant's
+        difference (54 videos, grey), the mean and 95% bootstrap CI for 54 (filled) and 18 (open)
+        videos; * maxT-corrected p < .05 across ROIs (whole scalp: Holm across H1-H4), in the
+        order 54 | 18. c shows each video model against the image models (family markers).
+ROI labels carry the region colours of Fig. 1.
+
+Reads analysis/paper_stats[_54]/contrasts.csv and contrasts_participants.csv (54); writes
+analysis/paper_stats_54/fig2_training.{pdf,png}.
 """
 import argparse
 import csv
@@ -29,19 +30,63 @@ import figure_style as st
 import rsa_core
 import variants
 
-STATS = rsa_core.ROOT / "analysis/paper_stats_54"
+STATS = {"54": rsa_core.ROOT / "analysis/paper_stats_54", "18": rsa_core.ROOT / "analysis/paper_stats"}
 REGIONS = [("Frontal", "frontal"), ("Central", "central"), ("CentroParietal", "centro-parietal"),
            ("OccipitoTemporal", "occipito-temporal")]
+REGION_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "#008300",
+                 "OccipitoTemporal": "#eda100", "wholescalp": st.INK}          # as in Fig. 1
+SHORT = {"Frontal": "F", "Central": "C", "CentroParietal": "CP", "OccipitoTemporal": "OT"}
+GRID = [["Frontal-L", "Frontal-M", "Frontal-R", "Central-L", "Central-R", "wholescalp"],
+        ["CentroParietal-L", "CentroParietal-M", "CentroParietal-R",
+         "OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R"]]
 VIDEO = (("Qwen3-VL Pretrained", "*"), ("M3DFEL Kinetics-400", "p"))
-PANELS = [("H1 pretrained vs random", "pretrained − random", "Generic"),
-          ("H4 video vs image", "video model − image models (Qwen3-VL, M3DFEL)", "Generic"),
-          ("H2 face vs ImageNet", "face − ImageNet pretraining", "Face"),
-          ("H3 fine-tuned vs start", "emotion fine-tuned − its start", "Emotion")]
+PANELS = [("H1 pretrained vs random", "pretrained − random", "Generic", (("pooled", "o"),)),
+          ("H4 video vs image", "video model − image models", "Generic", VIDEO),
+          ("H2 face vs ImageNet", "face − ImageNet pretraining", "Face", (("pooled", "o"),)),
+          ("H3 fine-tuned vs start", "emotion fine-tuned − its start", "Emotion", (("pooled", "o"),))]
 
 
 def rows(path):
     with path.open() as fh:
         return list(csv.DictReader(fh))
+
+
+def region_of(scope):
+    return scope.split("-")[0]
+
+
+def scope_label(scope):
+    return "whole scalp" if scope == "wholescalp" else f"{SHORT[region_of(scope)]}-{scope.split('-')[1]}"
+
+
+def variant_panel(ax, scope, table):
+    """table[s]: {(family variant, scope): row} of the variant rows."""
+    xs = {regime: i for i, regime in enumerate(st.REGIMES)}
+    by_regime = {regime: [] for regime in st.REGIMES}
+    by_regime18 = {regime: [] for regime in st.REGIMES}
+    for fi, (family, vrows) in enumerate(variants.MAIN.items()):
+        pts = []
+        for variant, _ in vrows:
+            regime = st.REGIME_OF[variant]
+            x = xs[regime] - 0.12 + (fi - 2.5) * 0.06
+            y54 = float(table["54"][f"{family} {variant}", scope]["corrected"])
+            y18 = float(table["18"][f"{family} {variant}", scope]["corrected"])
+            pts.append((x, y54, regime)); by_regime[regime].append(y54); by_regime18[regime].append(y18)
+        ax.plot([p[0] for p in pts], [p[1] for p in pts], color=st.RULE, lw=0.5, zorder=2)
+        m = st.MARKERS[family]
+        for x, y54, regime in pts:
+            ax.plot(x, y54, m, ms=st.size(m) - 1.2, mfc=st.REGIME_COLORS[regime], mec="white", mew=0.3, zorder=4)
+    for regime in st.REGIMES:
+        c = st.REGIME_COLORS[regime]
+        ax.bar(xs[regime] - 0.12, np.mean(by_regime[regime]), width=0.46, color=c, alpha=0.25, lw=0, zorder=1)
+        ax.bar(xs[regime] + 0.27, np.mean(by_regime18[regime]), width=0.2, fc="white", ec=c, lw=0.7, zorder=1)
+    ax.axhline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2)), zorder=1)
+    ax.set_xticks(range(len(st.REGIMES)), [st.REGIME_LABELS[r][0] for r in st.REGIMES], fontsize=5.2)
+    ax.tick_params(axis="x", length=0, pad=1.5)
+    ax.set_xlim(-0.45, len(st.REGIMES) - 0.3)
+    ax.set_title(scope_label(scope), fontsize=6, color=REGION_COLORS[region_of(scope)], pad=2,
+                 fontweight="bold")
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
 def scope_positions(scopes):
@@ -56,122 +101,96 @@ def scope_positions(scopes):
     return pos
 
 
-def regime_panel(ax, table, region, label):
-    rois = {r["roi"] for r in table if r["roi"].startswith(region + "-")}
-    value = {}
-    for r in table:
-        if r["group"] == "main" and r["emotion"] == rsa_core.EMO_AVG and r["roi"] in rois:
-            value.setdefault((r["family"], r["variant"]), []).append(float(r["max_r"]))
-    xs = {regime: i for i, regime in enumerate(st.REGIMES)}
-    by_regime = {regime: [] for regime in st.REGIMES}
-    for fi, (family, vrows) in enumerate(variants.MAIN.items()):
-        pts = []
-        for variant, _ in vrows:
-            regime = st.REGIME_OF[variant]
-            y = float(np.mean(value[family, variant]))
-            pts.append((xs[regime] + (fi - 2.5) * 0.07, y, regime)); by_regime[regime].append(y)
-        ax.plot([p[0] for p in pts], [p[1] for p in pts], color=st.RULE, lw=0.6, zorder=2)
-        m = st.MARKERS[family]
-        for x, y, regime in pts:
-            ax.plot(x, y, m, ms=st.size(m) - 0.6, mfc=st.REGIME_COLORS[regime], mec="white", mew=0.4, zorder=4)
-    for regime, vals in by_regime.items():
-        ax.bar(xs[regime], np.mean(vals), width=0.62, color=st.REGIME_COLORS[regime], alpha=0.25, lw=0, zorder=1)
-    ax.set_xticks(range(len(st.REGIMES)), [st.REGIME_LABELS[r] for r in st.REGIMES], rotation=30,
-                  ha="right", rotation_mode="anchor")
-    ax.set_xlim(-0.55, len(st.REGIMES) - 0.45)
-    ax.set_title(label)
-    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+def significant(r, contrast):
+    if contrast == "pooled" and r["scope"] == "wholescalp":
+        return float(r["p_holm"] or 1) < .05
+    return float(r["p_maxT"]) < .05
 
 
-def contrast_panel(ax, hyp, title, regime, raw, joint, participants, rng, series=(("pooled", "o"),)):
-    """series: (contrast, marker) pairs; the pooled test carries the participants, a family its marker."""
+def contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rng):
     color = st.REGIME_COLORS[regime]
-    pick = lambda table, c: {r["scope"]: r for r in table if r["hypothesis"] == hyp and r["contrast"] == c}
-    pos = scope_positions(set(pick(raw, series[0][0])))
-    tables = ((raw, True), (joint, False)) if len(series) == 1 else ((raw, True),)
-    step = 0.34
-    top = 0.11
+    pick = {s: {(r["contrast"], r["scope"]): r for r in comparisons[s] if r["hypothesis"] == hyp} for s in STATS}
+    pos = scope_positions({sc for c, sc in pick["54"] if c == series[0][0]})
+    n = 2 * len(series)
+    step = 0.3 if len(series) == 1 else 0.19
+    top = 0.105
     for sc, x in pos.items():
+        if series[0][0] == "pooled":
+            d = np.array([float(r["difference"]) for r in participants if r["hypothesis"] == hyp and r["scope"] == sc])
+            ax.scatter(x - 0.3 + rng.uniform(-0.06, 0.06, len(d)), d, s=1.4, color=st.PARTICIPANT, lw=0, zorder=2)
         k = 0
         for contrast, marker in series:
-            if contrast == "pooled":
-                d = np.array([float(r["difference"]) for r in participants
-                              if r["hypothesis"] == hyp and r["scope"] == sc])
-                ax.scatter(x - 0.14 + rng.uniform(-0.08, 0.08, len(d)), d, s=1.6, color=st.PARTICIPANT, lw=0,
-                           zorder=2)
-            for table, filled in tables:
-                r = pick(table, contrast)[sc]
-                dx = (k - (len(series) * len(tables) - 1) / 2) * step + (0.03 if len(series) == 1 else 0); k += 1
+            for s, filled in (("54", True), ("18", False)):
+                r = pick[s][contrast, sc]
+                dx = (k - (n - 1) / 2) * step + (0.05 if len(series) == 1 else 0); k += 1
                 m, lo, hi = float(r["corrected"]), float(r["low"]), float(r["high"])
-                ax.errorbar(x + dx, m, yerr=[[m - lo], [hi - m]], fmt=marker, ms=st.size(marker) - (1.6 if marker == "*" else 1),
-                            mfc=color if filled else "white", mec=color, mew=0.7, ecolor=color, elinewidth=0.8,
-                            capsize=0, zorder=4)
-                if contrast == "pooled" and sc == "wholescalp":
-                    p = float(r["p_holm"] or 1)
-                else:
-                    p = float(r["p_maxT"])
-                if p < .05:
-                    ax.text(x + dx, top - (0 if filled else 0.012), "*", ha="center", va="center", fontsize=6.5,
-                            color=st.INK if filled else st.MUTED)
+                ax.errorbar(x + dx, m, yerr=[[m - lo], [hi - m]], fmt=marker,
+                            ms=st.size(marker) - (1.8 if marker == "*" else 1.2), mfc=color if filled else "white",
+                            mec=color, mew=0.6, ecolor=color, elinewidth=0.7, capsize=0, zorder=4)
+                if significant(r, contrast):
+                    ax.text(x + dx, top, "*", ha="center", va="center", fontsize=6.5, color=st.INK)
     ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
     ax.set_xticks(list(pos.values()), ["whole\nscalp" if s == "wholescalp" else s.split("-")[1] for s in pos],
                   fontsize=5.4)
+    for tick, sc in zip(ax.get_xticklabels(), pos):
+        tick.set_color(REGION_COLORS[region_of(sc)])
     for region, label in REGIONS:
         xs = [x for s, x in pos.items() if s.startswith(region + "-")]
-        ax.text(np.mean(xs), -0.22, label, transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=5.4,
-                color=st.INK2)
-    ax.set_xlim(-0.6, pos["wholescalp"] + 0.6)
+        ax.text(np.mean(xs), -0.2, label, transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=5.4,
+                color=REGION_COLORS[region])
+    ax.set_xlim(-0.7, pos["wholescalp"] + 0.6)
     ax.set_ylim(-0.1, top + 0.012)
     ax.set_title(title)
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
 def legend_block(fig):
-    regimes = [Patch(fc=st.REGIME_COLORS[r], ec="none", label=st.REGIME_LABELS[r]) for r in st.REGIMES]
+    regimes = [Patch(fc=st.REGIME_COLORS[r], ec="none", label=f"{st.REGIME_LABELS[r]} ({st.REGIME_LABELS[r][0]})")
+               for r in st.REGIMES]
     families = [Line2D([], [], marker=m, ls="none", ms=st.size(m), mfc=st.INK2, mec="white", mew=0.4, label=f)
                 for f, m in st.MARKERS.items()]
-    estimates = [Line2D([], [], marker="o", ls="none", ms=1.8, mfc=st.PARTICIPANT, mec="none", label="participants"),
-                 Line2D([], [], marker="o", ls="none", ms=3, mfc=st.INK2, mec=st.INK2, label="mean, 95% CI"),
-                 Line2D([], [], marker="o", ls="none", ms=3, mfc="white", mec=st.INK2, label="after controls")]
+    sets = [Line2D([], [], marker="o", ls="none", ms=3, mfc=st.INK2, mec=st.INK2, label="54 videos"),
+            Line2D([], [], marker="o", ls="none", ms=3, mfc="white", mec=st.INK2, label="18 videos (open bars in a)"),
+            Line2D([], [], marker="o", ls="none", ms=1.8, mfc=st.PARTICIPANT, mec="none", label="participants (54)")]
     kw = dict(frameon=False, handletextpad=0.3, columnspacing=1.1, borderaxespad=0, fontsize=6, loc="lower left")
-    for y, title, handles in ((0.085, "Training regime", regimes), (0.05, "Model family", families),
-                              (0.015, "Comparisons", estimates)):
+    for y, title, handles in ((0.072, "Training regime", regimes), (0.038, "Model family", families),
+                              (0.004, "Stimulus set", sets)):
         fig.text(0.02, y + 0.008, title, fontsize=6, fontweight="bold", va="center")
         fig.legend(handles=handles, ncol=len(handles), bbox_to_anchor=(0.16, y), handlelength=1.4, **kw)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(STATS / "fig2_training"), help="output path without extension")
+    ap.add_argument("--out", default=str(STATS["54"] / "fig2_training"), help="output path without extension")
     args = ap.parse_args()
     st.setup()
-    table = rows(STATS / "rho_max.csv")
-    raw, joint = rows(STATS / "contrasts.csv"), rows(STATS / "contrasts_joint.csv")
-    participants = rows(STATS / "contrasts_participants.csv")
-    fig = plt.figure(figsize=(5.5, 5.8))
-    gs_a = fig.add_gridspec(1, 4, left=0.09, right=0.99, top=0.95, bottom=0.75, wspace=0.12)
-    axes_a = [fig.add_subplot(gs_a[0, i]) for i in range(4)]
-    for i, (ax, (region, label)) in enumerate(zip(axes_a, REGIONS)):
-        regime_panel(ax, table, region, label)
-        if i:
-            ax.tick_params(labelleft=False)
-    top = max(ax.get_ylim()[1] for ax in axes_a)
-    for ax in axes_a:
-        ax.set_ylim(0, top)
-    axes_a[0].set_ylabel(r"$\rho_{\max}$")
-    gs_b = fig.add_gridspec(2, 2, left=0.09, right=0.99, top=0.65, bottom=0.2, hspace=0.75, wspace=0.08)
+    comparisons = {s: rows(STATS[s] / "contrasts.csv") for s in STATS}
+    participants = rows(STATS["54"] / "contrasts_participants.csv")
+    table = {s: {(r["contrast"], r["scope"]): r for r in comparisons[s] if r["hypothesis"] == "variant"} for s in STATS}
+    fig = plt.figure(figsize=(5.5, 6.6))
+    gs_a = fig.add_gridspec(2, 6, left=0.08, right=0.99, top=0.955, bottom=0.66, wspace=0.12, hspace=0.42)
+    axes_a = np.array([[fig.add_subplot(gs_a[i, j]) for j in range(6)] for i in range(2)])
+    for i, row in enumerate(GRID):
+        for j, scope in enumerate(row):
+            variant_panel(axes_a[i, j], scope, table)
+    lo = min(ax.get_ylim()[0] for ax in axes_a.flat); hi = max(ax.get_ylim()[1] for ax in axes_a.flat)
+    for i, j in np.ndindex(axes_a.shape):
+        axes_a[i, j].set_ylim(lo, hi)
+        if j:
+            axes_a[i, j].tick_params(labelleft=False)
+    fig.text(0.015, 0.81, r"$\rho_{\max}$ − chance", rotation=90, va="center", fontsize=6.5)
+    gs_b = fig.add_gridspec(2, 2, left=0.08, right=0.99, top=0.58, bottom=0.165, hspace=0.72, wspace=0.08)
     rng = np.random.default_rng(0)
     axes_b = []
-    for k, (hyp, title, regime) in enumerate(PANELS):
+    for k, (hyp, title, regime, series) in enumerate(PANELS):
         ax = fig.add_subplot(gs_b[k // 2, k % 2])
-        contrast_panel(ax, hyp, title, regime, raw, joint, participants, rng,
-                       VIDEO if hyp.startswith("H4") else (("pooled", "o"),))
+        contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rng)
         if k % 2:
             ax.tick_params(labelleft=False)
         else:
-            ax.set_ylabel(r"$\Delta\rho$ − null mean")
+            ax.set_ylabel(r"$\Delta\rho$ − chance")
         axes_b.append(ax)
-    st.panel_label(axes_a[0], "a", x=-0.36)
+    st.panel_label(axes_a[0, 0], "a", x=-0.5)
     for ax, letter in zip(axes_b, "bcde"):
         st.panel_label(ax, letter, x=-0.16 if ax in axes_b[::2] else -0.05)
     legend_block(fig)
