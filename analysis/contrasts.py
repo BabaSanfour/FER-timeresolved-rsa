@@ -2,13 +2,15 @@
 """Planned tests of the comparisons between training regimes, in every scalp ROI and on the
 whole scalp (--stimuli 18 | 54; --partial <control set> for the partial-RSA grids).
 
-Four hypotheses, each pooled over the families it concerns:
+Five hypotheses, each pooled over the families it concerns:
   H1 pretraining raises alignment over random initialisation: generic-pretrained
      minus random (6 families)
   H2 face pretraining against ImageNet pretraining (4 image families)
   H3 emotion fine-tuning against its starting model (5 fine-tuned models)
   H4 the two pretrained video models (M3DFEL Kinetics-400, Qwen3-VL) against the 8
      pretrained image variants (ImageNet and face, each image family), 16 pairs
+  H5 face-identity training against random initialisation (4 image families); the face
+     models are trained from scratch, so face identity is an alternative to generic pretraining
 Each family's contrast (each video model's for H4) is reported too, and each variant on its
 own (hypothesis "variant": its rho_max at its own peak, mean over its RDMs, against the same
 null), which puts every variant on the scale of the comparisons.
@@ -20,7 +22,7 @@ two released models. In each scope x emotion cell (fear, happiness, neutral) of 
 layer and window are selected on the participant mean of (A + B) / 2 when A and B share
 a layer axis (same family); across families each model is read at its own peak. Each
 participant's difference is averaged over the three emotions, then over the pairs, then
-(pooled tests) over the contrasts. The time courses of H1-H3 use the same procedure with
+(pooled tests) over the contrasts. The time courses of H1-H5 use the same procedure with
 the layer selected in each window.
 
 With --normalize, every cell (scope, emotion, window) of every grid, observed and permuted, is
@@ -41,8 +43,8 @@ Reported per hypothesis, contrast and scope: the observed difference, the null m
 corrected difference (observed - null mean) with a 95% bootstrap CI over participants
 shifted by the null mean, the two-sided permutation p, and p corrected across the 11 ROIs
 by the maximum statistic over ROIs in the same permutations (Westfall-Young maxT). The
-whole-scalp test of each pooled hypothesis is Holm-corrected across the four hypotheses.
-Each time course (H1-H3) is corrected across the 11 x 13 ROI-window cells (whole scalp: across
+whole-scalp test of each pooled hypothesis is Holm-corrected across the five hypotheses.
+Each time course (H1-H5) is corrected across the 11 x 13 ROI-window cells (whole scalp: across
 its 13 windows).
 
 --sizes: the FaceNet size curve instead: each training-set size (and each step-matched
@@ -80,7 +82,8 @@ FINE_TUNED = {"ResNet18": ("AffectNet FT", "VGGFace2"), "ResNet50": ("AffectNet 
 VIDEO = [("M3DFEL", "Kinetics-400"), ("Qwen3-VL", "Pretrained")]
 IMAGE_PRETRAINED = [(f, v) for f in FACE for v in (GENERIC[f], FACE[f])]
 H1 = "H1 pretrained vs random"
-TIME_HYPOTHESES = (H1, "H2 face vs ImageNet", "H3 fine-tuned vs start")     # also resolved in time
+TIME_HYPOTHESES = (H1, "H2 face vs ImageNet", "H3 fine-tuned vs start", "H4 video vs image",
+                   "H5 face vs random")                                             # also resolved in time
 
 
 def hypotheses():
@@ -90,6 +93,8 @@ def hypotheses():
         "H2 face vs ImageNet": [(f, (f, v), (f, "ImageNet")) for f, v in FACE.items()],
         "H3 fine-tuned vs start": [(f, (f, ft), (f, start)) for f, (ft, start) in FINE_TUNED.items()],
         "H4 video vs image": [(f"{' '.join(v)} - {' '.join(i)}", v, i) for v in VIDEO for i in IMAGE_PRETRAINED],
+        # face-identity training is from scratch (VGGFace2 runs; VGG-Face): an alternative to generic pretraining
+        "H5 face vs random": [(f, (f, v), (f, "Random")) for f, v in FACE.items()],
     }
 
 
@@ -158,7 +163,7 @@ def own_peak(g):
 
 def all_contrasts(grid, tags, hyp):
     """-> {key: value}: every contrast and pooled test per scope, each variant at its own peak
-    (keys ('variant', 'family variant')), and the H1-H3 time courses (keys ('time', hypothesis, label))."""
+    (keys ('variant', 'family variant')), and the H1-H5 time courses (keys ('time', hypothesis, label))."""
     out = {}
     for key in sorted({x for items in hyp.values() for _, a, b in items for x in (a, b)}):
         out["variant", " ".join(key)] = np.mean([own_peak(grid(t)) for t in tags[key]], axis=0)
@@ -174,8 +179,12 @@ def all_contrasts(grid, tags, hyp):
     for h in (x for x in TIME_HYPOTHESES if x in hyp):
         time = [contrast(grid, tags, a, b, by_window=True) for _, a, b in hyp[h]]
         out["time", h, "pooled"] = np.mean(time, axis=0)
-        for (label, _, _), x in zip(hyp[h], time):
-            out["time", h, label] = x
+        if h.startswith("H4"):                                      # each video model against the image models
+            for v in VIDEO:
+                out["time", h, " ".join(v)] = np.mean([x for x, (_, a, _) in zip(time, hyp[h]) if a == v], axis=0)
+        else:
+            for (label, _, _), x in zip(hyp[h], time):
+                out["time", h, label] = x
     return out
 
 
@@ -272,7 +281,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
     ap.add_argument("--partial", default=None, help="a control set of partial_rsa.py (e.g. joint)")
-    ap.add_argument("--sizes", action="store_true", help="the FaceNet size curve instead of H1-H4")
+    ap.add_argument("--sizes", action="store_true", help="the FaceNet size curve instead of H1-H5")
     ap.add_argument("--design", choices=["ckpt", "ids"], default=None,
                     help="a FaceNet learning design instead: checkpoints along training or identity counts")
     ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
