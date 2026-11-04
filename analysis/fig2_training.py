@@ -264,7 +264,7 @@ def grid_panel(ax, hyp, contrast, tables, labels=False):
         ax.plot([x] * len(yy), yy, "o", ms=1.6, color=st.INK, mec="none")
     ax.set_xlim(-0.5, cols[-1] + 0.5); ax.set_ylim(n - 0.5, -0.5)
     ax.axhline(n - 1.5, color="white", lw=1.2)                         # before "all"
-    ax.set_xticks(cols, ["L", "M", "R", "L", "R", "WS"], fontsize=5.6)
+    ax.set_xticks(cols, ["OT-L", "OT-M", "OT-R", "C-L", "C-R", "WS"], fontsize=5.4, rotation=90)
     for tick, scope in zip(ax.get_xticklabels(), D_SCOPES):
         tick.set_color(REGION_COLORS["wholescalp" if scope == "wholescalp" else region_of(scope)])
     ax.set_yticks(range(n), [lab for _, lab in CONTROL_SETS] if labels else [""] * n, fontsize=6.4)
@@ -291,7 +291,7 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
-    H = 7.75 if args.de == "bars" else 6.95
+    H = 7.75 if args.de == "bars" else 7.35
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.3), bottom=f(1.55), wspace=0.1)
@@ -330,8 +330,12 @@ def layout_best(args, tables, variant):
         fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.55, f(6.9)), ncol=3, fontsize=6.6,
                    handletextpad=0.4, columnspacing=1.0, frameon=False)
     else:
-        fig.text((xb[0] + xc[-1] + hw) / 2, f(6.17), "columns: occipito-temporal left, midline, right  |  central left, "
-                 "right  |  WS whole scalp;  colour as in b, c", ha="center", va="center", fontsize=6.4, color=st.INK2)
+        cax = fig.add_axes([xb[0] + hw, f(6.42), xc[-1] - xb[0] - hw, 0.05 / H])
+        cb = fig.colorbar(plt.cm.ScalarMappable(cmap=DIVERGING, norm=plt.Normalize(-VMAX, VMAX)), cax=cax,
+                          orientation="horizontal")
+        cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
+        cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+        cb.set_label("difference above chance (fraction of noise ceiling); WS, whole scalp", fontsize=6.6)
     for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc[0] - 0.02, 2.12), ("d", 0.01, 4.42),
                          ("e", xc[0] - 0.02, 4.42)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
