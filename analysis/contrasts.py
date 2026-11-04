@@ -31,6 +31,8 @@ whole computation, selection included, is repeated on the participant-mean grids
 (linear in the participants' EEG). With --partial, the permuted model vectors are
 residualised on the control set of each window, as in partial_rsa.py.
 
+The scopes are the 11 ROIs, the whole scalp and the four regions (the mean over each region's
+ROIs, frontal, central, centro-parietal, occipito-temporal, maxT across the four).
 Reported per hypothesis, contrast and scope: the observed difference, the null mean, the
 corrected difference (observed - null mean) with a 95% bootstrap CI over participants
 shifted by the null mean, the two-sided permutation p, and p corrected across the 11 ROIs
@@ -234,13 +236,13 @@ def holm(p):
 
 def tests(obs, null, rng):
     """obs (S, *shape), null (N, *shape) -> per-cell dict of arrays; maxT over the ROI cells
-    (the first N_ROI scopes) and separately over the whole-scalp cells."""
+    (the first N_ROI scopes), separately over the whole-scalp cells, and over the region means."""
     centre, spread = null.mean(0), null.std(0)
     z = (obs.mean(0) - centre) / spread
     zn = np.abs((null - centre) / spread)
     p = (1 + (zn >= np.abs(z)).sum(0)) / (N_PERM + 1)
     p_max = np.empty_like(p)
-    for part in (slice(0, rsa_core.N_ROI), slice(rsa_core.N_ROI, None)):
+    for part in (slice(0, rsa_core.N_ROI), slice(rsa_core.N_ROI, rsa_core.N_ROI + 1), slice(rsa_core.N_ROI + 1, None)):
         m = zn[:, part].reshape(N_PERM, -1).max(1)
         p_max[part] = (1 + (m[:, None] >= np.abs(z[part]).ravel()[None]).sum(0)).reshape(z[part].shape) / (N_PERM + 1)
     boot = obs[rng.integers(0, len(obs), size=(N_BOOT, len(obs)))].mean(1)
@@ -274,6 +276,13 @@ def main():
     bounds = rsa_core.window_bounds()[:W]
     obs = all_contrasts(grid, tags, hyp)
     null = permutation_nulls(s, tags, hyp, W, args.partial)
+    # region means (the mean over a region's ROIs), tested against the same permutations
+    regions = list(dict.fromkeys(sc.split("-")[0] for sc in scopes[:rsa_core.N_ROI]))
+    members = [[i for i, sc in enumerate(scopes[:rsa_core.N_ROI]) if sc.startswith(rg + "-")] for rg in regions]
+    with_regions = lambda a: np.concatenate([a] + [a[:, m].mean(1, keepdims=True) for m in members], axis=1)
+    obs = {k: with_regions(v) for k, v in obs.items()}
+    null = {k: with_regions(v) for k, v in null.items()}
+    scopes = list(scopes) + regions
     rng = np.random.default_rng(SEED)
     n_pairs = {h: len(items) for h, items in hyp.items()}
     rows, time_rows, participant_rows = [], [], []
