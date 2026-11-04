@@ -118,7 +118,7 @@ def main():
             time_panel(ax, t, sc, contrasts, top, bottom)
             sensor_inset(ax, sc, layout) if i == 0 else None
             if i == 0:
-                ax.set_title(full_label(sc), fontsize=6.6, pad=3, linespacing=1.0, color=REGION_COLORS[region_of(sc)])
+                ax.set_title(full_label(sc), fontsize=6.6, pad=3, linespacing=1.0)
                 ax.tick_params(labelbottom=False)
             else:
                 ax.set_xlabel("time from onset (ms)", fontsize=6.4, labelpad=1)
@@ -141,7 +141,7 @@ def main():
             axm = fig.add_axes([x0 + k * step + (step - hw) / 2, y, hw, hh])
             im = window_map(axm, t, hyp, contrast, scalp)
             if i == 0:
-                axm.set_title(SHORT_NAMES[hyp], fontsize=6, pad=2, linespacing=1.0, color=COLORS[hyp])
+                axm.set_title(SHORT_NAMES[hyp], fontsize=6, pad=2, linespacing=1.0)
             else:
                 axm.text(1.02, 0.5, contrast.split()[0], transform=axm.transAxes, rotation=90, ha="left",
                          va="center", fontsize=5.8, color=st.INK2)
