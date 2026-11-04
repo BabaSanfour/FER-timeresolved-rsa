@@ -16,10 +16,10 @@ RDMs, with the ceiling of the EEG after the same removal.
   c     the same for the strongest family of each comparison (named under its maps; chosen after seeing
         the results). Emotion-tuned vs base model: each fine-tuned network against the network it was
         fine-tuned from
-  d     what each control removes: for each comparison, the occipito-temporal (solid) and central
-        (hatched) region means (mean over the region's ROIs), raw, with each control removed alone and
-        with all removed; difference above chance with 95% CI, dot: p < .05 (maxT across the four regions);
-        markers: the strongest family of c (family shape, filled where p < .05)
+  d, e  what each control removes, under the maps of b (all models pooled) and c (strongest family):
+        rows = raw, each control removed alone, all removed (shaded); the occipito-temporal (solid) and
+        central (hatched) region means (mean over the region's ROIs), difference above chance with 95%
+        CI, dot: p < .05 (maxT across the four regions)
 ROI labels carry the region colours of Fig. 1.
 
 Reads analysis/paper_stats_54/contrasts{,_identity,_occlusion,_pixel,_optical_flow,_motion_energy,_joint}_nc.csv and the ROIs of
@@ -163,7 +163,7 @@ def pooled_and_best(fig, box, scalp, tables):
     import mne
     x0, y0, w, h = box
     info, roi_of = scalp
-    lab_w, gap = 0.055, 0.03                                      # row-label column and gap between b and c
+    lab_w, gap = 0.1, 0.03                                      # row-label column and gap between b and c
     hw = (w - lab_w - gap) / 8                                     # head width (figure fraction)
     rh = hw * fig.get_figwidth() / fig.get_figheight()             # square heads
     xb = [x0 + lab_w + j * hw for j in range(4)]
@@ -186,7 +186,7 @@ def pooled_and_best(fig, box, scalp, tables):
     bottom = y0 + h - 2 * rh
     for xs, group, fam in ((xb, "all models (pooled)", False), (xc, "strongest family", True)):
         for xx, (hyp, label, _) in zip(xs, COMPARISONS):
-            fig.text(xx + hw / 2, top, label.replace(" vs ", "\nvs "), ha="center", va="bottom", fontsize=6.2,
+            fig.text(xx + hw / 2, top, label.replace(" vs ", "\nvs "), ha="center", va="bottom", fontsize=5.8,
                      linespacing=1.0)
             if fam:                                                 # the family shown, under its heads
                 fig.text(xx + hw / 2, bottom + 0.01 / H, BEST[hyp].split()[0], ha="center", va="top", fontsize=6.6,
@@ -197,7 +197,7 @@ def pooled_and_best(fig, box, scalp, tables):
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
     cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
-    return xc[0], 2 * rh
+    return xb, xc, hw
 
 
 # ---------------------------------------------------------------- c: what each control removes
@@ -205,34 +205,31 @@ def pooled_and_best(fig, box, scalp, tables):
 D_REGIONS = [("OccipitoTemporal", None), ("Central", "//////")]       # solid, hatched
 
 
-def bar_panel(ax, hyp, title, regime, tables):
-    """One comparison: x = control sets (raw, each alone, all); bars = the occipito-temporal (solid) and
-    central (hatched) region means, difference above chance with 95% CI; * p < .05 (maxT across the four
-    regions)."""
+def bar_panel(ax, hyp, contrast, regime, tables, labels=False):
+    """One comparison (pooled, or one family): rows = control sets (raw, each alone, all); horizontal bars =
+    the occipito-temporal (solid) and central (hatched) region means, difference above chance with 95% CI;
+    a dot where p < .05 (maxT across the four regions)."""
     color = st.REGIME_COLORS[regime]
+    n = len(CONTROL_SETS)
     for k, (name, _) in enumerate(CONTROL_SETS):
         for j, (region, hatch) in enumerate(D_REGIONS):
-            r = next(r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == "pooled"
+            r = next(r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == contrast
                      and r["scope"] == region)
             m, lo, hi = float(r["corrected"]), float(r["low"]), float(r["high"])
-            x = k + (j - 0.5) * 0.38
-            ax.bar(x, m, width=0.36, fc=color if hatch is None else "white", ec=color, lw=0.6, hatch=hatch,
-                   alpha=0.85 if hatch is None else 1, zorder=2)
-            ax.plot([x, x], [lo, hi], color=st.INK2, lw=0.6, zorder=3)
-            if float(r["p_maxT"]) < .05:                       # a dot, as on the maps
-                ax.plot(x, (hi + 0.02) if m >= 0 else (lo - 0.02), "o", ms=1.8, color=st.INK, zorder=4)
-            f = next(r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == BEST[hyp]
-                     and r["scope"] == region)                     # the strongest family (as in c)
-            fm = st.MARKERS[BEST[hyp].split()[0]]
-            ax.plot(x, float(f["corrected"]), fm, ms=min(st.size(fm) - 1.4, 4.2), mec=st.INK, mew=0.5,
-                    mfc=st.INK if float(f["p_maxT"]) < .05 else "white", zorder=5)
-    ax.axhline(0, color=st.INK2, lw=0.6, zorder=1)
-    ax.set_xticks(range(len(CONTROL_SETS)), [lab for _, lab in CONTROL_SETS], fontsize=6.4, rotation=45,
-                  ha="right", rotation_mode="anchor")
-    ax.tick_params(axis="x", length=0, pad=1.5)
-    ax.set_xlim(-0.6, len(CONTROL_SETS) - 0.4)
-    ax.set_title(title, fontsize=7, pad=3, linespacing=1.0)
-    fmt(ax)
+            y = (n - 1 - k) + (0.5 - j) * 0.4
+            ax.barh(y, m, height=0.38, fc=color if hatch is None else "white", ec=color, lw=0.5, hatch=hatch,
+                    alpha=0.85 if hatch is None else 1, zorder=2)
+            ax.plot([lo, hi], [y, y], color=st.INK2, lw=0.5, zorder=3)
+            if float(r["p_maxT"]) < .05:
+                ax.plot(hi + 0.025 if m >= 0 else lo - 0.025, y, "o", ms=1.6, color=st.INK, zorder=4)
+    ax.axvline(0, color=st.INK2, lw=0.6, zorder=1)
+    ax.axhspan(-0.5, 0.5, color=st.RULE, alpha=0.35, lw=0, zorder=0)             # all removed
+    ax.set_yticks(range(n), [lab for _, lab in CONTROL_SETS][::-1] if labels else [""] * n, fontsize=6.4)
+    ax.tick_params(axis="y", length=0, pad=1.5)
+    ax.tick_params(axis="x", labelsize=5.8, length=2, pad=1)
+    ax.set_ylim(-0.6, n - 0.4)
+    ax.spines["left"].set_visible(False)
+    ax.xaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
 def legend_block(fig, height):
@@ -253,7 +250,7 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
-    H = 7.35
+    H = 6.85
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.3), bottom=f(1.55), wspace=0.1)
@@ -265,31 +262,26 @@ def layout_best(args, tables, variant):
         if j:
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
-    xc, _ = pooled_and_best(fig, (0.02, f(3.97), 0.97, 1.4 / H), topo_scalp(), tables)
-    top_d = f(4.88)
-    gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=top_d, bottom=f(5.88), wspace=0.1)
-    ds = [fig.add_subplot(gs[0, j]) for j in range(4)]
-    for j, (ax, (hyp, title, regime)) in enumerate(zip(ds, COMPARISONS)):
-        bar_panel(ax, hyp, title.replace(" vs ", "\nvs "), regime, tables)
-        if j:
-            ax.tick_params(labelleft=False)
-    lo = min(ax.get_ylim()[0] for ax in ds); hi = max(ax.get_ylim()[1] for ax in ds)
-    for ax in ds:
-        ax.set_ylim(lo - 0.03, hi + 0.04)
-    ds[-1].legend(handles=[Line2D([], [], marker=st.MARKERS[BEST[h].split()[0]], ls="none", ms=3.5, mfc=st.INK,
-                                  mec=st.INK, label=BEST[h].split()[0]) for h in ("H1 pretrained vs random",
-                                                                                 "H2 face vs ImageNet",
-                                                                                 "H3 fine-tuned vs start")],
-                  title="strongest family\n(filled: p < .05)", title_fontsize=6.2, fontsize=6.2, loc="upper right",
-                  handletextpad=0.2, borderaxespad=0.1, labelspacing=0.3)
-    ds[0].set_ylabel("difference above chance\n(fraction of noise ceiling)", fontsize=7)
-    fig.text(0.545, f(6.42), "removed from the EEG and model RDMs", ha="center", va="center", fontsize=7,
-             color=st.INK2)
+    xb, xc, hw = pooled_and_best(fig, (0.02, f(3.97), 0.97, 1.4 / H), topo_scalp(), tables)
+    top_d, bot_d = f(4.6), f(5.7)
+    for xs, group, pick in ((xb, "all models (pooled)", lambda h: "pooled"), (xc, "strongest family", lambda h: BEST[h])):
+        axes = []
+        for j, (xx, (hyp, label, regime)) in enumerate(zip(xs, COMPARISONS)):
+            ax = fig.add_axes([xx + 0.12 * hw, bot_d, hw * 0.8, top_d - bot_d])
+            bar_panel(ax, hyp, pick(hyp), regime, tables, labels=xs is xb and j == 0)
+            axes.append(ax)
+        lo = min(ax.get_xlim()[0] for ax in axes); hi = max(ax.get_xlim()[1] for ax in axes)
+        for ax in axes:
+            ax.set_xlim(lo, hi + 0.03)
+        fig.text((xs[0] + xs[-1] + hw) / 2, top_d + 0.06 / H, group, ha="center", va="bottom", fontsize=7.2)
+    fig.text((xb[0] + xc[-1] + hw) / 2, f(5.95), "difference above chance (fraction of noise ceiling)", ha="center",
+             va="center", fontsize=7)
     fig.legend(handles=[Patch(fc=st.INK2, alpha=0.85, ec=st.INK2, label="occipito-temporal (region mean)"),
                         Patch(fc="white", ec=st.INK2, hatch="//////", label="central (region mean)")],
-               loc="center right", bbox_to_anchor=(0.99, f(6.62)), ncol=2, fontsize=6.8, handletextpad=0.4,
+               loc="center", bbox_to_anchor=(0.55, f(6.17)), ncol=2, fontsize=6.8, handletextpad=0.4,
                columnspacing=1.2, frameon=False)
-    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc - 0.02, 2.12), ("d", 0.01, 4.42)):
+    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc[0] - 0.02, 2.12), ("d", 0.01, 4.42),
+                         ("e", xc[0] - 0.02, 4.42)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
     legend_block(fig, H)
     for ext in ("pdf", "png"):
