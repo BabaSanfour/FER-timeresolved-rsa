@@ -79,7 +79,7 @@ def size_panel(ax, per_rdm):
     rnd = region_values(per_rdm, "main", "Random")["Random"]
     m, sd = np.mean(rnd), np.std(rnd, ddof=1)
     ax.axhspan(m - sd, m + sd, color=st.REGIME_COLORS["Random"], alpha=0.25, lw=0)
-    ax.text(7e5, m - sd - 0.002, "random (10 seeds)", fontsize=5.3, color=st.INK2, va="top", ha="right")
+    ax.text(7e5, m - sd - 0.002, "random (10 seeds)", fontsize=6.5, color=st.INK2, va="top", ha="right")
     size = region_values(per_rdm, "size")
     color = st.REGIME_COLORS["Face"]
     for group, mfc, label in (("size", color, "fixed epochs"), ("step", "white", "matched steps")):
@@ -104,9 +104,9 @@ def legend_block(fig):
     regimes = [Patch(fc=st.REGIME_COLORS[r], ec="none", label=st.REGIME_LABELS[r]) for r in st.REGIMES]
     families = [Line2D([], [], marker=m, ls="none", ms=st.size(m), mfc=st.INK2, mec="white", mew=0.4, label=f)
                 for f, m in st.MARKERS.items()]
-    kw = dict(frameon=False, handletextpad=0.3, columnspacing=1.1, borderaxespad=0, fontsize=6, loc="lower left")
+    kw = dict(frameon=False, handletextpad=0.3, columnspacing=1.1, borderaxespad=0, fontsize=7.2, loc="lower left")
     for y, title, handles in ((0.07, "Training regime", regimes), (0.0, "Model family", families)):
-        fig.text(0.02, y + 0.022, title, fontsize=6, fontweight="bold", va="center")
+        fig.text(0.02, y + 0.022, title, fontsize=7.2, fontweight="bold", va="center")
         fig.legend(handles=handles, ncol=len(handles), bbox_to_anchor=(0.16, y), handlelength=1.4, **kw)
 
 
@@ -122,7 +122,7 @@ def main():
     a.set_ylim(bottom=0)
     size_panel(b, rows(STATS / "rho_max_per_rdm.csv"))
     c.text(0.5, 0.5, "accuracy x alignment\n(probe running)", ha="center", va="center", transform=c.transAxes,
-           fontsize=6, color=st.MUTED)
+           fontsize=7.2, color=st.MUTED)
     for ax, letter in ((a, "a"), (b, "b"), (c, "c")):
         st.panel_label(ax, letter, x=-0.36)
     legend_block(fig)

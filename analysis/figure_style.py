@@ -21,8 +21,8 @@ MARKER_SIZE = {"*": 7.5, "p": 5.5, "D": 4.2}
 def setup():
     mpl.rcParams.update({
         "font.family": "sans-serif", "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
-        "font.size": 6.5, "axes.labelsize": 6.5, "axes.titlesize": 6.5, "xtick.labelsize": 6,
-        "ytick.labelsize": 6, "legend.fontsize": 6, "axes.linewidth": 0.6, "axes.edgecolor": INK,
+        "font.size": 7.5, "axes.labelsize": 7.5, "axes.titlesize": 7.5, "xtick.labelsize": 7,
+        "ytick.labelsize": 7, "legend.fontsize": 7, "axes.linewidth": 0.6, "axes.edgecolor": INK,
         "axes.labelcolor": INK, "xtick.color": INK, "ytick.color": INK, "text.color": INK,
         "xtick.major.width": 0.6, "ytick.major.width": 0.6, "xtick.major.size": 2.5, "ytick.major.size": 2.5,
         "axes.spines.top": False, "axes.spines.right": False, "legend.frameon": False,
@@ -35,9 +35,9 @@ def size(marker):
 
 
 def panel_label(ax, letter, title=None, x=-0.22, y=1.06):
-    ax.text(x, y, letter, transform=ax.transAxes, fontsize=8, fontweight="bold", va="bottom", ha="left")
+    ax.text(x, y, letter, transform=ax.transAxes, fontsize=9, fontweight="bold", va="bottom", ha="left")
     if title:
-        ax.text(x + 0.09, y, title, transform=ax.transAxes, fontsize=6.5, va="bottom", ha="left")
+        ax.text(x + 0.09, y, title, transform=ax.transAxes, fontsize=7.7, va="bottom", ha="left")
 
 
 def point_format(x):

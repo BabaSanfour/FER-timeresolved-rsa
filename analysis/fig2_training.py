@@ -85,12 +85,12 @@ def sensor_layout():
     return dict(zip(montage.ch_names, xy)), np.linalg.norm(xy, axis=1).max() * 1.08
 
 
-def sensor_inset(ax, scope, layout):
-    """A small head in the panel's upper left with the scope's electrodes in its region colour."""
+def sensor_inset(ax, scope, layout, box=(0.0, 0.7, 0.3, 0.3)):
+    """A small head (by default in the panel's upper left) with the scope's electrodes in its region colour."""
     pos, radius = layout
     chans = set(pos) if scope == "wholescalp" else set(ROI_CHANNELS[scope])
     color = REGION_COLORS[region_of(scope)] if scope != "wholescalp" else st.INK2
-    ins = ax.inset_axes([0.0, 0.7, 0.3, 0.3])
+    ins = ax.inset_axes(list(box))
     t = np.linspace(0, 2 * np.pi, 100)
     ins.plot(radius * np.cos(t), radius * np.sin(t), color=st.INK2, lw=0.4)
     ins.plot([-0.12 * radius, 0, 0.12 * radius], [0.99 * radius, 1.15 * radius, 0.99 * radius], color=st.INK2, lw=0.4)
@@ -131,10 +131,10 @@ def variant_panel(ax, scope, table):
         ax.bar(xs[regime] - 0.12, np.mean(by_regime[regime]), width=0.46, color=c, alpha=0.25, lw=0, zorder=1)
         ax.plot([xs[regime] - 0.35, xs[regime] + 0.11], [np.mean(chance[regime])] * 2, color=st.INK2, lw=1.1,
                 solid_capstyle="butt", zorder=5)
-    ax.set_xticks(range(len(st.REGIMES)), [st.REGIME_LABELS[r][0] for r in st.REGIMES], fontsize=5.2)
+    ax.set_xticks(range(len(st.REGIMES)), [st.REGIME_LABELS[r][0] for r in st.REGIMES], fontsize=6.4)
     ax.tick_params(axis="x", length=0, pad=1.5)
     ax.set_xlim(-0.55, len(st.REGIMES) - 0.65)
-    ax.set_title(scope_label(scope), fontsize=6, color=REGION_COLORS[region_of(scope)], pad=2,
+    ax.set_title(scope_label(scope), fontsize=7.2, color=REGION_COLORS[region_of(scope)], pad=2,
                  fontweight="bold")
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
@@ -155,9 +155,7 @@ def ceilings(scope, partial_rows, per_rdm_raw, per_rdm_joint):
 def paired_panel(ax, scope, raw, joint, ceiling):
     """Each regime: the raw bar (filled) and the bar after joint controls (open), family markers on
     each, chance dashes, and the noise ceilings (grey band raw, dashed after controls)."""
-    if ceiling is None:                                   # normalised values: the ceiling is 1
-        ax.axhline(1, color=st.MUTED, lw=0.6, ls=(0, (2, 1.5)), zorder=0)
-    else:
+    if ceiling is not None:                               # normalised values: the ceiling is 1, not drawn
         (rl, ru), (jl, ju) = ceiling
         ax.axhspan(rl, ru, color=st.RULE, alpha=0.45, lw=0, zorder=0)
         for y in (jl, ju):
@@ -179,11 +177,11 @@ def paired_panel(ax, scope, raw, joint, ceiling):
                    ec="none" if filled else c, lw=0.6, zorder=1)
             ax.plot([xi + dx - 0.18, xi + dx + 0.18], [np.mean(chance)] * 2, color=st.INK2, lw=1.0,
                     solid_capstyle="butt", zorder=5)
-    ax.set_xticks(range(len(st.REGIMES)), [st.REGIME_LABELS[r] for r in st.REGIMES], fontsize=5.2, rotation=30,
+    ax.set_xticks(range(len(st.REGIMES)), [st.REGIME_LABELS[r] for r in st.REGIMES], fontsize=6.4, rotation=30,
                   ha="right", rotation_mode="anchor")
     ax.tick_params(axis="x", length=0, pad=1.5)
     ax.set_xlim(-0.5, len(st.REGIMES) - 0.5)
-    ax.set_title(scope_label(scope), fontsize=6, color=REGION_COLORS[region_of(scope)], pad=2, fontweight="bold")
+    ax.set_title(scope_label(scope), fontsize=7.2, color=REGION_COLORS[region_of(scope)], pad=2, fontweight="bold")
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
@@ -215,20 +213,20 @@ def region_panel(ax, regions):
                             mfc=[color, st.blend(color, 0.45), "white"][k], mec=color, mew=0.6, ecolor=color,
                             elinewidth=0.7, capsize=0, zorder=4)
                 if float(r["p_maxT"]) < .05:
-                    ax.text(x, 0.075 * (4 if NC["suffix"] else 1), "*", ha="center", va="center", fontsize=6.5, color=st.INK)
+                    ax.text(x, 0.075 * (4 if NC["suffix"] else 1), "*", ha="center", va="center", fontsize=7.7, color=st.INK)
             ticks.append(x0); labels.append(label); x0 += 1
-        ax.text((start + x0 - 1) / 2, 0.092 * (4 if NC["suffix"] else 1), REGION_NAMES[region], ha="center", fontsize=6,
+        ax.text((start + x0 - 1) / 2, 0.092 * (4 if NC["suffix"] else 1), REGION_NAMES[region], ha="center", fontsize=7.2,
                 color=REGION_COLORS[region])
         x0 += 0.5
     ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
-    ax.set_xticks(ticks, labels, fontsize=5.2)
+    ax.set_xticks(ticks, labels, fontsize=6.4)
     ax.set_xlim(-0.5, x0 - 0.9)
     ax.set_ylim(-0.045 * (4 if NC["suffix"] else 1), 0.1 * (4 if NC["suffix"] else 1))
     ax.set_ylabel(DLAB())
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
     ax.legend(handles=[Line2D([], [], marker="o", ls="none", ms=3, mfc=f, mec=st.INK2, label=lab)
                        for f, (_, lab) in zip([st.INK2, st.blend(st.INK2, 0.45), "white"], CONDITIONS)],
-              loc="lower left", ncol=3, handletextpad=0.2, columnspacing=0.8, borderaxespad=0.2, fontsize=5.4)
+              loc="lower left", ncol=3, handletextpad=0.2, columnspacing=0.8, borderaxespad=0.2, fontsize=6.6)
 
 
 DIVERGING = None
@@ -267,7 +265,7 @@ def topo_grid(fig, box, scalp):
                      if r["contrast"] == "pooled"} for name, _ in CONDITIONS}
     cw, rh = w / (len(CONDITIONS) + 0.9), h / len(COMPARISONS)
     for i, (hyp, label, regime) in enumerate(COMPARISONS):
-        fig.text(x0, y0 + h - (i + 0.5) * rh, label, ha="left", va="center", fontsize=5.6,
+        fig.text(x0, y0 + h - (i + 0.5) * rh, label, ha="left", va="center", fontsize=6.8,
                  color=st.REGIME_COLORS[regime])
         for j, (name, title) in enumerate(CONDITIONS):
             ax = fig.add_axes([x0 + (j + 0.9) * cw, y0 + h - (i + 1) * rh, cw * 0.95, rh * 0.95])
@@ -276,12 +274,12 @@ def topo_grid(fig, box, scalp):
             sig = {sc: float(t[hyp, sc]["p_maxT"]) < .05 for sc in ROI_CHANNELS}
             im = topo_head(ax, values, sig, scalp, vmax)
             if i == 0:
-                ax.set_title(title.replace(" removed", "\nremoved"), fontsize=5.6, pad=1)
+                ax.set_title(title.replace(" removed", "\nremoved"), fontsize=6.8, pad=1)
     cax = fig.add_axes([x0 + 0.9 * cw + 0.03, y0 - 0.035, (len(CONDITIONS) * cw) - 0.06, 0.008])
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-vmax, 0, vmax], labels=[st.point_format(round(-vmax, 3)), "0", st.point_format(round(vmax, 3))])
-    cb.ax.tick_params(labelsize=5, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-    cb.set_label("difference − chance (fraction of ceiling)" if NC["suffix"] else "difference − chance", fontsize=5.4)
+    cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+    cb.set_label("difference − chance (fraction of ceiling)" if NC["suffix"] else "difference − chance", fontsize=6.6)
 
 
 def slope_panel(ax, region):
@@ -302,10 +300,10 @@ def slope_panel(ax, region):
                         (st.blend(color, 0.45) if k == 1 else "white"), mec=color, mew=0.6, ecolor=color,
                         elinewidth=0.7, capsize=0, zorder=4)
             if float(r["p_maxT"]) < .05:
-                ax.text(xs[k] + 0.05, m, "*", ha="left", va="center", fontsize=6.5, color=st.INK)
+                ax.text(xs[k] + 0.05, m, "*", ha="left", va="center", fontsize=7.7, color=st.INK)
         ax.plot(xs, ys, color=color, lw=0.9, ls=ls, zorder=3, label=label.replace("\n", " "))
     ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
-    ax.set_xticks(range(len(CONDITIONS)), ["raw", "occlusion\nremoved", "all\nremoved"], fontsize=5.4)
+    ax.set_xticks(range(len(CONDITIONS)), ["raw", "occlusion\nremoved", "all\nremoved"], fontsize=6.6)
     ax.set_xlim(-0.35, len(CONDITIONS) - 0.65)
     ax.set_ylim(-0.04 * K, 0.065 * K)
     ax.set_title(REGION_NAMES[region], color=REGION_COLORS[region])
@@ -317,9 +315,9 @@ def family_panel(ax, scopes=("Central-L", "Central-R")):
     family markers in the regime colour, 95% CI, * maxT across ROIs."""
     t = {(r["hypothesis"], r["contrast"], r["scope"]): r for r in rows(STATS["54"] / cfile("joint"))}
     K = 4 if NC["suffix"] else 1
-    groups = [("H2 face vs ImageNet", ["ResNet18", "ResNet50", "FaceNet", "VGG16"], "Face", "face − ImageNet"),
+    groups = [("H2 face vs ImageNet", ["ResNet18", "ResNet50", "FaceNet", "VGG16"], "Face", "face\n− ImageNet"),
               ("H3 fine-tuned vs start", ["ResNet18", "ResNet50", "FaceNet", "VGG16", "M3DFEL"], "Emotion",
-               "emotion FT − start")]
+               "emotion FT\n− start")]
     x, ticks, labels, centres = 0.0, [], [], []
     for hyp, fams, regime, title in groups:
         start = x
@@ -333,18 +331,19 @@ def family_panel(ax, scopes=("Central-L", "Central-R")):
                             mec=st.REGIME_COLORS[regime], mew=0.7, ecolor=st.REGIME_COLORS[regime], elinewidth=0.7,
                             capsize=0, zorder=4)
                 if float(r["p_maxT"]) < .05:
-                    ax.text(xx, 0.075 * K, "*", ha="center", va="center", fontsize=6.5, color=st.INK)
+                    ax.text(xx, 0.068 * K, "*", ha="center", va="center", fontsize=7.7, color=st.INK)
             ticks.append(x); labels.append(scope_label(sc)); x += 1
         centres.append(((start + x - 1) / 2, title, regime)); x += 0.4
     for cx, title, regime in centres:
-        ax.text(cx, 0.088 * K, title, ha="center", fontsize=5.8, color=st.REGIME_COLORS[regime])
+        ax.text(cx, 0.1 * K, title, ha="center", va="top", fontsize=6.6, color=st.REGIME_COLORS[regime],
+                linespacing=0.95)
     ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
-    ax.set_xticks(ticks, labels, fontsize=5.4)
+    ax.set_xticks(ticks, labels, fontsize=6.6)
     for tick in ax.get_xticklabels():
         tick.set_color(REGION_COLORS["Central"])
     ax.set_xlim(-0.5, x - 0.9)
     ax.set_ylim(-0.05 * K, 0.1 * K)
-    ax.set_title("by family, after all controls", fontsize=6)
+    ax.set_title("by family, after all controls", fontsize=7.2)
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
@@ -373,8 +372,11 @@ def time_panel(ax, region="Central"):
     ax.set_xlim(0, 800); ax.set_xticks([0, 200, 400, 600, 800])
     ax.set_ylim(-0.04 * K, 0.08 * K)
     ax.set_xlabel("time from onset (ms)")
-    ax.set_title(f"{REGION_NAMES[region]}, after all controls", color=REGION_COLORS[region], fontsize=6)
-    ax.legend(loc="lower right", fontsize=5.4, handlelength=1.5, borderaxespad=0.2)
+    ax.set_title(f"{REGION_NAMES[region]}, after all controls", color=REGION_COLORS[region], fontsize=7.2)
+    ax.text(205, 0.036 * K, "face − ImageNet", color=st.REGIME_COLORS["Face"], fontsize=6.6,
+            ha="left", va="bottom")
+    ax.text(420, 0.07 * K, "emotion FT − start", color=st.REGIME_COLORS["Emotion"], fontsize=6.6, ha="left",
+            va="bottom")
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
@@ -420,16 +422,16 @@ def contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rn
                             ms=st.size(marker) - (1.8 if marker == "*" else 1.2), mfc=color if filled else "white",
                             mec=color, mew=0.6, ecolor=color, elinewidth=0.7, capsize=0, zorder=4)
                 if significant(r, contrast):
-                    ax.text(x + dx, top, "*", ha="center", va="center", fontsize=6.5,
+                    ax.text(x + dx, top, "*", ha="center", va="center", fontsize=7.7,
                             color=st.INK if filled else st.MUTED)
     ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
     ax.set_xticks(list(pos.values()), ["whole\nscalp" if s == "wholescalp" else s.split("-")[1] for s in pos],
-                  fontsize=5.4)
+                  fontsize=6.6)
     for tick, sc in zip(ax.get_xticklabels(), pos):
         tick.set_color(REGION_COLORS[region_of(sc)])
     for region, label in REGIONS:
         xs = [x for s, x in pos.items() if s.startswith(region + "-")]
-        ax.text(np.mean(xs), -0.2, label, transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=5.4,
+        ax.text(np.mean(xs), -0.2, label, transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=6.6,
                 color=REGION_COLORS[region])
     ax.set_xlim(-0.7, pos["wholescalp"] + 0.6)
     ax.set_ylim(-0.1 * (4 if NC["suffix"] else 1), top + 0.012 * (4 if NC["suffix"] else 1))
@@ -457,17 +459,17 @@ def control_panel(ax, hyp, scopes, regime):
             ax.errorbar(x, m, yerr=[[m - lo], [hi - m]], fmt=markers[sc], ms=3, mfc=color, mec=color,
                         ecolor=color, elinewidth=0.7, capsize=0, zorder=4)
             if float(r["p_maxT"]) < .05:
-                ax.text(x, 0.105 * (4 if NC["suffix"] else 1), "*", ha="center", va="center", fontsize=6.5, color=st.INK)
+                ax.text(x, 0.105 * (4 if NC["suffix"] else 1), "*", ha="center", va="center", fontsize=7.7, color=st.INK)
     ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
-    ax.set_xticks(range(len(CONTROL_SETS)), [label for _, label in CONTROL_SETS], fontsize=5.4, rotation=30,
+    ax.set_xticks(range(len(CONTROL_SETS)), [label for _, label in CONTROL_SETS], fontsize=6.6, rotation=30,
                   ha="right", rotation_mode="anchor")
-    ax.set_xlabel("removed from the EEG and model RDMs", fontsize=5.6)
+    ax.set_xlabel("removed from the EEG and model RDMs", fontsize=6.8)
     ax.set_xlim(-0.6, len(CONTROL_SETS) - 0.4)
     ax.set_ylim(-0.03, 0.117)
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
     ax.legend(handles=[Line2D([], [], marker=markers[sc], ls="none", ms=3, mfc=color, mec=color,
                               label=scope_label(sc)) for sc in scopes],
-              loc="lower left", ncol=3, handletextpad=0.1, columnspacing=0.6, borderaxespad=0.2, fontsize=5.4)
+              loc="lower left", ncol=3, handletextpad=0.1, columnspacing=0.6, borderaxespad=0.2, fontsize=6.6)
 
 
 def regime_row(fig, gs_row, scopes, table, layout, title=None):
@@ -483,7 +485,7 @@ def regime_row(fig, gs_row, scopes, table, layout, title=None):
     axes[0].set_ylabel(YLAB())
     if title:
         fig.text(0.5 * (axes[0].get_position().x0 + axes[-1].get_position().x1), axes[0].get_position().y1 + 0.045,
-                 title, ha="center", fontsize=6.5)
+                 title, ha="center", fontsize=7.7)
     return axes
 
 
@@ -499,11 +501,11 @@ def legend_block(fig, height, ceiling=False):
     if ceiling:
         marks += [Patch(fc=st.RULE, alpha=0.45, ec="none", label="noise ceiling"),
                   Line2D([], [], color=st.MUTED, lw=0.6, ls=(0, (2, 1.5)), label="ceiling after controls")]
-    kw = dict(frameon=False, handletextpad=0.3, columnspacing=0.9, borderaxespad=0, fontsize=6, loc="lower left")
+    kw = dict(frameon=False, handletextpad=0.3, columnspacing=0.9, borderaxespad=0, fontsize=7.2, loc="lower left")
     dy = 0.16 / height
     for y, title, handles in ((2 * dy, "Training regime", regimes), (dy, "Model family", families),
                               (0.0, "Estimates", marks)):
-        fig.text(0.02, y + 0.04 / height, title, fontsize=6, fontweight="bold", va="center")
+        fig.text(0.02, y + 0.04 / height, title, fontsize=7.2, fontweight="bold", va="center")
         fig.legend(handles=handles, ncol=len(handles), bbox_to_anchor=(0.16, y), handlelength=1.4, **kw)
 
 
@@ -557,36 +559,39 @@ def main():
         partial = rows(STATS["54"] / "noise_ceilings_partial.csv")
         per_raw = rows(STATS["54"] / "rho_max_per_rdm.csv")
         per_joint = rows(STATS["54"] / "rho_max_partial_joint_per_rdm.csv")
-        fig = plt.figure(figsize=(5.5, 6.9 if args.layout == "topo" else 6.3))
-        top_a = 0.955
-        gs_a = fig.add_gridspec(1, 4, left=0.09, right=0.99, top=top_a, bottom=top_a - 0.2, wspace=0.1)
+        fig = plt.figure(figsize=(5.5, 6.7 if args.layout == "topo" else 6.1))
+        top_a = 0.95
+        gs_a = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=top_a, bottom=top_a - 0.17, wspace=0.1)
         a = [fig.add_subplot(gs_a[0, j]) for j in range(4)]
         for ax, sc in zip(a, scopes):
             paired_panel(ax, sc, variant(raw), variant(joint), None if args.nc else ceilings(sc, partial, per_raw, per_joint))
         for j, ax in enumerate(a):
-            ax.set_ylim(0, 1.05 if args.nc else 0.3)
-            sensor_inset(ax, scopes[j], layout)
+            ax.set_ylim(0, 0.7 if args.nc else 0.3)
+            if args.nc:
+                ax.set_yticks([0, 0.2, 0.4, 0.6])
+            sensor_inset(ax, scopes[j], layout, box=(-0.02, 0.86, 0.24, 0.24))   # beside the title
+            ax.title.set_position((0.6, 1.0))
             if j:
                 ax.tick_params(labelleft=False)
         a[0].set_ylabel(YLAB())
         if args.layout == "topo":
-            topo_grid(fig, (0.03, 0.2, 0.53, 0.46), topo_scalp())
-            gs = fig.add_gridspec(2, 1, left=0.69, right=0.99, top=0.64, bottom=0.2, hspace=0.62)
+            topo_grid(fig, (0.03, 0.2, 0.54, 0.47), topo_scalp())
+            gs = fig.add_gridspec(2, 1, left=0.7, right=0.97, top=0.65, bottom=0.21, hspace=0.55)
             c, d = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[1, 0])
-            fig.text(0.02, 0.655, "b", fontsize=8, fontweight="bold")
+            fig.text(0.02, 0.68, "b", fontsize=9, fontweight="bold")
         else:
-            gs_b = fig.add_gridspec(1, 2, left=0.09, right=0.52, top=0.62, bottom=0.44, wspace=0.12)
+            gs_b = fig.add_gridspec(1, 2, left=0.1, right=0.52, top=0.65, bottom=0.46, wspace=0.12)
             b1, b2 = fig.add_subplot(gs_b[0, 0]), fig.add_subplot(gs_b[0, 1])
             slope_panel(b1, "OccipitoTemporal"); slope_panel(b2, "Central")
-            b1.set_ylabel("difference − chance", fontsize=6); b2.tick_params(labelleft=False)
-            c = fig.add_subplot(fig.add_gridspec(1, 1, left=0.62, right=0.99, top=0.62, bottom=0.44)[0, 0])
-            d = fig.add_subplot(fig.add_gridspec(1, 1, left=0.09, right=0.6, top=0.34, bottom=0.17)[0, 0])
+            b1.set_ylabel("difference − chance", fontsize=7.2); b2.tick_params(labelleft=False)
+            c = fig.add_subplot(fig.add_gridspec(1, 1, left=0.63, right=0.98, top=0.65, bottom=0.46)[0, 0])
+            d = fig.add_subplot(fig.add_gridspec(1, 1, left=0.1, right=0.6, top=0.36, bottom=0.19)[0, 0])
             fig.legend(handles=b1.get_legend_handles_labels()[0], labels=b1.get_legend_handles_labels()[1],
-                       loc="center left", bbox_to_anchor=(0.66, 0.26), fontsize=5.6, handlelength=2.2, frameon=False,
-                       title="comparisons in b", title_fontsize=5.8)
+                       loc="center left", bbox_to_anchor=(0.66, 0.26), fontsize=6.8, handlelength=2.2, frameon=False,
+                       title="comparisons in b", title_fontsize=7)
             st.panel_label(b1, "b", x=-0.3)
         family_panel(c); time_panel(d)
-        c.set_ylabel("difference − chance", fontsize=6); d.set_ylabel("difference − chance", fontsize=6)
+        c.set_ylabel("difference − chance", fontsize=7.2); d.set_ylabel("difference − chance", fontsize=7.2)
         st.panel_label(a[0], "a", x=-0.42); st.panel_label(c, "c", x=-0.25)
         st.panel_label(d, "d", x=-0.25 if args.layout == "topo" else -0.1)
     elif args.layout == "occlusion_v1":
