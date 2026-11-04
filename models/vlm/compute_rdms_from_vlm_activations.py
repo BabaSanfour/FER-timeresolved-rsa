@@ -3,7 +3,8 @@
 
 Stacks the stimuli in stimulus-manifest order and writes <out-name>.npy (64, 16, n_stim, n_stim):
 vision blocks 1..27, embedding output, decoder blocks 1..36; correlation distance per layer and
-time point, as in extract_model_rdms.py.
+time point, as in extract_model_rdms.py. With --features also <out-name>.features.npy
+(n_stim, 16, hidden): the last decoder block, the linear probe's final-layer features.
 """
 import argparse
 import json
@@ -49,6 +50,7 @@ def main():
     ap.add_argument("--out-name", required=True)
     ap.add_argument("--manifest", required=True,
                     help="stimulus_manifest.json; activations are named by its 'stimulus' field")
+    ap.add_argument("--features", action="store_true", help="also save the last decoder block per stimulus")
     args = ap.parse_args()
 
     act_dir = Path(args.run_dir) / "activations"
@@ -67,6 +69,8 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     np.save(out_dir / f"{args.out_name}.npy", rdms)
+    if args.features:
+        np.save(out_dir / f"{args.out_name}.features.npy", A[:, :, -1, :].astype(np.float32))
 
     summary = {}
     sp = Path(args.run_dir) / "summary.json"

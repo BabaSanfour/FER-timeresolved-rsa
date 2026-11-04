@@ -6,7 +6,9 @@ Each of the 16 frames is the centre of a 4-frame window (frames t-1..t+2), so th
 time points; the trained pwconv (which depends on the number of windows) is tiled to fit. Only the
 backbone's convolutions and batch norms are analysed: the temporal head mixes all windows. Inputs:
 the shared frames at 112 x 112 in [0, 1], as in M3DFEL's training transform.
-Output: <out-name>.npy (n_layers, 16, n_stim, n_stim) + .layers.json + .predictions.csv.
+Output: <out-name>.npy (n_layers, 16, n_stim, n_stim) + .layers.json + .predictions.csv;
+with --features also <out-name>.features.npy (n_stim, 16, C), the last analysed layer
+(the backbone's final layer, the linear probe's features).
 """
 import argparse
 import csv
@@ -96,6 +98,8 @@ def main():
     ap.add_argument("--frames-dir", required=True, help="frames from build_stimuli_h5_16frames.py")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--out-name", required=True)
+    ap.add_argument("--features", action="store_true",
+                    help="also save the last analysed layer per stimulus and window")
     args = ap.parse_args()
 
     from models.M3DFEL import M3DFEL
@@ -206,6 +210,9 @@ def main():
 
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     np.save(out_dir / f"{args.out_name}.npy", rdms)
+    if args.features:
+        np.save(out_dir / f"{args.out_name}.features.npy",
+                np.stack([per_stim[s][order[-1]] for s in range(n_stim)], 0).astype(np.float32))
     with (out_dir / f"{args.out_name}.predictions.csv").open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["stim", "pred_idx", "pred_label"])
