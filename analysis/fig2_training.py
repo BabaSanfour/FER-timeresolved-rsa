@@ -17,9 +17,9 @@ RDMs, with the ceiling of the EEG after the same removal.
         the results). Emotion-tuned vs base model: each fine-tuned network against the network it was
         fine-tuned from
   d, e  what each control removes, under the maps of b (all models pooled) and c (strongest family):
-        rows = raw, each control removed alone, all removed (shaded); the occipito-temporal (solid) and
-        central (hatched) region means (mean over the region's ROIs), difference above chance with 95%
-        CI, * p < .05 (maxT across the four regions)
+        rows = raw, each control removed alone, all removed (shaded); bars = the three occipito-temporal
+        ROIs, the two central ROIs and the whole scalp (region colour; left solid, midline light, right
+        hatched; whole scalp grey), difference above chance with 95% CI, * p < .05 (maxT across ROIs)
 ROI labels carry the region colours of Fig. 1.
 
 Reads analysis/paper_stats_54/contrasts{,_identity,_occlusion,_pixel,_optical_flow,_motion_energy,_joint}_nc.csv and the ROIs of
@@ -202,35 +202,75 @@ def pooled_and_best(fig, box, scalp, tables):
 
 # ---------------------------------------------------------------- c: what each control removes
 
-D_REGIONS = [("OccipitoTemporal", None), ("Central", "//////")]       # solid, hatched
+D_SCOPES = ["OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "Central-L", "Central-R", "wholescalp"]
+SIDE_STYLE = {"L": (0.9, None), "M": (0.4, None), "R": (0.9, "//////")}      # alpha, hatch
 
 
-def bar_panel(ax, hyp, contrast, regime, tables, labels=False):
+def scope_style(scope):
+    """Bar colour = region (Fig. 1), fill = side: left solid, midline light, right hatched; whole scalp grey."""
+    if scope == "wholescalp":
+        return st.MUTED, 0.9, None
+    alpha, hatch = SIDE_STYLE[scope.split("-")[1]]
+    return REGION_COLORS[region_of(scope)], alpha, hatch
+
+
+def bar_panel(ax, hyp, contrast, tables, labels=False):
     """One comparison (pooled, or one family): rows = control sets (raw, each alone, all); horizontal bars =
-    the occipito-temporal (solid) and central (hatched) region means, difference above chance with 95% CI;
-    an asterisk where p < .05 (maxT across the four regions)."""
-    color = st.REGIME_COLORS[regime]
-    n = len(CONTROL_SETS)
+    the three occipito-temporal ROIs, the two central ROIs and the whole scalp (no averaging), difference
+    above chance with 95% CI; * p < .05 (maxT across the 11 ROIs; whole scalp alone)."""
+    n, nb = len(CONTROL_SETS), len(D_SCOPES)
+    step = 0.86 / nb
     for k, (name, _) in enumerate(CONTROL_SETS):
-        for j, (region, hatch) in enumerate(D_REGIONS):
+        for j, scope in enumerate(D_SCOPES):
             r = next(r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == contrast
-                     and r["scope"] == region)
+                     and r["scope"] == scope)
             m, lo, hi = float(r["corrected"]), float(r["low"]), float(r["high"])
-            y = (n - 1 - k) + (0.5 - j) * 0.4
-            ax.barh(y, m, height=0.38, fc=color if hatch is None else "white", ec=color, lw=0.5, hatch=hatch,
-                    alpha=0.85 if hatch is None else 1, zorder=2)
-            ax.plot([lo, hi], [y, y], color=st.INK2, lw=0.5, zorder=3)
-            if float(r["p_maxT"]) < .05:                       # an asterisk (no family markers in d, e)
+            y = (n - 1 - k) + 0.43 - (j + 0.5) * step
+            color, alpha, hatch = scope_style(scope)
+            ax.barh(y, m, height=step * 0.92, fc="white" if hatch else color, ec=color, lw=0.4, hatch=hatch,
+                    alpha=1 if hatch else alpha, zorder=2)
+            ax.plot([lo, hi], [y, y], color=st.INK2, lw=0.4, zorder=3)
+            if float(r["p_maxT"]) < .05:
                 ax.text(hi + 0.01 if m >= 0 else lo - 0.01, y, "*", ha="left" if m >= 0 else "right",
-                        va="center", fontsize=6.5, color=st.INK, zorder=4)
+                        va="center", fontsize=5.5, color=st.INK, zorder=4)
     ax.axvline(0, color=st.INK2, lw=0.6, zorder=1)
     ax.axhspan(-0.5, 0.5, color=st.RULE, alpha=0.35, lw=0, zorder=0)             # all removed
+    for k in range(1, n):
+        ax.axhline(k - 0.5, color=st.RULE, lw=0.4, zorder=0)
     ax.set_yticks(range(n), [lab for _, lab in CONTROL_SETS][::-1] if labels else [""] * n, fontsize=6.4)
     ax.tick_params(axis="y", length=0, pad=1.5)
     ax.tick_params(axis="x", labelsize=5.8, length=2, pad=1)
-    ax.set_ylim(-0.6, n - 0.4)
+    ax.set_ylim(-0.5, n - 0.5)
     ax.spines["left"].set_visible(False)
     ax.xaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+
+
+def grid_panel(ax, hyp, contrast, tables, labels=False):
+    """One comparison as a grid: rows = control sets, columns = the three occipito-temporal ROIs, the two
+    central ROIs and the whole scalp; colour = difference above chance (the maps' scale), dot = p < .05
+    (maxT across the 11 ROIs; whole scalp alone)."""
+    n = len(CONTROL_SETS)
+    vals = np.zeros((n, len(D_SCOPES))); sig = np.zeros_like(vals, bool)
+    for k, (name, _) in enumerate(CONTROL_SETS):
+        for j, scope in enumerate(D_SCOPES):
+            r = next(r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == contrast
+                     and r["scope"] == scope)
+            vals[k, j] = float(r["corrected"]); sig[k, j] = float(r["p_maxT"]) < .05
+    cols = [0, 1, 2, 3.6, 4.6, 6.2]                                    # gaps between OT, central, whole scalp
+    for j, x in enumerate(cols):
+        ax.imshow(vals[:, j:j + 1], cmap=DIVERGING, vmin=-VMAX, vmax=VMAX, aspect="auto", interpolation="nearest",
+                  extent=(x - 0.5, x + 0.5, n - 0.5, -0.5))
+        yy = np.nonzero(sig[:, j])[0]
+        ax.plot([x] * len(yy), yy, "o", ms=1.6, color=st.INK, mec="none")
+    ax.set_xlim(-0.5, cols[-1] + 0.5); ax.set_ylim(n - 0.5, -0.5)
+    ax.axhline(n - 1.5, color="white", lw=1.2)                         # before "all"
+    ax.set_xticks(cols, ["L", "M", "R", "L", "R", "WS"], fontsize=5.6)
+    for tick, scope in zip(ax.get_xticklabels(), D_SCOPES):
+        tick.set_color(REGION_COLORS["wholescalp" if scope == "wholescalp" else region_of(scope)])
+    ax.set_yticks(range(n), [lab for _, lab in CONTROL_SETS] if labels else [""] * n, fontsize=6.4)
+    ax.tick_params(length=0, pad=1.5)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
 
 
 def legend_block(fig, height):
@@ -240,8 +280,7 @@ def legend_block(fig, height):
     marks = [Patch(fc=st.INK2, alpha=0.3, ec="none", label="raw"),
              Patch(fc="white", ec=st.INK2, lw=0.6, label="all controls removed"),
              Line2D([], [], color=st.INK2, lw=1.1, label="chance"),
-             Line2D([], [], marker="$*$", ls="none", ms=4.5, color=st.INK,
-                    label="p < .05, corrected (dots on the maps)")]
+             Line2D([], [], marker="o", ls="none", ms=2, color=st.INK, label="p < .05, corrected")]
     kw = dict(frameon=False, handletextpad=0.3, columnspacing=0.9, borderaxespad=0, fontsize=7.2, loc="lower left")
     dy = 0.16 / height
     for y, title, handles in ((2 * dy, "Training regime", regimes), (dy, "Model family", families),
@@ -252,7 +291,7 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
-    H = 6.92
+    H = 7.75 if args.de == "bars" else 6.95
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.3), bottom=f(1.55), wspace=0.1)
@@ -265,25 +304,34 @@ def layout_best(args, tables, variant):
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
     xb, xc, hw = pooled_and_best(fig, (0.02, f(3.97), 0.97, 1.4 / H), topo_scalp(), tables)
-    top_d, bot_d = f(4.72), f(5.77)
+    top_d, bot_d = f(4.72), f(6.37) if args.de == "bars" else f(5.95)
     for xs, group, pick in ((xb, "all models (pooled)", lambda h: "pooled"), (xc, "strongest family", lambda h: BEST[h])):
         axes = []
         for j, (xx, (hyp, label, regime)) in enumerate(zip(xs, COMPARISONS)):
             ax = fig.add_axes([xx + 0.12 * hw, bot_d, hw * 0.8, top_d - bot_d])
-            bar_panel(ax, hyp, pick(hyp), regime, tables, labels=xs is xb and j == 0)
+            (grid_panel if args.de == "grid" else bar_panel)(ax, hyp, pick(hyp), tables, labels=xs is xb and j == 0)
             if xs is xc:                                            # the family shown, as under c's maps
                 ax.set_title(BEST[hyp].split()[0], fontsize=6.6, color=st.INK2, pad=2)
             axes.append(ax)
-        lo = min(ax.get_xlim()[0] for ax in axes); hi = max(ax.get_xlim()[1] for ax in axes)
-        for ax in axes:
-            ax.set_xlim(lo, hi + 0.03)
+        if args.de == "bars":
+            lo = min(ax.get_xlim()[0] for ax in axes); hi = max(ax.get_xlim()[1] for ax in axes)
+            for ax in axes:
+                ax.set_xlim(lo, hi + 0.03)
         fig.text((xs[0] + xs[-1] + hw) / 2, top_d + 0.2 / H, group, ha="center", va="bottom", fontsize=7.2)
-    fig.text((xb[0] + xc[-1] + hw) / 2, f(6.02), "difference above chance (fraction of noise ceiling)", ha="center",
-             va="center", fontsize=7)
-    fig.legend(handles=[Patch(fc=st.INK2, alpha=0.85, ec=st.INK2, label="occipito-temporal (region mean)"),
-                        Patch(fc="white", ec=st.INK2, hatch="//////", label="central (region mean)")],
-               loc="center", bbox_to_anchor=(0.55, f(6.24)), ncol=2, fontsize=6.8, handletextpad=0.4,
-               columnspacing=1.2, frameon=False)
+    if args.de == "bars":
+        fig.text((xb[0] + xc[-1] + hw) / 2, f(6.62), "difference above chance (fraction of noise ceiling)", ha="center",
+                 va="center", fontsize=7)
+    handles = []
+    for scope in D_SCOPES:
+        color, alpha, hatch = scope_style(scope)
+        handles.append(Patch(fc="white" if hatch else color, ec=color, hatch=hatch, alpha=1 if hatch else alpha,
+                             lw=0.4, label=full_label(scope).replace("\n", " ")))
+    if args.de == "bars":
+        fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.55, f(6.9)), ncol=3, fontsize=6.6,
+                   handletextpad=0.4, columnspacing=1.0, frameon=False)
+    else:
+        fig.text((xb[0] + xc[-1] + hw) / 2, f(6.17), "columns: occipito-temporal left, midline, right  |  central left, "
+                 "right  |  WS whole scalp;  colour as in b, c", ha="center", va="center", fontsize=6.4, color=st.INK2)
     for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc[0] - 0.02, 2.12), ("d", 0.01, 4.42),
                          ("e", xc[0] - 0.02, 4.42)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
@@ -296,6 +344,7 @@ def layout_best(args, tables, variant):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(STATS / "fig2_training"), help="output path without extension")
+    ap.add_argument("--de", choices=["bars", "grid"], default="grid", help="panels d-e as bars or as grids")
     args = ap.parse_args()
     st.setup()
     tables = {name: rows(name) for name, _ in CONTROL_SETS}
