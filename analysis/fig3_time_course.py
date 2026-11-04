@@ -96,6 +96,13 @@ CURVES = ["OccipitoTemporal-L", "OccipitoTemporal-R", "Central-R"]
 BIN = (2, 4)                                             # windows 125-250 ms
 
 
+def smooth(x, y, n=200):
+    """Shape-preserving cubic interpolation through the window values (display only; PCHIP does not overshoot)."""
+    from scipy.interpolate import PchipInterpolator
+    xx = np.linspace(x[0], x[-1], n)
+    return xx, PchipInterpolator(x, y)(xx)
+
+
 def curve(ax, raw, joint, hyp, regime, scope, best, top, bottom, best_joint=None):
     from fig2_training import BEST
     color = st.REGIME_COLORS[regime]
@@ -103,13 +110,15 @@ def curve(ax, raw, joint, hyp, regime, scope, best, top, bottom, best_joint=None
     t0, t1 = series(r, "window_start_ms"), series(r, "window_end_ms")
     cx = (t0 + t1) / 2
     ax.axvspan(125, 250, color=st.RULE, alpha=0.45, lw=0, zorder=0)
-    ax.fill_between(cx, series(r, "low"), series(r, "high"), color=color, alpha=0.18, lw=0)
-    ax.plot(cx, series(r, "corrected"), color=color, lw=1.0)
-    ax.plot(cx, series(j, "corrected"), color=color, lw=1.0, ls=(0, (3, 1.5)))
+    sx, lo = smooth(cx, series(r, "low")); _, hi = smooth(cx, series(r, "high"))
+    ax.fill_between(sx, lo, hi, color=color, alpha=0.18, lw=0)
+    ax.plot(*smooth(cx, series(r, "corrected")), color=color, lw=1.0)
+    ax.plot(*smooth(cx, series(j, "corrected")), color=color, lw=1.0, ls=(0, (3, 1.5)))
     if best is not None:
-        ax.plot(cx, series(best[hyp, scope], "corrected"), color=st.INK2, lw=0.6, alpha=0.8)
+        ax.plot(*smooth(cx, series(best[hyp, scope], "corrected")), color=st.INK2, lw=0.6, alpha=0.8)
     if best_joint is not None:
-        ax.plot(cx, series(best_joint[hyp, scope], "corrected"), color=st.INK2, lw=0.6, alpha=0.8, ls=(0, (3, 1.5)))
+        ax.plot(*smooth(cx, series(best_joint[hyp, scope], "corrected")), color=st.INK2, lw=0.6, alpha=0.8,
+                ls=(0, (3, 1.5)))
     for rs, lw, k in ((r, 1.8, 0), (j, 0.9, 1)):                    # significant windows, raw and controls removed
         p, m = series(rs, "p_maxT"), series(rs, "corrected")
         for sign, yb in ((1, top - k * 0.035), (-1, bottom + k * 0.035)):
