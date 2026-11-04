@@ -51,6 +51,21 @@ PANELS = [("H1 pretrained vs random", "pretrained − random", "Generic", (("poo
           ("H3 fine-tuned vs start", "emotion fine-tuned − its start", "Emotion", (("pooled", "o"),))]
 
 
+NC = {"suffix": ""}                 # "_nc": noise-ceiling-normalised tables (contrasts.py --normalize)
+
+
+def YLAB():
+    return r"$\rho_{\max}$ / noise ceiling" if NC["suffix"] else r"$\rho_{\max}$"
+
+
+def DLAB():
+    return "difference (fraction of ceiling)" if NC["suffix"] else r"difference in $\rho_{\max}$"
+
+
+def cfile(name=""):
+    return f"contrasts{'_' + name if name else ''}{NC['suffix']}.csv"
+
+
 def rows(path):
     with path.open() as fh:
         return list(csv.DictReader(fh))
@@ -140,10 +155,13 @@ def ceilings(scope, partial_rows, per_rdm_raw, per_rdm_joint):
 def paired_panel(ax, scope, raw, joint, ceiling):
     """Each regime: the raw bar (filled) and the bar after joint controls (open), family markers on
     each, chance dashes, and the noise ceilings (grey band raw, dashed after controls)."""
-    (rl, ru), (jl, ju) = ceiling
-    ax.axhspan(rl, ru, color=st.RULE, alpha=0.45, lw=0, zorder=0)
-    for y in (jl, ju):
-        ax.axhline(y, color=st.MUTED, lw=0.6, ls=(0, (2, 1.5)), zorder=0)
+    if ceiling is None:                                   # normalised values: the ceiling is 1
+        ax.axhline(1, color=st.MUTED, lw=0.6, ls=(0, (2, 1.5)), zorder=0)
+    else:
+        (rl, ru), (jl, ju) = ceiling
+        ax.axhspan(rl, ru, color=st.RULE, alpha=0.45, lw=0, zorder=0)
+        for y in (jl, ju):
+            ax.axhline(y, color=st.MUTED, lw=0.6, ls=(0, (2, 1.5)), zorder=0)
     for xi, regime in enumerate(st.REGIMES):
         c = st.REGIME_COLORS[regime]
         for table, dx, filled in ((raw, -0.2, True), (joint, 0.2, False)):
@@ -180,7 +198,7 @@ def region_panel(ax, regions):
     """The four comparisons at the region means, raw, with occlusion removed and with all controls
     removed; maxT across the four regions."""
     tables = {name: {(r["hypothesis"], r["scope"]): r
-                     for r in rows(STATS["54"] / f"contrasts{'_' + name if name else ''}.csv") if r["contrast"] == "pooled"}
+                     for r in rows(STATS["54"] / cfile(name)) if r["contrast"] == "pooled"}
               for name, _ in CONDITIONS}
     x0, ticks, labels = 0.0, [], []
     for region in regions:
@@ -197,16 +215,16 @@ def region_panel(ax, regions):
                             mfc=[color, st.blend(color, 0.45), "white"][k], mec=color, mew=0.6, ecolor=color,
                             elinewidth=0.7, capsize=0, zorder=4)
                 if float(r["p_maxT"]) < .05:
-                    ax.text(x, 0.075, "*", ha="center", va="center", fontsize=6.5, color=st.INK)
+                    ax.text(x, 0.075 * (4 if NC["suffix"] else 1), "*", ha="center", va="center", fontsize=6.5, color=st.INK)
             ticks.append(x0); labels.append(label); x0 += 1
-        ax.text((start + x0 - 1) / 2, 0.092, REGION_NAMES[region], ha="center", fontsize=6,
+        ax.text((start + x0 - 1) / 2, 0.092 * (4 if NC["suffix"] else 1), REGION_NAMES[region], ha="center", fontsize=6,
                 color=REGION_COLORS[region])
         x0 += 0.5
     ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
     ax.set_xticks(ticks, labels, fontsize=5.2)
     ax.set_xlim(-0.5, x0 - 0.9)
-    ax.set_ylim(-0.045, 0.1)
-    ax.set_ylabel(r"difference in $\rho_{\max}$")
+    ax.set_ylim(-0.045 * (4 if NC["suffix"] else 1), 0.1 * (4 if NC["suffix"] else 1))
+    ax.set_ylabel(DLAB())
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
     ax.legend(handles=[Line2D([], [], marker="o", ls="none", ms=3, mfc=f, mec=st.INK2, label=lab)
                        for f, (_, lab) in zip([st.INK2, st.blend(st.INK2, 0.45), "white"], CONDITIONS)],
@@ -237,7 +255,7 @@ def contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rn
     pos = scope_positions({sc for c, sc in pick[sets[0]] if c == series[0][0]})
     n = len(sets) * len(series)
     step = 0.34 if n == 2 else 0.3
-    top = 0.105
+    top = 0.105 * (4 if NC["suffix"] else 1)
     for sc, x in pos.items():
         if series[0][0] == "pooled" and participants is not None:
             d = np.array([float(r["difference"]) for r in participants if r["hypothesis"] == hyp and r["scope"] == sc])
@@ -267,7 +285,7 @@ def contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rn
         ax.text(np.mean(xs), -0.2, label, transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=5.4,
                 color=REGION_COLORS[region])
     ax.set_xlim(-0.7, pos["wholescalp"] + 0.6)
-    ax.set_ylim(-0.1, top + 0.012)
+    ax.set_ylim(-0.1 * (4 if NC["suffix"] else 1), top + 0.012 * (4 if NC["suffix"] else 1))
     ax.set_title(title)
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
@@ -282,7 +300,7 @@ def control_panel(ax, hyp, scopes, regime):
     color = st.REGIME_COLORS[regime]
     markers = {"OccipitoTemporal-L": "<", "OccipitoTemporal-M": "o", "OccipitoTemporal-R": ">"}
     for k, (name, label) in enumerate(CONTROL_SETS):
-        table = rows(STATS["54"] / f"contrasts{'_' + name if name else ''}.csv")
+        table = rows(STATS["54"] / cfile(name))
         for j, sc in enumerate(scopes):
             r = next(r for r in table if r["hypothesis"] == hyp and r["contrast"] == "pooled" and r["scope"] == sc)
             x = k + (j - 1) * 0.24
@@ -292,7 +310,7 @@ def control_panel(ax, hyp, scopes, regime):
             ax.errorbar(x, m, yerr=[[m - lo], [hi - m]], fmt=markers[sc], ms=3, mfc=color, mec=color,
                         ecolor=color, elinewidth=0.7, capsize=0, zorder=4)
             if float(r["p_maxT"]) < .05:
-                ax.text(x, 0.105, "*", ha="center", va="center", fontsize=6.5, color=st.INK)
+                ax.text(x, 0.105 * (4 if NC["suffix"] else 1), "*", ha="center", va="center", fontsize=6.5, color=st.INK)
     ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
     ax.set_xticks(range(len(CONTROL_SETS)), [label for _, label in CONTROL_SETS], fontsize=5.4, rotation=30,
                   ha="right", rotation_mode="anchor")
@@ -315,7 +333,7 @@ def regime_row(fig, gs_row, scopes, table, layout, title=None):
         sensor_inset(ax, scopes[j], layout)
         if j:
             ax.tick_params(labelleft=False)
-    axes[0].set_ylabel(r"$\rho_{\max}$")
+    axes[0].set_ylabel(YLAB())
     if title:
         fig.text(0.5 * (axes[0].get_position().x0 + axes[-1].get_position().x1), axes[0].get_position().y1 + 0.045,
                  title, ha="center", fontsize=6.5)
@@ -348,10 +366,13 @@ def main():
                     help="occlusion: raw and controlled OT panels, control breakdown, face per ROI; "
                          "face: raw OT panels, face and Qwen3-VL per ROI after controls")
     ap.add_argument("--out", default=None, help="output path without extension")
+    ap.add_argument("--nc", action="store_true", help="noise-ceiling-normalised values (ceiling = 1)")
     args = ap.parse_args()
+    if args.nc:
+        NC["suffix"] = "_nc"
     out = args.out or str(STATS["54"] / f"fig2_{args.layout}")
     st.setup()
-    raw, joint = rows(STATS["54"] / "contrasts.csv"), rows(STATS["54"] / "contrasts_joint.csv")
+    raw, joint = rows(STATS["54"] / cfile()), rows(STATS["54"] / cfile("joint"))
     variant = lambda t: {(r["contrast"], r["scope"]): r for r in t if r["hypothesis"] == "variant"}
     scopes = OT + ["wholescalp"]
     layout = sensor_layout()
@@ -364,13 +385,14 @@ def main():
         gs_a = fig.add_gridspec(1, 4, left=0.09, right=0.99, top=0.95, bottom=0.74, wspace=0.1)
         a = [fig.add_subplot(gs_a[0, j]) for j in range(4)]
         for ax, sc in zip(a, scopes):
-            paired_panel(ax, sc, variant(raw), variant(joint), ceilings(sc, partial, per_raw, per_joint))
+            paired_panel(ax, sc, variant(raw), variant(joint),
+                         None if args.nc else ceilings(sc, partial, per_raw, per_joint))
         for j, ax in enumerate(a):
-            ax.set_ylim(0, 0.3)
+            ax.set_ylim(0, 1.05 if args.nc else 0.3)
             sensor_inset(ax, scopes[j], layout)
             if j:
                 ax.tick_params(labelleft=False)
-        a[0].set_ylabel(r"$\rho_{\max}$")
+        a[0].set_ylabel(YLAB())
         b = fig.add_subplot(fig.add_gridspec(1, 1, left=0.09, right=0.99, top=0.62, bottom=0.46)[0, 0])
         region_panel(b, ["OccipitoTemporal", "Central"])
         gs = fig.add_gridspec(1, 2, left=0.09, right=0.99, top=0.36, bottom=0.17, wspace=0.08)
@@ -379,9 +401,9 @@ def main():
                        (("pooled", "o"),), None, ("raw", "joint"))
         contrast_panel(d, "H3 fine-tuned vs start", "emotion fine-tuned − its start", "Emotion", comparisons, None,
                        (("pooled", "o"),), None, ("raw", "joint"))
-        c.set_ylabel(r"difference in $\rho_{\max}$"); d.tick_params(labelleft=False)
+        c.set_ylabel(DLAB()); d.tick_params(labelleft=False)
         for ax in (c, d):
-            ax.set_ylim(-0.06, 0.117)
+            ax.set_ylim(-0.06 * (4 if NC["suffix"] else 1), 0.117 * (4 if NC["suffix"] else 1))
         for ax, letter, x in ((a[0], "a", -0.42), (b, "b", -0.09), (c, "c", -0.16), (d, "d", -0.05)):
             st.panel_label(ax, letter, x=x)
     elif args.layout == "occlusion_v1":
@@ -394,7 +416,7 @@ def main():
         c, d = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
         control_panel(c, "H1 pretrained vs random", OT, "Generic")
         c.set_title("pretrained − random, occipito-temporal")
-        c.set_ylabel(r"difference in $\rho_{\max}$")
+        c.set_ylabel(DLAB())
         contrast_panel(d, "H2 face vs ImageNet", "face − ImageNet pretraining", "Face", comparisons, None,
                        (("pooled", "o"),), None, ("raw", "joint"))
         d.set_ylim(-0.06, 0.117)
@@ -410,12 +432,12 @@ def main():
                        (("pooled", "o"),), None, ("raw", "joint"))
         contrast_panel(c, "H4 video vs image", "Qwen3-VL − image models", "Generic", comparisons, None,
                        (("Qwen3-VL Pretrained", "*"),), None, ("raw", "joint"))
-        b.set_ylabel(r"difference in $\rho_{\max}$"); c.tick_params(labelleft=False)
+        b.set_ylabel(DLAB()); c.tick_params(labelleft=False)
         for ax in (b, c):
-            ax.set_ylim(-0.06, 0.117)
+            ax.set_ylim(-0.06 * (4 if NC["suffix"] else 1), 0.117 * (4 if NC["suffix"] else 1))
         for ax, letter, x in ((a[0], "a", -0.38), (b, "b", -0.16), (c, "c", -0.05)):
             st.panel_label(ax, letter, x=x)
-    legend_block(fig, fig.get_figheight(), ceiling=args.layout == "occlusion")
+    legend_block(fig, fig.get_figheight(), ceiling=args.layout == "occlusion" and not args.nc)
     for ext in ("pdf", "png"):
         fig.savefig(f"{out}.{ext}")
     print(f"[ok] -> {out}.{{pdf,png}}")

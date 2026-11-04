@@ -43,7 +43,8 @@ def rows(path):
 
 
 def load(stats=STATS):
-    cells = [r for r in rows(stats / "contrasts_time.csv") if r["contrast"] == "pooled"]
+    cells = [r for r in rows(stats / "contrasts_time.csv")
+             if r["contrast"] == "pooled" and r.get("hypothesis", H1) == H1]
     joint = cells
     starts = sorted({float(r["window_start_ms"]) for r in cells})
     ends = sorted({float(r["window_end_ms"]) for r in cells})
