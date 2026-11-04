@@ -240,17 +240,18 @@ def pooled_and_best(fig, box, scalp, tables):
                     vlim=(-VMAX, VMAX), contours=0, sensors=False, extrapolate="head",
                     mask=np.array([float(t[r]["p_maxT"]) < .05 for r in roi_of]),
                     mask_params=dict(marker="o", markersize=0.9, markerfacecolor=st.INK, markeredgecolor="none"))
-    top = y0 + h + 0.004
+    H = fig.get_figheight()
+    top = y0 + h - 0.12 * rh                                        # just above the heads
+    bottom = y0 + h - 2 * rh
     for xs, group, fam in ((xb, "all models (pooled)", False), (xc, "strongest family", True)):
         for xx, (hyp, label, _) in zip(xs, COMPARISONS):
-            text = label.replace(" vs ", "\nvs ")
-            if fam:
-                text = f"{BEST[hyp].split()[0]}\n" + text
-            fig.text(xx + hw / 2, top, text, ha="center", va="bottom", fontsize=6.2, linespacing=1.0)
-        fig.text((xs[0] + xs[-1] + hw) / 2, top + 0.42 / fig.get_figheight(), group, ha="center", va="bottom",
-                 fontsize=7.2)
-    cax = fig.add_axes([xb[0] + hw, y0 + h - 2 * rh - 0.14 / fig.get_figheight(), xc[-1] - xb[0] - hw,
-                        0.05 / fig.get_figheight()])
+            fig.text(xx + hw / 2, top, label.replace(" vs ", "\nvs "), ha="center", va="bottom", fontsize=6.2,
+                     linespacing=1.0)
+            if fam:                                                 # the family shown, under its heads
+                fig.text(xx + hw / 2, bottom + 0.01 / H, BEST[hyp].split()[0], ha="center", va="top", fontsize=6.6,
+                         color=st.INK2)
+        fig.text((xs[0] + xs[-1] + hw) / 2, top + 0.24 / H, group, ha="center", va="bottom", fontsize=7.2)
+    cax = fig.add_axes([xb[0] + hw, bottom - 0.25 / H, xc[-1] - xb[0] - hw, 0.05 / H])
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
@@ -319,7 +320,7 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
-    H = 7.25
+    H = 7.1
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.3), bottom=f(1.55), wspace=0.1)
@@ -331,20 +332,20 @@ def layout_best(args, tables, variant):
         if j:
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
-    xc, _ = pooled_and_best(fig, (0.02, f(4.15), 0.97, 1.4 / H), topo_scalp(), tables)
-    top_d = f(5.02)
-    gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=top_d, bottom=f(6.02), wspace=0.12)
+    xc, _ = pooled_and_best(fig, (0.02, f(3.97), 0.97, 1.4 / H), topo_scalp(), tables)
+    top_d = f(4.88)
+    gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=top_d, bottom=f(5.88), wspace=0.12)
     ds = [fig.add_subplot(gs[0, j]) for j in range(4)]
     for j, (ax, (hyp, title, _)) in enumerate(zip(ds, COMPARISONS)):
         control_panel(ax, hyp, title.replace(" vs ", "\nvs "), tables, labels=j == 0)
     ds[0].text(-0.62, 0.5, "removed", rotation=90, transform=ds[0].transAxes, ha="center", va="center", fontsize=7,
                color=st.INK2)
-    fig.text(0.16, f(6.35), "difference above chance (fraction of noise ceiling)", ha="left", va="center", fontsize=7)
+    fig.text(0.16, f(6.21), "difference above chance (fraction of noise ceiling)", ha="left", va="center", fontsize=7)
     fig.legend(handles=[Line2D([], [], marker=m, ls="none", ms=3.2, mfc=REGION_COLORS[r], mec=REGION_COLORS[r],
                                label=f"{REGION_NAMES[r]} (region mean)") for r, m in C_REGIONS],
-               loc="center right", bbox_to_anchor=(0.99, f(6.52)), ncol=2, fontsize=6.8, handletextpad=0.2,
+               loc="center right", bbox_to_anchor=(0.99, f(6.38)), ncol=2, fontsize=6.8, handletextpad=0.2,
                columnspacing=1.0, frameon=False)
-    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc - 0.02, 2.12), ("d", 0.01, 4.55)):
+    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc - 0.02, 2.12), ("d", 0.01, 4.42)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
     legend_block(fig, H)
     for ext in ("pdf", "png"):
