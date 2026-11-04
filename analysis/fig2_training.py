@@ -19,7 +19,7 @@ RDMs, with the ceiling of the EEG after the same removal.
   d, e  what each control removes, under the maps of b (all models pooled) and c (strongest family):
         rows = raw, each control removed alone, all removed (shaded); the occipito-temporal (solid) and
         central (hatched) region means (mean over the region's ROIs), difference above chance with 95%
-        CI, dot: p < .05 (maxT across the four regions)
+        CI, * p < .05 (maxT across the four regions)
 ROI labels carry the region colours of Fig. 1.
 
 Reads analysis/paper_stats_54/contrasts{,_identity,_occlusion,_pixel,_optical_flow,_motion_energy,_joint}_nc.csv and the ROIs of
@@ -208,7 +208,7 @@ D_REGIONS = [("OccipitoTemporal", None), ("Central", "//////")]       # solid, h
 def bar_panel(ax, hyp, contrast, regime, tables, labels=False):
     """One comparison (pooled, or one family): rows = control sets (raw, each alone, all); horizontal bars =
     the occipito-temporal (solid) and central (hatched) region means, difference above chance with 95% CI;
-    a dot where p < .05 (maxT across the four regions)."""
+    an asterisk where p < .05 (maxT across the four regions)."""
     color = st.REGIME_COLORS[regime]
     n = len(CONTROL_SETS)
     for k, (name, _) in enumerate(CONTROL_SETS):
@@ -220,8 +220,9 @@ def bar_panel(ax, hyp, contrast, regime, tables, labels=False):
             ax.barh(y, m, height=0.38, fc=color if hatch is None else "white", ec=color, lw=0.5, hatch=hatch,
                     alpha=0.85 if hatch is None else 1, zorder=2)
             ax.plot([lo, hi], [y, y], color=st.INK2, lw=0.5, zorder=3)
-            if float(r["p_maxT"]) < .05:
-                ax.plot(hi + 0.025 if m >= 0 else lo - 0.025, y, "o", ms=1.6, color=st.INK, zorder=4)
+            if float(r["p_maxT"]) < .05:                       # an asterisk (no family markers in d, e)
+                ax.text(hi + 0.01 if m >= 0 else lo - 0.01, y, "*", ha="left" if m >= 0 else "right",
+                        va="center", fontsize=6.5, color=st.INK, zorder=4)
     ax.axvline(0, color=st.INK2, lw=0.6, zorder=1)
     ax.axhspan(-0.5, 0.5, color=st.RULE, alpha=0.35, lw=0, zorder=0)             # all removed
     ax.set_yticks(range(n), [lab for _, lab in CONTROL_SETS][::-1] if labels else [""] * n, fontsize=6.4)
@@ -239,7 +240,8 @@ def legend_block(fig, height):
     marks = [Patch(fc=st.INK2, alpha=0.3, ec="none", label="raw"),
              Patch(fc="white", ec=st.INK2, lw=0.6, label="all controls removed"),
              Line2D([], [], color=st.INK2, lw=1.1, label="chance"),
-             Line2D([], [], marker="o", ls="none", ms=2.2, color=st.INK, label="p < .05, corrected")]
+             Line2D([], [], marker="$*$", ls="none", ms=4.5, color=st.INK,
+                    label="p < .05, corrected (dots on the maps)")]
     kw = dict(frameon=False, handletextpad=0.3, columnspacing=0.9, borderaxespad=0, fontsize=7.2, loc="lower left")
     dy = 0.16 / height
     for y, title, handles in ((2 * dy, "Training regime", regimes), (dy, "Model family", families),
