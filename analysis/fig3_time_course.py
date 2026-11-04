@@ -32,8 +32,7 @@ SCOPES = ["OccipitoTemporal-L", "OccipitoTemporal-R", "Central-L", "Central-R"]
 # one colour per comparison (validated as a set, all pairs, light surface); line style as a second cue
 COLORS = {"H1 pretrained vs random": "#e87ba4", "H5 face vs random": "#2a78d6", "H2 face vs ImageNet": "#d3891a",
           "H4 video vs image": "#5a3d9a", "H3 fine-tuned vs start": "#008300"}
-LINE_STYLE = {"H1 pretrained vs random": "-", "H5 face vs random": "-", "H2 face vs ImageNet": (0, (3, 1.5)),
-              "H4 video vs image": (0, (3, 1.5)), "H3 fine-tuned vs start": "-"}
+LINE_STYLE = {h: "-" for h in COLORS}                  # solid lines; colour alone identifies the comparison
 WINDOW = 3                                             # 187.5-250 ms
 N_SHOWN = 8                                            # windows up to 500 ms
 VMAX = 0.2
@@ -76,7 +75,6 @@ def time_panel(ax, t, scope, contrasts, top, bottom):
         yb = top - k * (top - bottom) * 0.045
         for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
             ax.plot([t0[a], t1[b - 1]], [yb, yb], color=color, lw=1.6, solid_capstyle="butt")
-    ax.axvspan(187.5, 250, color=st.RULE, alpha=0.4, lw=0, zorder=0)
     ax.axhline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2)))
     ax.set_xlim(0, 500); ax.set_xticks([0, 100, 200, 300, 400, 500], ["0", "", "200", "", "400", ""])
     ax.set_ylim(bottom, top + (top - bottom) * 0.04)
@@ -110,9 +108,10 @@ def main():
     fig = plt.figure(figsize=(5.5, H))
     tops = (0.5, 2.15)
     for i, (rname, contrasts) in enumerate(rows):
-        vals = [v for sc in SCOPES for (h, _, _), c in zip(COMPARISONS, contrasts) for k in ("low", "high")
-                for v in series(t[h, c, sc][:N_SHOWN], k)]
-        top, bottom = max(vals) + 0.22, min(vals) - 0.03
+        means = [v for sc in SCOPES for (h, _, _), c in zip(COMPARISONS, contrasts)
+                 for v in series(t[h, c, sc][:N_SHOWN], "corrected")]
+        span = max(means) - min(means)
+        top, bottom = max(means) + 0.4 * span, min(means) - 0.15 * span   # bars just above the highest curve
         gs = fig.add_gridspec(1, 4, left=0.11, right=0.99, top=f(tops[i]), bottom=f(tops[i] + 1.2), wspace=0.1)
         for j, sc in enumerate(SCOPES):
             ax = fig.add_subplot(gs[0, j])
