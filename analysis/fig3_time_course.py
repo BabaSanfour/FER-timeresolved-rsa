@@ -26,7 +26,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 
 import figure_style as st
-from fig2_training import DIVERGING, REGION_COLORS, STATS, region_of, topo_scalp
+from fig2_training import DIVERGING, REGION_COLORS, STATS, full_label, region_of, topo_scalp
 
 ROWS = ["Frontal-L", "Frontal-M", "Frontal-R", "Central-L", "Central-R", "CentroParietal-L", "CentroParietal-M",
         "CentroParietal-R", "OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "wholescalp"]
@@ -92,73 +92,111 @@ def head(ax, table, hyp, scalp):
     return im
 
 
+CURVES = ["OccipitoTemporal-L", "OccipitoTemporal-R", "Central-R"]
+BIN = (2, 4)                                             # windows 125-250 ms
+
+
+def curve(ax, raw, joint, hyp, regime, scope, best, top, bottom):
+    from fig2_training import BEST
+    color = st.REGIME_COLORS[regime]
+    r, j = raw[hyp, scope], joint[hyp, scope]
+    t0, t1 = series(r, "window_start_ms"), series(r, "window_end_ms")
+    cx = (t0 + t1) / 2
+    ax.axvspan(125, 250, color=st.RULE, alpha=0.45, lw=0, zorder=0)
+    ax.fill_between(cx, series(r, "low"), series(r, "high"), color=color, alpha=0.18, lw=0)
+    ax.plot(cx, series(r, "corrected"), color=color, lw=1.0)
+    ax.plot(cx, series(j, "corrected"), color=color, lw=1.0, ls=(0, (3, 1.5)))
+    if best is not None:
+        ax.plot(cx, series(best[hyp, scope], "corrected"), color=st.INK2, lw=0.6, alpha=0.8)
+    for rs, lw, k in ((r, 1.8, 0), (j, 0.9, 1)):                    # significant windows, raw and controls removed
+        p, m = series(rs, "p_maxT"), series(rs, "corrected")
+        for sign, yb in ((1, top - k * 0.035), (-1, bottom + k * 0.035)):
+            sig = (p < .05) & (np.sign(m) == sign)
+            for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
+                ax.plot([t0[a], t1[b - 1]], [yb, yb], color=color, lw=lw, solid_capstyle="butt")
+    ax.axhline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2)))
+    ax.set_xlim(0, 800); ax.set_xticks([0, 200, 400, 600, 800], ["0", "", "400", "", "800"])
+    ax.set_ylim(bottom - 0.02, top + 0.02)
+    ax.tick_params(labelsize=5.8, length=2, pad=1)
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+
+
+def bin_head(ax, table, hyp, scalp):
+    import mne
+    info, roi_of = scalp
+    a, b = BIN
+    vals = np.array([np.mean(series(table[hyp, r][a:b], "corrected")) for r in roi_of])
+    sig = np.array([bool(np.any(series(table[hyp, r][a:b], "p_maxT") < .05)) for r in roi_of])
+    im, _ = mne.viz.plot_topomap(vals, info, axes=ax, show=False, cmap=DIVERGING, vlim=(-VMAX, VMAX), contours=0,
+                                 sensors=False, extrapolate="head", mask=sig,
+                                 mask_params=dict(marker="o", markersize=1.0, markerfacecolor=st.INK,
+                                                  markeredgecolor="none"))
+    return im
+
+
+def load_family():
+    from fig2_training import BEST
+    out = {}
+    with (STATS / "contrasts_time_nc.csv").open() as fh:
+        for r in csv.DictReader(fh):
+            if r["contrast"] == BEST.get(r["hypothesis"]):
+                out.setdefault((r["hypothesis"], r["scope"]), []).append(r)
+    for rs in out.values():
+        rs.sort(key=lambda r: float(r["window_start_ms"]))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(STATS / "fig3_time_course"), help="output path without extension")
     args = ap.parse_args()
     st.setup()
-    raw, joint = load(""), load("joint")
-    H = 5.9
+    raw, joint, best = load(""), load("joint"), load_family()
+    scalp = topo_scalp()
+    H = 4.9
     f = lambda inch: 1 - inch / H
     fig = plt.figure(figsize=(5.5, H))
-    scalp = topo_scalp()
-    row_h, gap = 1.12, 0.13
-    xg = [0.17, 0.42]                                    # grid columns (raw, controls removed)
-    gw = 0.23
-    hw = 0.16                                            # head width (figure fraction)
-    xh = [0.69, 0.84]
+    row_h, gap, top0 = 1.05, 0.2, 0.5
+    xc = [0.13, 0.31, 0.49]; cw = 0.16                     # curve panels
+    hw = 0.15; xh = [0.69, 0.845]                           # heads
     for i, (hyp, name, regime) in enumerate(COMPARISONS):
-        top = 0.55 + i * (row_h + gap)
-        y0, h = f(top + row_h), row_h / H
-        fig.text(0.055, y0 + h / 2, name, ha="center", va="center", fontsize=6.8, color=st.REGIME_COLORS[regime],
-                 linespacing=1.0, rotation=90)
-        for j, t in enumerate((raw, joint)):
-            ax = fig.add_axes([xg[j], y0, gw, h])
-            grid(ax, t, hyp, labels=j == 0)
-            if i == len(COMPARISONS) - 1:
-                ax.set_xlabel("time from onset (ms)", fontsize=6.4, labelpad=1)
-            else:
+        y0 = f(top0 + i * (row_h + gap) + row_h); h = row_h / H
+        vals = [v for sc in CURVES for t in (raw, joint, best) for k in ("corrected",) + (("low", "high") if t is raw else ())
+                for v in series(t[hyp, sc], k)]
+        top, bottom = max(vals) + 0.06, min(vals) - 0.06
+        for j, sc in enumerate(CURVES):
+            ax = fig.add_axes([xc[j], y0, cw, h])
+            curve(ax, raw, joint, hyp, regime, sc, best, top, bottom)
+            if j:
+                ax.tick_params(labelleft=False)
+            if i < len(COMPARISONS) - 1:
                 ax.tick_params(labelbottom=False)
-            hh = hw * 5.5 / H
+            if i == 0:
+                ax.set_title(full_label(sc), fontsize=6.6, pad=3, linespacing=1.0, color=REGION_COLORS[region_of(sc)])
+        fig.text(0.035, y0 + h / 2, name, ha="center", va="center", rotation=90, fontsize=6.8,
+                 color=st.REGIME_COLORS[regime], linespacing=1.0)
+        hh = hw * 5.5 / H
+        for j, t in enumerate((raw, joint)):
             axh = fig.add_axes([xh[j], y0 + (h - hh) / 2, hw, hh])
-            im = head(axh, t, hyp, scalp)
-    for j, lab in enumerate(("raw", "controls removed")):
-        fig.text(xg[j] + gw / 2, f(0.5), lab, ha="center", va="bottom", fontsize=6.8, color=st.INK2)
-        fig.text(xh[j] + hw / 2, f(0.5), lab, ha="center", va="bottom", fontsize=6.8, color=st.INK2)
-    fig.text(xh[0] + hw, f(0.3), "187–250 ms", ha="center", va="bottom", fontsize=7.2)
-    fig.text(xg[0] + gw + 0.01, f(0.3), "11 ROIs and whole scalp × 13 windows", ha="center", va="bottom", fontsize=7.2)
-    cax = fig.add_axes([0.69, f(4.42), 0.3, 0.06 / H])
+            im = bin_head(axh, t, hyp, scalp)
+            if i == 0:
+                axh.set_title(("raw", "controls\nremoved")[j], fontsize=6.6, pad=2, color=st.INK2, linespacing=1.0)
+    fig.text(0.37, f(top0 + 3 * row_h + 2 * gap + 0.3), "time from onset (ms)", ha="center", fontsize=6.8)
+    fig.text(xh[0] + hw, f(0.08), "125–250 ms", ha="center", va="top", fontsize=7)
+    cax = fig.add_axes([xh[0] + 0.01, f(top0 + 3 * row_h + 2 * gap + 0.12), 2 * hw - 0.01, 0.05 / H])
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=5.8, width=0.4, length=2); cb.outline.set_linewidth(0.4)
     cb.set_label("difference above chance\n(fraction of noise ceiling)", fontsize=6.2, linespacing=1.0)
-    # c: the focus ROI after the controls
-    c = fig.add_axes([0.17, f(5.55), 0.48, 0.95 / H])
-    for k, (hyp, name, regime) in enumerate(COMPARISONS):
-        rs = joint[hyp, FOCUS]
-        color = st.REGIME_COLORS[regime]
-        t0, t1 = series(rs, "window_start_ms"), series(rs, "window_end_ms")
-        cx = (t0 + t1) / 2
-        c.fill_between(cx, series(rs, "low"), series(rs, "high"), color=color, alpha=0.15, lw=0)
-        c.plot(cx, series(rs, "corrected"), color=color, lw=1.0)
-        p, m = series(rs, "p_maxT"), series(rs, "corrected")
-        for sign, yb in ((1, 0.34 - k * 0.035), (-1, -0.27 + k * 0.035)):   # above / below chance
-            sig = (p < .05) & (np.sign(m) == sign)
-            for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
-                c.plot([t0[a], t1[b - 1]], [yb, yb], color=color, lw=1.8, solid_capstyle="butt")
-    c.axvspan(187.5, 250, color=st.RULE, alpha=0.4, lw=0, zorder=0)
-    c.axhline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2)))
-    c.set_xlim(0, 800); c.set_ylim(-0.3, 0.37)
-    c.set_xlabel("time from onset (ms)", fontsize=6.6)
-    c.set_ylabel("above chance\n(fraction of ceiling)", fontsize=6.4)
-    c.set_title("occipito-temporal left, controls removed", fontsize=6.8, pad=2, color=REGION_COLORS["OccipitoTemporal"])
-    c.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
-    fig.legend(handles=[Line2D([], [], color=st.REGIME_COLORS[r], lw=1.2, label=n.replace("\n", " "))
-                        for _, n, r in COMPARISONS] +
-               [Line2D([], [], color=st.INK2, lw=1.8, label="p < .05, corrected")],
-               loc="center left", bbox_to_anchor=(0.69, f(5.05)), fontsize=6.4, frameon=False, handlelength=1.6)
-    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.66, 0.05), ("c", 0.01, 4.45)):
-        fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")
+    handles = [Line2D([], [], color=st.INK2, lw=1.0, label="pooled, raw (95% CI)"),
+               Line2D([], [], color=st.INK2, lw=1.0, ls=(0, (3, 1.5)), label="pooled, controls removed"),
+               Line2D([], [], color=st.INK2, lw=0.6, alpha=0.8, label="strongest family (Fig. 2c)"),
+               Line2D([], [], color=st.INK2, lw=1.8, label="p < .05, raw"),
+               Line2D([], [], color=st.INK2, lw=0.9, label="p < .05, controls removed")]
+    fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.38, f(H - 0.25)), ncol=2, fontsize=6.2, frameon=False,
+               handlelength=1.8, columnspacing=1.0)
+    fig.text(0.01, f(0.05), "a", fontsize=9, fontweight="bold", va="top")
+    fig.text(0.66, f(0.05), "b", fontsize=9, fontweight="bold", va="top")
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")
