@@ -41,7 +41,8 @@ its 13 windows).
 subset) against the random FaceNet and against the full pool, same procedure and output
 columns (the full-pool rows repeat H1 FaceNet).
 
-Output: analysis/paper_stats[_54]/contrasts[_<set>].csv and contrasts_time[_<set>].csv
+Output: analysis/paper_stats[_54]/contrasts[_<set>].csv, contrasts_time[_<set>].csv and
+contrasts_participants[_<set>].csv (each participant's pooled difference per scope, minus the null mean)
 (--sizes: contrasts_sizes[_<set>].csv)
 """
 import argparse
@@ -248,7 +249,7 @@ def main():
     null = permutation_nulls(s, tags, hyp, W, args.partial)
     rng = np.random.default_rng(SEED)
     n_pairs = {h: len(items) for h, items in hyp.items()}
-    rows, time_rows = [], []
+    rows, time_rows, participant_rows = [], [], []
     for key, value in obs.items():
         r = tests(value, null[key], rng)
         if key[0] == "time":
@@ -260,6 +261,11 @@ def main():
                                          (int(v[oi, wi]) if k == "n_above" else float(v[oi, wi])) for k, v in r.items()}})
             continue
         h, label = (key, "pooled") if isinstance(key, str) else key
+        if label == "pooled":
+            centre = null[key].mean(0)
+            for oi, sc in enumerate(scopes):
+                for pi, v in enumerate(value[:, oi] - centre[oi]):
+                    participant_rows.append({"hypothesis": h, "scope": sc, "participant": pi, "difference": round(float(v), 5)})
         for oi, sc in enumerate(scopes):
             rows.append({"hypothesis": h, "contrast": label, "n_pairs": n_pairs[h] if label == "pooled" else "",
                          "scope": sc, "n": len(value),
@@ -271,7 +277,8 @@ def main():
     suffix = ("_sizes" if args.sizes else "") + (f"_{args.partial}" if args.partial else "")
     out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
     out.mkdir(parents=True, exist_ok=True)
-    for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows)):
+    for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows),
+                        (f"contrasts_participants{suffix}.csv", participant_rows)):
         if not table:
             continue
         fields = list(dict.fromkeys(k for r in table for k in r))
