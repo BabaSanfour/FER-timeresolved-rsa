@@ -20,6 +20,7 @@ analysis/paper_stats_54/fig2_training.{pdf,png}.
 """
 import argparse
 import csv
+import json
 
 import matplotlib
 matplotlib.use("Agg")
@@ -51,6 +52,36 @@ PANELS = [("H1 pretrained vs random", "pretrained − random", "Generic", (("poo
 def rows(path):
     with path.open() as fh:
         return list(csv.DictReader(fh))
+
+
+ROI_CHANNELS = json.loads((rsa_core.ROOT / "eeg_rdms/meta.json").read_text())["roi_channels"]
+
+
+def sensor_layout():
+    """2-D positions of the 64 electrodes (MNE topomap projection) and the head radius."""
+    import mne
+    from mne.channels.layout import _find_topomap_coords
+    montage = mne.channels.make_standard_montage("biosemi64")
+    info = mne.create_info(montage.ch_names, 256.0, "eeg")
+    info.set_montage(montage)
+    xy = np.array(_find_topomap_coords(info, picks=list(range(64))))
+    return dict(zip(montage.ch_names, xy)), np.linalg.norm(xy, axis=1).max() * 1.08
+
+
+def sensor_inset(ax, scope, layout):
+    """A small head in the panel's upper left with the scope's electrodes in its region colour."""
+    pos, radius = layout
+    chans = set(pos) if scope == "wholescalp" else set(ROI_CHANNELS[scope])
+    color = REGION_COLORS[region_of(scope)] if scope != "wholescalp" else st.INK2
+    ins = ax.inset_axes([0.0, 0.7, 0.3, 0.3])
+    t = np.linspace(0, 2 * np.pi, 100)
+    ins.plot(radius * np.cos(t), radius * np.sin(t), color=st.INK2, lw=0.4)
+    ins.plot([-0.12 * radius, 0, 0.12 * radius], [0.99 * radius, 1.15 * radius, 0.99 * radius], color=st.INK2, lw=0.4)
+    for ch, (x, y) in pos.items():
+        on = ch in chans
+        ins.plot(x, y, "o", ms=1.3 if on else 0.7, mfc=color if on else st.RULE, mec="none")
+    ins.set_xlim(-1.2 * radius, 1.2 * radius); ins.set_ylim(-1.15 * radius, 1.25 * radius)
+    ins.set_aspect("equal"); ins.axis("off")
 
 
 def region_of(scope):
@@ -182,8 +213,10 @@ def main():
         for j, scope in enumerate(row):
             variant_panel(axes_a[i, j], scope, table)
     lo = min(ax.get_ylim()[0] for ax in axes_a.flat); hi = max(ax.get_ylim()[1] for ax in axes_a.flat)
+    layout = sensor_layout()
     for i, j in np.ndindex(axes_a.shape):
-        axes_a[i, j].set_ylim(lo, hi)
+        axes_a[i, j].set_ylim(0, hi * 1.2)
+        sensor_inset(axes_a[i, j], GRID[i][j], layout)
         if j:
             axes_a[i, j].tick_params(labelleft=False)
     fig.text(0.015, 0.81, r"$\rho_{\max}$", rotation=90, va="center", fontsize=6.5)
