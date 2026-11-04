@@ -12,9 +12,11 @@ mean +/- SD over its RDMs. Its p comes from 200 permutations of the emotion
 labels within each actor (the same for every RDM of a variant), which keep every
 training fold balanced, so the null is centred on chance (1/3); a permutation over
 all videos would unbalance the folds and push the null below chance. Across the
-21 variants, the Spearman
-correlation between probe accuracy and rho_max (ROI average, emotion average,
-maxr_table.py) tests whether task performance tracks EEG alignment.
+variants (all 21, and the 15 trained ones), the Spearman correlation between probe
+accuracy and rho_max above its own chance level (excess over the permutation null,
+ROI and emotion average; rho_max_null.py, run first) tests whether task performance
+tracks EEG alignment. Raw rho_max is not used: its chance level grows with the number
+of layers, which differs across families.
 
 Outputs: analysis/paper_stats[_54]/probe.csv (per variant), probe_per_rdm.csv,
 probe_vs_alignment.csv
@@ -101,9 +103,8 @@ def main():
         print(f"  {family:9s} {variant:13s} n={len(tags):2d} accuracy {a.mean():.3f} "
               f"(null {null.mean():.3f}, 95% {np.percentile(null, 95):.3f}, p {rows[-1]['p']:.3f})", flush=True)
 
-    with (out / "rho_max.csv").open() as fh:
-        rho = {(r["family"], r["variant"]): float(r["max_r"]) for r in csv.DictReader(fh)
-               if r["group"] == "main" and r["roi"] == rsa_core.ROI_AVG and r["emotion"] == rsa_core.EMO_AVG}
+    with (out / "rho_max_null.csv").open() as fh:
+        rho = {(r["family"], r["variant"]): float(r["excess"]) for r in csv.DictReader(fh) if r["group"] == "main"}
     acc = [r["accuracy"] for r in rows]
     al = [rho[r["family"], r["variant"]] for r in rows]
     trained = [i for i, r in enumerate(rows) if r["variant"] != "Random"]
@@ -111,7 +112,7 @@ def main():
     for label, idx in (("all variants", range(len(rows))), ("trained variants", trained)):
         r_s, p = spearmanr([acc[i] for i in idx], [al[i] for i in idx])
         relation.append({"variants": label, "n": len(idx), "spearman_r": round(float(r_s), 3), "p": round(float(p), 4)})
-        print(f"[accuracy vs rho_max] {label}: Spearman r = {r_s:.3f} (n = {len(idx)}, p = {p:.4f})")
+        print(f"[accuracy vs rho_max above chance] {label}: Spearman r = {r_s:.3f} (n = {len(idx)}, p = {p:.4f})")
     for name, table in (("probe.csv", rows), ("probe_per_rdm.csv", per_rdm), ("probe_vs_alignment.csv", relation)):
         with (out / name).open("w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=list(table[0])); w.writeheader(); w.writerows(table)
