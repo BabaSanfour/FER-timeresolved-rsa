@@ -11,12 +11,24 @@ one actor out, 6 folds). Accuracy is over all videos; a variant's value is the
 mean +/- SD over its RDMs. Its p comes from 200 permutations of the emotion
 labels within each actor (the same for every RDM of a variant), which keep every
 training fold balanced, so the null is centred on chance (1/3); a permutation over
-all videos would unbalance the folds and push the null below chance. Across the
-variants (all 21, and the 15 trained ones), the Spearman correlation between probe
-accuracy and rho_max above its own chance level (excess over the permutation null,
-ROI and emotion average; rho_max_null.py, run first) tests whether task performance
-tracks EEG alignment. Raw rho_max is not used: its chance level grows with the number
-of layers, which differs across families.
+all videos would unbalance the folds and push the null below chance. The FaceNet
+size-curve and step-matched models are probed too (accuracy only, no null).
+
+Does task performance follow EEG alignment? Alignment is each RDM's rho_max (ROI and
+emotion average, maxr_table.py), or rho_max above its chance level (rho_max_null.py)
+when variants of different architectures are compared. Each test is a linear mixed
+model on standardised variables, alignment ~ accuracy with a random intercept per group
+(statsmodels MixedLM, Wald p for the slope), with a permutation test of the Spearman
+correlation as a check (accuracy permuted across units, or within groups after
+centring both variables on the group mean):
+  size curve   the 70 FaceNets trained on 10k to 500k images and on the full pool (one
+               architecture, graded training), accuracy = emotion probe or face-identity
+               validation accuracy (identity_accuracy.py); groups = training run (the
+               seven sizes of a run share its seed); also within size (groups = size)
+  runs         the ten seeds or training runs of each variant (same architecture and
+               recipe); groups = variant
+  variants     across the 21 variants (and the 15 trained ones), on rho_max above chance:
+               descriptive, since the variants differ in architecture and training at once
 
 Outputs: analysis/paper_stats[_54]/probe.csv (per variant), probe_per_rdm.csv,
 probe_vs_alignment.csv
@@ -35,6 +47,7 @@ import rsa_core
 import variants
 
 N_NULL = 200
+N_PERM_RELATION = 10000
 SEED = 42
 
 
@@ -71,6 +84,38 @@ def within_actor_permutations(actor, rng, n):
     return perms
 
 
+def mixed(acc, align, groups):
+    """Standardised slope of alignment ~ accuracy with a random intercept per group, and its Wald p."""
+    import pandas as pd
+    import statsmodels.formula.api as smf
+    z = lambda v: (np.asarray(v, float) - np.mean(v)) / np.std(v)
+    d = pd.DataFrame({"y": z(align), "x": z(acc), "g": np.asarray(groups)})
+    fit = smf.mixedlm("y ~ x", d, groups=d["g"]).fit(reml=True)
+    return float(fit.params["x"]), float(fit.pvalues["x"])
+
+
+def relation(acc, align, groups=None, rng=None):
+    """Spearman r between accuracy and alignment, with a permutation p; with groups, both are
+    centred within groups and accuracy is permuted within groups."""
+    acc, align = np.asarray(acc, float), np.asarray(align, float)
+    if groups is not None:
+        groups = np.asarray(groups)
+        for g in np.unique(groups):
+            i = groups == g
+            acc[i] -= acc[i].mean(); align[i] -= align[i].mean()
+    r = spearmanr(acc, align)[0]
+    null = np.empty(N_PERM_RELATION)
+    for k in range(N_PERM_RELATION):
+        a = acc.copy()
+        if groups is None:
+            a = rng.permutation(a)
+        else:
+            for g in np.unique(groups):
+                i = np.flatnonzero(groups == g); a[i] = a[rng.permutation(i)]
+        null[k] = spearmanr(a, align)[0]
+    return float(r), float((1 + np.sum(np.abs(null) >= abs(r))) / (N_PERM_RELATION + 1))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
@@ -86,7 +131,10 @@ def main():
 
     perms = within_actor_permutations(actor, np.random.default_rng(SEED), N_NULL)
     main_rows = [(f, v, t) for g, f, v, t in variants.variants(s) if g == "main"]
+    size_rows = [(g, f, v, t) for g, f, v, t in variants.variants(s) if g in ("size", "step")
+                 and all((folder / tag / f"{tag}.features.npy").exists() for tag in t)]
     jobs = [(folder / tag / f"{tag}.features.npy", emotion, actor, perms) for *_, tags in main_rows for tag in tags]
+    jobs += [(folder / tag / f"{tag}.features.npy", emotion, actor, []) for *_, tags in size_rows for tag in tags]
     with ProcessPoolExecutor(args.jobs) as pool:
         results = iter(list(pool.map(rdm_accuracies, jobs)))
     rows, per_rdm = [], []
@@ -94,7 +142,7 @@ def main():
         res = [next(results) for _ in tags]
         a = np.array([r[0] for r in res]); null = np.mean([r[1] for r in res], axis=0)
         for tag, r in zip(tags, res):
-            per_rdm.append({"family": family, "variant": variant, "rdm": tag, "accuracy": round(r[0], 4)})
+            per_rdm.append({"group": "main", "family": family, "variant": variant, "rdm": tag, "accuracy": round(r[0], 4)})
         rows.append({"family": family, "variant": variant, "n": len(tags), "accuracy": round(float(a.mean()), 4),
                      "sd": round(float(a.std(ddof=1)), 4) if len(a) > 1 else "",
                      "min": round(float(a.min()), 4), "max": round(float(a.max()), 4),
@@ -103,17 +151,59 @@ def main():
         print(f"  {family:9s} {variant:13s} n={len(tags):2d} accuracy {a.mean():.3f} "
               f"(null {null.mean():.3f}, 95% {np.percentile(null, 95):.3f}, p {rows[-1]['p']:.3f})", flush=True)
 
+    for group, family, variant, tags in size_rows:
+        for tag in tags:
+            per_rdm.append({"group": group, "family": family, "variant": variant, "rdm": tag,
+                            "accuracy": round(next(results)[0], 4)})
+
+    rng = np.random.default_rng(SEED)
+    relations = []
+
+    def add(test, units, accuracy_kind, alignment_kind, n, r, p, groups="", beta=None, p_mixed=None):
+        relations.append({"test": test, "units": units, "accuracy": accuracy_kind, "alignment": alignment_kind,
+                          "n": n, "groups": groups, "beta_mixed": "" if beta is None else round(beta, 3),
+                          "p_mixed": "" if p_mixed is None else round(p_mixed, 4),
+                          "spearman_r": round(r, 3), "p_permutation": round(p, 4)})
+        m = "" if beta is None else f"mixed beta = {beta:+.3f}, p = {p_mixed:.4f}; "
+        print(f"[{test}] {units}, {accuracy_kind} accuracy vs {alignment_kind} (n = {n}{', ' + groups if groups else ''}): "
+              f"{m}Spearman r = {r:+.3f}, p = {p:.4f}", flush=True)
+
+    with (out / "rho_max_per_rdm.csv").open() as fh:
+        align = {r["rdm"]: float(r["max_r"]) for r in csv.DictReader(fh)
+                 if r["roi"] == rsa_core.ROI_AVG and r["emotion"] == rsa_core.EMO_AVG}
+    probe_acc = {r["rdm"]: r["accuracy"] for r in per_rdm}
+    ident_path = rsa_core.ROOT / "analysis/identity_accuracy.csv"
+    ident = {r["rdm"]: float(r["accuracy"]) for r in csv.DictReader(ident_path.open())} if ident_path.exists() else {}
+
+    # size curve: the FaceNets of the size curve and the full pool (one architecture)
+    curve = [(size, t) for g, f, size, tags in size_rows if g == "size" for t in tags]
+    curve += [("full", t) for f, v, tags in main_rows if (f, v) == ("FaceNet", "VGGFace2") for t in tags]
+    for kind, source in (("emotion probe", probe_acc), ("face identity", ident)):
+        units = [(size, t) for size, t in curve if t in source and t in align]
+        if len(units) < 10:
+            continue
+        a = [source[t] for _, t in units]; al = [align[t] for _, t in units]
+        run = [t.rsplit("_r", 1)[1] for _, t in units]; size = [g for g, _ in units]
+        add("size curve", "FaceNet size-curve models", kind, "rho_max", len(units), *relation(a, al, rng=rng),
+            groups=f"{len(set(run))} runs", **dict(zip(("beta", "p_mixed"), mixed(a, al, run))))
+        add("size curve, within size", "FaceNet size-curve models", kind, "rho_max", len(units),
+            *relation(a, al, size, rng), groups=f"{len(set(size))} sizes", **dict(zip(("beta", "p_mixed"), mixed(a, al, size))))
+
+    # runs: the ten seeds or training runs of each variant
+    units = [(f"{f} {v}", t) for f, v, tags in main_rows if len(tags) == 10 for t in tags]
+    a = [probe_acc[t] for _, t in units]; al = [align[t] for _, t in units]; g = [v for v, _ in units]
+    add("runs, within variant", "seeds and training runs", "emotion probe", "rho_max", len(units),
+        *relation(a, al, g, rng), groups=f"{len(set(g))} variants", **dict(zip(("beta", "p_mixed"), mixed(a, al, g))))
+
+    # variants: descriptive, on rho_max above chance
     with (out / "rho_max_null.csv").open() as fh:
-        rho = {(r["family"], r["variant"]): float(r["excess"]) for r in csv.DictReader(fh) if r["group"] == "main"}
-    acc = [r["accuracy"] for r in rows]
-    al = [rho[r["family"], r["variant"]] for r in rows]
-    trained = [i for i, r in enumerate(rows) if r["variant"] != "Random"]
-    relation = []
-    for label, idx in (("all variants", range(len(rows))), ("trained variants", trained)):
-        r_s, p = spearmanr([acc[i] for i in idx], [al[i] for i in idx])
-        relation.append({"variants": label, "n": len(idx), "spearman_r": round(float(r_s), 3), "p": round(float(p), 4)})
-        print(f"[accuracy vs rho_max above chance] {label}: Spearman r = {r_s:.3f} (n = {len(idx)}, p = {p:.4f})")
-    for name, table in (("probe.csv", rows), ("probe_per_rdm.csv", per_rdm), ("probe_vs_alignment.csv", relation)):
+        excess = {(r["family"], r["variant"]): float(r["excess"]) for r in csv.DictReader(fh) if r["group"] == "main"}
+    trained = [r for r in rows if r["variant"] != "Random"]
+    for label, sel in (("all variants", rows), ("trained variants", trained)):
+        r_s, p = spearmanr([r["accuracy"] for r in sel], [excess[r["family"], r["variant"]] for r in sel])
+        add("variants (descriptive)", label, "emotion probe", "rho_max above chance", len(sel), float(r_s), float(p))
+    relation_rows = relations
+    for name, table in (("probe.csv", rows), ("probe_per_rdm.csv", per_rdm), ("probe_vs_alignment.csv", relation_rows)):
         with (out / name).open("w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=list(table[0])); w.writeheader(); w.writerows(table)
     print(f"[ok] -> {out}/probe.csv, probe_per_rdm.csv, probe_vs_alignment.csv")
