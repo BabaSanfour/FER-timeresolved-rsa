@@ -12,10 +12,11 @@ RDMs, with the ceiling of the EEG after the same removal.
         raw (filled bar and markers) and after controls (open), one marker per family; bars are the
         mean over families, dashes their chance level; a sensor map in each panel
   b     the four comparisons in the 11 ROIs, raw and with all controls removed: the difference
-        above chance per ROI, dots on ROIs with p < .05 (maxT across ROIs)
-  c     what each control removes: the four comparisons at the occipito-temporal and central region
-        means (mean over the region's ROIs), raw, with each control removed alone and with all
-        removed; difference above chance with 95% CI, filled where p < .05 (maxT across the four regions)
+        above chance per ROI, dots on ROIs with p < .05 (maxT across ROIs). Emotion-tuned vs base
+        model: each fine-tuned network against the network it was fine-tuned from
+  c     what each control removes, one panel per comparison: raw, each control removed alone and all
+        removed (shaded), at the occipito-temporal and central region means (mean over the region's
+        ROIs); difference above chance with 95% CI, filled where p < .05 (maxT across the four regions)
 ROI labels carry the region colours of Fig. 1.
 
 Reads analysis/paper_stats_54/contrasts{,_identity,_occlusion,_pixel,_optical_flow,_motion_energy,_joint}_nc.csv and the ROIs of
@@ -46,11 +47,11 @@ REGION_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "
                  "OccipitoTemporal": "#eda100", "wholescalp": st.INK}          # as in Fig. 1
 SIDES = {"L": "left", "M": "midline", "R": "right"}
 PANEL_A = ["OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "wholescalp"]
-COMPARISONS = [("H1 pretrained vs random", "generic pretraining\n− random", "Generic"),
-               ("H4 video vs image", "video\n− image models", "Generic"),
-               ("H2 face vs ImageNet", "face identity\n− ImageNet", "Face"),
-               ("H3 fine-tuned vs start", "emotion fine-tuning\n− its start", "Emotion")]
-CONDITIONS = [("", "raw"), ("joint", "all controls\nremoved")]                    # rows of b
+COMPARISONS = [("H1 pretrained vs random", "pretrained vs random", "Generic"),
+               ("H4 video vs image", "video vs image models", "Generic"),
+               ("H2 face vs ImageNet", "face identity vs ImageNet", "Face"),
+               ("H3 fine-tuned vs start", "emotion-tuned vs base model", "Emotion")]
+CONDITIONS = [("", "raw"), ("joint", "controls removed")]                          # rows of b
 CONTROL_SETS = [("", "raw"), ("identity", "identity"), ("occlusion", "occlusion"), ("pixel", "pixel"),
                 ("optical_flow", "optical flow"), ("motion_energy", "motion energy"), ("joint", "all")]
 DIVERGING = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
@@ -154,20 +155,21 @@ def topo_grid(fig, box, scalp, tables):
     import mne
     x0, y0, w, h = box
     info, roi_of = scalp
-    cw, rh = w / (len(COMPARISONS) + 0.9), h / len(CONDITIONS)
+    cw, rh = w / (len(COMPARISONS) + 0.15), h / len(CONDITIONS)
     for i, (name, rlabel) in enumerate(CONDITIONS):
-        fig.text(x0, y0 + h - (i + 0.5) * rh, rlabel, ha="left", va="center", fontsize=6.8, color=st.INK2)
+        fig.text(x0 + 0.1 * cw, y0 + h - (i + 0.5) * rh, rlabel, ha="center", va="center", fontsize=7,
+                 color=st.INK2, rotation=90)
         t = {(r["hypothesis"], r["scope"]): r for r in tables[name] if r["contrast"] == "pooled"}
         for j, (hyp, clabel, regime) in enumerate(COMPARISONS):
-            ax = fig.add_axes([x0 + (j + 0.9) * cw, y0 + h - (i + 1) * rh, cw * 0.95, rh * 0.95])
+            ax = fig.add_axes([x0 + (j + 0.15) * cw, y0 + h - (i + 1) * rh, cw * 0.95, rh * 0.95])
             im, _ = mne.viz.plot_topomap(
                 np.array([float(t[hyp, r]["corrected"]) for r in roi_of]), info, axes=ax, show=False,
                 cmap=DIVERGING, vlim=(-VMAX, VMAX), contours=0, sensors=False, extrapolate="head",
                 mask=np.array([float(t[hyp, r]["p_maxT"]) < .05 for r in roi_of]),
                 mask_params=dict(marker="o", markersize=1.2, markerfacecolor=st.INK, markeredgecolor="none"))
             if i == 0:
-                ax.set_title(clabel, fontsize=6.8, pad=1, color=st.REGIME_COLORS[regime], linespacing=0.95)
-    cax = fig.add_axes([x0 + 0.9 * cw + 0.03, y0 - 0.035, len(COMPARISONS) * cw - 0.06, 0.008])
+                ax.set_title(clabel.replace(" vs ", "\nvs "), fontsize=7, pad=2, linespacing=1.0)
+    cax = fig.add_axes([x0 + 0.15 * cw + 0.12, y0 - 0.03, len(COMPARISONS) * cw - 0.24, 0.008])
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
@@ -176,28 +178,33 @@ def topo_grid(fig, box, scalp, tables):
 
 # ---------------------------------------------------------------- c: what each control removes
 
-def control_panel(ax, region, tables):
-    """The four comparisons at a region mean under each control set (x): difference above chance,
-    95% CI; filled where p < .05 (maxT across the four regions)."""
-    for ci, (hyp, label, regime) in enumerate(COMPARISONS):
-        color = st.REGIME_COLORS[regime]
-        xs = np.arange(len(CONTROL_SETS)) + (ci - 1.5) * 0.09
-        ys = []
-        for k, (name, _) in enumerate(CONTROL_SETS):
+C_REGIONS = [("OccipitoTemporal", "o"), ("Central", "s")]
+
+
+def control_panel(ax, hyp, title, tables, labels=True):
+    """One comparison: rows = control sets (raw, each control alone, all), the occipito-temporal and
+    central region means (difference above chance, 95% CI), filled where p < .05 (maxT across the
+    four regions)."""
+    n = len(CONTROL_SETS)
+    for k, (name, _) in enumerate(CONTROL_SETS):
+        for j, (region, marker) in enumerate(C_REGIONS):
             r = next(r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == "pooled"
                      and r["scope"] == region)
             m, lo, hi = float(r["corrected"]), float(r["low"]), float(r["high"])
-            ys.append(m)
-            sig = float(r["p_maxT"]) < .05                    # filled: p < .05 (maxT); open: n.s.
-            ax.errorbar(xs[k], m, yerr=[[m - lo], [hi - m]], fmt="o", ms=3.2, mfc=color if sig else "white",
-                        mec=color, mew=0.7, ecolor=color, elinewidth=0.7, capsize=0, zorder=4)
-        ax.plot(xs, ys, color=color, lw=0.9, ls=(0, (3, 1.5)) if ci == 1 else "-", zorder=3, label=label)
-    ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
-    ax.set_xticks(range(len(CONTROL_SETS)), [lab for _, lab in CONTROL_SETS], fontsize=6.6, rotation=35,
-                  ha="right", rotation_mode="anchor")
-    ax.set_xlim(-0.5, len(CONTROL_SETS) - 0.5)
-    ax.set_title(REGION_NAMES[region], color=REGION_COLORS[region])
-    fmt(ax)
+            y = (n - 1 - k) + (0.5 - j) * 0.34
+            color = REGION_COLORS[region]
+            sig = float(r["p_maxT"]) < .05
+            ax.errorbar(m, y, xerr=[[m - lo], [hi - m]], fmt=marker, ms=3.2, mfc=color if sig else "white", mec=color,
+                        mew=0.7, ecolor=color, elinewidth=0.7, capsize=0, zorder=4)
+    ax.axvline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
+    ax.axhspan(-0.5, 0.5, color=st.RULE, alpha=0.35, lw=0, zorder=0)          # all removed
+    ax.set_yticks(range(n), [lab for _, lab in CONTROL_SETS][::-1] if labels else [""] * n, fontsize=6.6)
+    ax.tick_params(axis="y", length=0)
+    ax.set_ylim(-0.6, n - 0.4)
+    ax.set_xlim(-0.2, 0.25); ax.set_xticks([-0.2, -0.1, 0, 0.1, 0.2])
+    ax.xaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    ax.set_title(title, fontsize=7, pad=3)
+    ax.spines["left"].set_visible(False)
 
 
 def legend_block(fig, height):
@@ -224,7 +231,7 @@ def main():
     st.setup()
     tables = {name: rows(name) for name, _ in CONTROL_SETS}
     variant = lambda t: {(r["contrast"], r["scope"]): r for r in t if r["hypothesis"] == "variant"}
-    fig = plt.figure(figsize=(5.5, 6.9))
+    fig = plt.figure(figsize=(5.5, 7.0))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=0.95, bottom=0.79, wspace=0.1)
     a = [fig.add_subplot(gs[0, j]) for j in range(4)]
     layout = sensor_layout()
@@ -234,20 +241,21 @@ def main():
         if j:
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ / noise ceiling")
-    topo_grid(fig, (0.03, 0.44, 0.94, 0.2), topo_scalp(), tables)
-    gs = fig.add_gridspec(1, 2, left=0.1, right=0.74, top=0.31, bottom=0.17, wspace=0.1)
-    c1, c2 = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
-    control_panel(c1, "OccipitoTemporal", tables); control_panel(c2, "Central", tables)
-    lo = min(c1.get_ylim()[0], c2.get_ylim()[0]); hi = max(c1.get_ylim()[1], c2.get_ylim()[1])
-    for ax in (c1, c2):
-        ax.set_ylim(lo, hi)
-    c2.tick_params(labelleft=False)
-    c1.set_ylabel("difference − chance")
-    fig.legend(*c1.get_legend_handles_labels(), loc="center left", bbox_to_anchor=(0.76, 0.245), frameon=False,
-               fontsize=6.8, handlelength=2.0, labelspacing=0.9, title="comparisons", title_fontsize=7)
+    topo_grid(fig, (0.06, 0.47, 0.93, 0.185), topo_scalp(), tables)
+    gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=0.36, bottom=0.17, wspace=0.12)
+    cs = [fig.add_subplot(gs[0, j]) for j in range(4)]
+    for j, (ax, (hyp, title, _)) in enumerate(zip(cs, COMPARISONS)):
+        control_panel(ax, hyp, title.replace(" vs ", "\nvs "), tables, labels=j == 0)
+    fig.text(0.16, 0.12, "difference − chance (fraction of the noise ceiling)", ha="left", fontsize=7)
+    cs[0].text(-0.62, 0.5, "removed", rotation=90, transform=cs[0].transAxes, ha="center", va="center", fontsize=7,
+               color=st.INK2)
+    fig.legend(handles=[Line2D([], [], marker=m, ls="none", ms=3.2, mfc=REGION_COLORS[r], mec=REGION_COLORS[r],
+                               label=f"{REGION_NAMES[r]} (region mean)") for r, m in C_REGIONS],
+               loc="lower right", bbox_to_anchor=(0.99, 0.077), ncol=2, fontsize=6.8, handletextpad=0.2,
+               columnspacing=1.0, frameon=False)
     st.panel_label(a[0], "a", x=-0.42)
-    fig.text(0.02, 0.665, "b", fontsize=9, fontweight="bold")
-    st.panel_label(c1, "c", x=-0.32)
+    fig.text(0.02, 0.685, "b", fontsize=9, fontweight="bold")
+    fig.text(0.02, 0.385, "c", fontsize=9, fontweight="bold")
     legend_block(fig, fig.get_figheight())
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
