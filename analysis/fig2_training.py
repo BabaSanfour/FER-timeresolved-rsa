@@ -304,7 +304,7 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (best model) side by side; d what each control removes."""
-    H = 8.25 if args.de == "bars" else 6.62
+    H = 8.25 if args.de == "bars" else 6.4
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.45), bottom=f(1.7), wspace=0.1)
