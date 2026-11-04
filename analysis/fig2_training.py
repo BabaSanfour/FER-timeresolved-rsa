@@ -225,14 +225,13 @@ def pooled_and_best(fig, box, scalp, tables):
     rh = h / len(COMPARISONS)
     hw = rh * fig.get_figheight() / fig.get_figwidth()           # head width in figure fraction (square)
     xb = [x0 + 0.2 * w, x0 + 0.2 * w + hw * 1.02]                # b: raw, controls removed
-    xc = [x0 + 0.66 * w, x0 + 0.66 * w + hw * 1.02]              # c: raw, controls removed
+    xc = [x0 + 0.58 * w, x0 + 0.58 * w + hw * 1.02]              # c: raw, controls removed
     for i, (hyp, label, regime) in enumerate(COMPARISONS):
         yy = y0 + h - (i + 1) * rh
         fig.text(x0, yy + rh / 2, label.replace(" vs ", "\nvs "), ha="left", va="center", fontsize=6.8,
                  linespacing=1.0)
-        fam = BEST[hyp].split()[0]
-        fig.text(x0 + 0.645 * w, yy + rh / 2, fam + ("\n(none above\nchance)" if hyp.startswith("H3") else ""),
-                 ha="right", va="center", fontsize=6.8, color=st.INK2, linespacing=1.0)
+        fig.text(xc[1] + hw * 1.02, yy + rh / 2, BEST[hyp].split()[0], ha="left", va="center", fontsize=6.8,
+                 color=st.INK2)                                    # the family shown in c, to the right
         for xs, contrast in ((xb, "pooled"), (xc, BEST[hyp])):
             for xx, (name, _) in zip(xs, CONDITIONS):
                 t = {r["scope"]: r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == contrast}
@@ -345,7 +344,7 @@ def layout_best(args, tables, variant):
                columnspacing=1.0, frameon=False)
     st.panel_label(a[0], "a", x=-0.42)
     fig.text(0.02, f(2.35), "b", fontsize=9, fontweight="bold", va="top")
-    fig.text(xc - 0.13, f(2.35), "c", fontsize=9, fontweight="bold", va="top")
+    fig.text(xc - 0.04, f(2.35), "c", fontsize=9, fontweight="bold", va="top")
     fig.text(0.02, f(5.95), "d", fontsize=9, fontweight="bold", va="top")
     legend_block(fig, H)
     for ext in ("pdf", "png"):
