@@ -18,7 +18,8 @@ RDMs, with the ceiling of the EEG after the same removal.
         fine-tuned from
   d     what each control removes: for each comparison, the occipito-temporal (solid) and central
         (hatched) region means (mean over the region's ROIs), raw, with each control removed alone and
-        with all removed; difference above chance with 95% CI, * p < .05 (maxT across the four regions)
+        with all removed; difference above chance with 95% CI, dot: p < .05 (maxT across the four regions);
+        markers: the strongest family of c (family shape, filled where p < .05)
 ROI labels carry the region colours of Fig. 1.
 
 Reads analysis/paper_stats_54/contrasts{,_identity,_occlusion,_pixel,_optical_flow,_motion_energy,_joint}_nc.csv and the ROIs of
@@ -218,9 +219,13 @@ def bar_panel(ax, hyp, title, regime, tables):
             ax.bar(x, m, width=0.36, fc=color if hatch is None else "white", ec=color, lw=0.6, hatch=hatch,
                    alpha=0.85 if hatch is None else 1, zorder=2)
             ax.plot([x, x], [lo, hi], color=st.INK2, lw=0.6, zorder=3)
-            if float(r["p_maxT"]) < .05:
-                ax.text(x, (hi if m >= 0 else lo) + (0.008 if m >= 0 else -0.008), "*", ha="center",
-                        va="bottom" if m >= 0 else "top", fontsize=7, color=st.INK, zorder=4)
+            if float(r["p_maxT"]) < .05:                       # a dot, as on the maps
+                ax.plot(x, (hi + 0.02) if m >= 0 else (lo - 0.02), "o", ms=1.8, color=st.INK, zorder=4)
+            f = next(r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == BEST[hyp]
+                     and r["scope"] == region)                     # the strongest family (as in c)
+            fm = st.MARKERS[BEST[hyp].split()[0]]
+            ax.plot(x, float(f["corrected"]), fm, ms=min(st.size(fm) - 1.4, 4.2), mec=st.INK, mew=0.5,
+                    mfc=st.INK if float(f["p_maxT"]) < .05 else "white", zorder=5)
     ax.axhline(0, color=st.INK2, lw=0.6, zorder=1)
     ax.set_xticks(range(len(CONTROL_SETS)), [lab for _, lab in CONTROL_SETS], fontsize=6.4, rotation=45,
                   ha="right", rotation_mode="anchor")
@@ -237,8 +242,7 @@ def legend_block(fig, height):
     marks = [Patch(fc=st.INK2, alpha=0.3, ec="none", label="raw"),
              Patch(fc="white", ec=st.INK2, lw=0.6, label="all controls removed"),
              Line2D([], [], color=st.INK2, lw=1.1, label="chance"),
-             Line2D([], [], marker="$*$", ls="none", ms=4.5, color=st.INK,
-                    label="p < .05, corrected (dots on the maps)")]
+             Line2D([], [], marker="o", ls="none", ms=2.2, color=st.INK, label="p < .05, corrected")]
     kw = dict(frameon=False, handletextpad=0.3, columnspacing=0.9, borderaxespad=0, fontsize=7.2, loc="lower left")
     dy = 0.16 / height
     for y, title, handles in ((2 * dy, "Training regime", regimes), (dy, "Model family", families),
@@ -272,6 +276,12 @@ def layout_best(args, tables, variant):
     lo = min(ax.get_ylim()[0] for ax in ds); hi = max(ax.get_ylim()[1] for ax in ds)
     for ax in ds:
         ax.set_ylim(lo - 0.03, hi + 0.04)
+    ds[-1].legend(handles=[Line2D([], [], marker=st.MARKERS[BEST[h].split()[0]], ls="none", ms=3.5, mfc=st.INK,
+                                  mec=st.INK, label=BEST[h].split()[0]) for h in ("H1 pretrained vs random",
+                                                                                 "H2 face vs ImageNet",
+                                                                                 "H3 fine-tuned vs start")],
+                  title="strongest family\n(filled: p < .05)", title_fontsize=6.2, fontsize=6.2, loc="upper right",
+                  handletextpad=0.2, borderaxespad=0.1, labelspacing=0.3)
     ds[0].set_ylabel("difference above chance\n(fraction of noise ceiling)", fontsize=7)
     fig.text(0.545, f(6.42), "removed from the EEG and model RDMs", ha="center", va="center", fontsize=7,
              color=st.INK2)
