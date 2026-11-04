@@ -13,10 +13,10 @@ RDMs, with the ceiling of the EEG after the same removal.
         mean over families, dashes their chance level; a sensor map in each panel
   b     the four comparisons (columns) in the 11 ROIs, all models pooled, raw and with all controls
         removed (rows): the difference above chance per ROI, dots on ROIs with p < .05 (maxT across ROIs)
-  c     the same for the strongest family of each comparison (named under its maps; chosen after seeing
+  c     the same for the best model of each comparison (named under its maps; chosen after seeing
         the results). Emotion-tuned vs base model: each fine-tuned network against the network it was
         fine-tuned from
-  d, e  what each control removes, under the maps of b (all models pooled) and c (strongest family):
+  d, e  what each control removes, under the maps of b (all models pooled) and c (best model):
         rows = raw, each control removed alone, all removed (shaded); bars = the three occipito-temporal
         ROIs, the two central ROIs and the whole scalp (region colour; left solid, midline light, right
         hatched; whole scalp grey), difference above chance with 95% CI, * p < .05 (maxT across ROIs)
@@ -164,7 +164,7 @@ BEST = {"H1 pretrained vs random": "Qwen3-VL", "H4 video vs image": "Qwen3-VL Pr
 
 def pooled_and_best(fig, box, scalp, tables):
     """b and c side by side, each 2 rows (raw, controls removed) x 4 columns (the comparisons); b = all
-    models pooled, c = the strongest family of each comparison (named in the column title)."""
+    models pooled, c = the best model of each comparison (named in the column title)."""
     import mne
     x0, y0, w, h = box
     info, roi_of = scalp
@@ -190,7 +190,7 @@ def pooled_and_best(fig, box, scalp, tables):
     H = fig.get_figheight()
     top = y0 + h - 0.12 * rh + 0.07 / H                             # above the heads, with a small gap
     bottom = y0 + h - 2 * rh
-    for xs, group, fam in ((xb, "all models (pooled)", False), (xc, "strongest family", True)):
+    for xs, group, fam in ((xb, "all models (pooled)", False), (xc, "best model", True)):
         for xx, (hyp, label, _) in zip(xs, COMPARISONS):
             fig.text(xx + hw / 2, top, SHORT_NAMES[hyp], ha="center", va="bottom", fontsize=5.4,
                      linespacing=1.0)
@@ -302,7 +302,7 @@ def legend_block(fig, height):
 
 
 def layout_best(args, tables, variant):
-    """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
+    """a; b (pooled) and c (best model) side by side; d what each control removes."""
     H = 8.25 if args.de == "bars" else 7.7
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
@@ -317,7 +317,7 @@ def layout_best(args, tables, variant):
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
     xb, xc, hw = pooled_and_best(fig, (0.02, f(3.92), 0.97, 1.0 / H), topo_scalp(), tables)
     top_d, bot_d = f(5.1), f(6.87) if args.de == "bars" else f(6.33)
-    for xs, group, pick in ((xb, "all models (pooled)", lambda h: "pooled"), (xc, "strongest family", lambda h: BEST[h])):
+    for xs, group, pick in ((xb, "all models (pooled)", lambda h: "pooled"), (xc, "best model", lambda h: BEST[h])):
         axes = []
         for j, (xx, (hyp, label, regime)) in enumerate(zip(xs, COMPARISONS)):
             ax = fig.add_axes([xx + 0.12 * hw, bot_d, hw * 0.8, top_d - bot_d])

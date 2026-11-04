@@ -273,7 +273,7 @@ def main():
                 ax.set_title(full_label(sc), fontsize=6.6, pad=3, linespacing=1.0, color=REGION_COLORS[region_of(sc)])
                 ax.tick_params(labelbottom=False)
     fig.text(0.02, f(1.1), "all models\n(pooled)", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
-    fig.text(0.02, f(2.35), "strongest\nfamily", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
+    fig.text(0.02, f(2.35), "best\nmodel", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
     fig.text(0.065, f(1.7), "difference above chance\n(fraction of noise ceiling)", rotation=90, ha="center",
              va="center", fontsize=6.2, color=st.INK2, linespacing=1.0)
     fig.text(0.56, f(3.2), "time from onset (ms)", ha="center", fontsize=6.8)
@@ -281,7 +281,7 @@ def main():
     handles += [Line2D([], [], color=st.INK2, lw=1.6, label="p < .05")]
     fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.56, f(3.55)), ncol=3, fontsize=6.2, frameon=False,
                handlelength=1.8, columnspacing=1.0)
-    # b: maps at 125-250 ms after the controls, pooled and strongest family
+    # b: maps at 125-250 ms after the controls, pooled and best model
     n = len(COMPARISONS)
     hh_in = 0.62; hw = hh_in / 5.5; hh = hh_in / H; x0 = 0.13; step = (0.99 - x0) / n
     tops = (4.35, 5.15)
@@ -296,7 +296,7 @@ def main():
             else:
                 axm.text(1.04, 0.5, contrast.split()[0], transform=axm.transAxes, ha="left", va="center",
                          fontsize=6, color=st.INK2, rotation=90)
-        fig.text(0.02, f(tops[i] + hh_in / 2), ("all models\n(pooled)", "strongest\nfamily")[i], rotation=90,
+        fig.text(0.02, f(tops[i] + hh_in / 2), ("all models\n(pooled)", "best\nmodel")[i], rotation=90,
                  ha="center", va="center", fontsize=6.8, linespacing=1.0)
     fig.text(0.56, f(3.95), "125–250 ms, controls removed", ha="center", fontsize=6.6, color=st.INK2)
     cax = fig.add_axes([0.3, f(6.05), 0.5, 0.05 / H])
