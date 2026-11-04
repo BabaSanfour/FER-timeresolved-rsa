@@ -231,6 +231,153 @@ def region_panel(ax, regions):
               loc="lower left", ncol=3, handletextpad=0.2, columnspacing=0.8, borderaxespad=0.2, fontsize=5.4)
 
 
+DIVERGING = None
+
+
+def topo_scalp():
+    """MNE info of the electrodes in an ROI, and the ROI of each."""
+    import mne
+    member = {ch: roi for roi, chans in ROI_CHANNELS.items() for ch in chans}
+    montage = mne.channels.make_standard_montage("biosemi64")
+    names = [c for c in montage.ch_names if c in member]
+    info = mne.create_info(names, 256.0, "eeg")
+    info.set_montage(montage)
+    return info, [member[c] for c in names]
+
+
+def topo_head(ax, values, significant, scalp, vmax):
+    import mne
+    from matplotlib.colors import LinearSegmentedColormap
+    cmap = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
+    info, roi_of = scalp
+    im, _ = mne.viz.plot_topomap(np.array([values[r] for r in roi_of]), info, axes=ax, show=False, cmap=cmap,
+                                 vlim=(-vmax, vmax), contours=0, sensors=False, extrapolate="head",
+                                 mask=np.array([significant[r] for r in roi_of]),
+                                 mask_params=dict(marker="o", markersize=1.2, markerfacecolor=st.INK,
+                                                  markeredgecolor="none"))
+    return im
+
+
+def topo_grid(fig, box, scalp):
+    """Rows: the four comparisons; columns: raw, occlusion removed, all controls removed. Each head:
+    the corrected difference (observed - chance) per ROI; dots on ROIs with p < .05 (maxT)."""
+    x0, y0, w, h = box
+    vmax = 0.05 * (4 if NC["suffix"] else 1)
+    tables = {name: {(r["hypothesis"], r["scope"]): r for r in rows(STATS["54"] / cfile(name))
+                     if r["contrast"] == "pooled"} for name, _ in CONDITIONS}
+    cw, rh = w / (len(CONDITIONS) + 0.9), h / len(COMPARISONS)
+    for i, (hyp, label, regime) in enumerate(COMPARISONS):
+        fig.text(x0, y0 + h - (i + 0.5) * rh, label, ha="left", va="center", fontsize=5.6,
+                 color=st.REGIME_COLORS[regime])
+        for j, (name, title) in enumerate(CONDITIONS):
+            ax = fig.add_axes([x0 + (j + 0.9) * cw, y0 + h - (i + 1) * rh, cw * 0.95, rh * 0.95])
+            t = tables[name]
+            values = {sc: float(t[hyp, sc]["corrected"]) for sc in ROI_CHANNELS}
+            sig = {sc: float(t[hyp, sc]["p_maxT"]) < .05 for sc in ROI_CHANNELS}
+            im = topo_head(ax, values, sig, scalp, vmax)
+            if i == 0:
+                ax.set_title(title.replace(" removed", "\nremoved"), fontsize=5.6, pad=1)
+    cax = fig.add_axes([x0 + 0.9 * cw + 0.03, y0 - 0.035, (len(CONDITIONS) * cw) - 0.06, 0.008])
+    cb = fig.colorbar(im, cax=cax, orientation="horizontal")
+    cb.set_ticks([-vmax, 0, vmax], labels=[st.point_format(round(-vmax, 3)), "0", st.point_format(round(vmax, 3))])
+    cb.ax.tick_params(labelsize=5, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+    cb.set_label("difference − chance (fraction of ceiling)" if NC["suffix"] else "difference − chance", fontsize=5.4)
+
+
+def slope_panel(ax, region):
+    """Each comparison at a region mean: raw -> occlusion removed -> all removed, 95% CI, * maxT."""
+    tables = {name: {(r["hypothesis"], r["scope"]): r for r in rows(STATS["54"] / cfile(name))
+                     if r["contrast"] == "pooled"} for name, _ in CONDITIONS}
+    K = 4 if NC["suffix"] else 1
+    for ci, (hyp, label, regime) in enumerate(COMPARISONS):
+        color = st.REGIME_COLORS[regime]
+        ls = "-" if ci != 1 else (0, (3, 1.5))                    # video dashed (same colour as pretraining)
+        xs = np.arange(len(CONDITIONS)) + (ci - 1.5) * 0.06
+        ys = []
+        for k, (name, _) in enumerate(CONDITIONS):
+            r = tables[name][hyp, region]
+            m, lo, hi = float(r["corrected"]), float(r["low"]), float(r["high"])
+            ys.append(m)
+            ax.errorbar(xs[k], m, yerr=[[m - lo], [hi - m]], fmt="o", ms=3, mfc=color if k == 0 else
+                        (st.blend(color, 0.45) if k == 1 else "white"), mec=color, mew=0.6, ecolor=color,
+                        elinewidth=0.7, capsize=0, zorder=4)
+            if float(r["p_maxT"]) < .05:
+                ax.text(xs[k] + 0.05, m, "*", ha="left", va="center", fontsize=6.5, color=st.INK)
+        ax.plot(xs, ys, color=color, lw=0.9, ls=ls, zorder=3, label=label.replace("\n", " "))
+    ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
+    ax.set_xticks(range(len(CONDITIONS)), ["raw", "occlusion\nremoved", "all\nremoved"], fontsize=5.4)
+    ax.set_xlim(-0.35, len(CONDITIONS) - 0.65)
+    ax.set_ylim(-0.04 * K, 0.065 * K)
+    ax.set_title(REGION_NAMES[region], color=REGION_COLORS[region])
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+
+
+def family_panel(ax, scopes=("Central-L", "Central-R")):
+    """After joint controls, face - ImageNet and emotion FT - start per family at central sites:
+    family markers in the regime colour, 95% CI, * maxT across ROIs."""
+    t = {(r["hypothesis"], r["contrast"], r["scope"]): r for r in rows(STATS["54"] / cfile("joint"))}
+    K = 4 if NC["suffix"] else 1
+    groups = [("H2 face vs ImageNet", ["ResNet18", "ResNet50", "FaceNet", "VGG16"], "Face", "face − ImageNet"),
+              ("H3 fine-tuned vs start", ["ResNet18", "ResNet50", "FaceNet", "VGG16", "M3DFEL"], "Emotion",
+               "emotion FT − start")]
+    x, ticks, labels, centres = 0.0, [], [], []
+    for hyp, fams, regime, title in groups:
+        start = x
+        for sc in scopes:
+            for fi, f in enumerate(fams):
+                r = t[hyp, f, sc]
+                xx = x + (fi - (len(fams) - 1) / 2) * 0.16
+                m, lo, hi = float(r["corrected"]), float(r["low"]), float(r["high"])
+                mk = st.MARKERS[f]
+                ax.errorbar(xx, m, yerr=[[m - lo], [hi - m]], fmt=mk, ms=st.size(mk) - 1, mfc="white",
+                            mec=st.REGIME_COLORS[regime], mew=0.7, ecolor=st.REGIME_COLORS[regime], elinewidth=0.7,
+                            capsize=0, zorder=4)
+                if float(r["p_maxT"]) < .05:
+                    ax.text(xx, 0.075 * K, "*", ha="center", va="center", fontsize=6.5, color=st.INK)
+            ticks.append(x); labels.append(scope_label(sc)); x += 1
+        centres.append(((start + x - 1) / 2, title, regime)); x += 0.4
+    for cx, title, regime in centres:
+        ax.text(cx, 0.088 * K, title, ha="center", fontsize=5.8, color=st.REGIME_COLORS[regime])
+    ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
+    ax.set_xticks(ticks, labels, fontsize=5.4)
+    for tick in ax.get_xticklabels():
+        tick.set_color(REGION_COLORS["Central"])
+    ax.set_xlim(-0.5, x - 0.9)
+    ax.set_ylim(-0.05 * K, 0.1 * K)
+    ax.set_title("by family, after all controls", fontsize=6)
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+
+
+def time_panel(ax, region="Central"):
+    """After joint controls, face - ImageNet and emotion FT - start over time at a region mean:
+    corrected difference with 95% CI; bars where p < .05 (maxT across regions x windows)."""
+    tr = [r for r in rows(STATS["54"] / f"contrasts_time_joint{NC['suffix']}.csv")
+          if r["contrast"] == "pooled" and r["scope"] == region]
+    K = 4 if NC["suffix"] else 1
+    for k, (hyp, regime, label) in enumerate((("H2 face vs ImageNet", "Face", "face − ImageNet"),
+                                               ("H3 fine-tuned vs start", "Emotion", "emotion FT − start"))):
+        rr = sorted((r for r in tr if r["hypothesis"] == hyp), key=lambda r: float(r["window_start_ms"]))
+        t0 = np.array([float(r["window_start_ms"]) for r in rr]); t1 = np.array([float(r["window_end_ms"]) for r in rr])
+        c = (t0 + t1) / 2
+        m = np.array([float(r["corrected"]) for r in rr])
+        lo = np.array([float(r["low"]) for r in rr]); hi = np.array([float(r["high"]) for r in rr])
+        color = st.REGIME_COLORS[regime]
+        ax.fill_between(c, lo, hi, color=color, alpha=0.2, lw=0)
+        ax.plot(c, m, color=color, lw=1.0, label=label)
+        p = np.array([float(r["p_maxT"]) for r in rr])
+        for sign, y in ((1, (0.07 - k * 0.008) * K), (-1, (-0.032 + k * 0.006) * K)):
+            sig = (p < .05) & (np.sign(m) == sign)          # above chance at the top, below at the bottom
+            for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
+                ax.plot([t0[a], t1[b - 1]], [y, y], color=color, lw=1.6, solid_capstyle="butt")
+    ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)))
+    ax.set_xlim(0, 800); ax.set_xticks([0, 200, 400, 600, 800])
+    ax.set_ylim(-0.04 * K, 0.08 * K)
+    ax.set_xlabel("time from onset (ms)")
+    ax.set_title(f"{REGION_NAMES[region]}, after all controls", color=REGION_COLORS[region], fontsize=6)
+    ax.legend(loc="lower right", fontsize=5.4, handlelength=1.5, borderaxespad=0.2)
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+
+
 def scope_positions(scopes):
     """x position of each ROI, grouped by region with a gap between regions, then the whole scalp."""
     pos, x = {}, 0.0
@@ -362,7 +509,7 @@ def legend_block(fig, height, ceiling=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--layout", choices=["occlusion", "occlusion_v1", "face"], default="occlusion",
+    ap.add_argument("--layout", choices=["occlusion", "occlusion_v1", "face", "topo", "slope"], default="occlusion",
                     help="occlusion: raw and controlled OT panels, control breakdown, face per ROI; "
                          "face: raw OT panels, face and Qwen3-VL per ROI after controls")
     ap.add_argument("--out", default=None, help="output path without extension")
@@ -406,6 +553,42 @@ def main():
             ax.set_ylim(-0.06 * (4 if NC["suffix"] else 1), 0.117 * (4 if NC["suffix"] else 1))
         for ax, letter, x in ((a[0], "a", -0.42), (b, "b", -0.09), (c, "c", -0.16), (d, "d", -0.05)):
             st.panel_label(ax, letter, x=x)
+    elif args.layout in ("topo", "slope"):
+        partial = rows(STATS["54"] / "noise_ceilings_partial.csv")
+        per_raw = rows(STATS["54"] / "rho_max_per_rdm.csv")
+        per_joint = rows(STATS["54"] / "rho_max_partial_joint_per_rdm.csv")
+        fig = plt.figure(figsize=(5.5, 6.9 if args.layout == "topo" else 6.3))
+        top_a = 0.955
+        gs_a = fig.add_gridspec(1, 4, left=0.09, right=0.99, top=top_a, bottom=top_a - 0.2, wspace=0.1)
+        a = [fig.add_subplot(gs_a[0, j]) for j in range(4)]
+        for ax, sc in zip(a, scopes):
+            paired_panel(ax, sc, variant(raw), variant(joint), None if args.nc else ceilings(sc, partial, per_raw, per_joint))
+        for j, ax in enumerate(a):
+            ax.set_ylim(0, 1.05 if args.nc else 0.3)
+            sensor_inset(ax, scopes[j], layout)
+            if j:
+                ax.tick_params(labelleft=False)
+        a[0].set_ylabel(YLAB())
+        if args.layout == "topo":
+            topo_grid(fig, (0.03, 0.2, 0.53, 0.46), topo_scalp())
+            gs = fig.add_gridspec(2, 1, left=0.69, right=0.99, top=0.64, bottom=0.2, hspace=0.62)
+            c, d = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[1, 0])
+            fig.text(0.02, 0.655, "b", fontsize=8, fontweight="bold")
+        else:
+            gs_b = fig.add_gridspec(1, 2, left=0.09, right=0.52, top=0.62, bottom=0.44, wspace=0.12)
+            b1, b2 = fig.add_subplot(gs_b[0, 0]), fig.add_subplot(gs_b[0, 1])
+            slope_panel(b1, "OccipitoTemporal"); slope_panel(b2, "Central")
+            b1.set_ylabel("difference − chance", fontsize=6); b2.tick_params(labelleft=False)
+            c = fig.add_subplot(fig.add_gridspec(1, 1, left=0.62, right=0.99, top=0.62, bottom=0.44)[0, 0])
+            d = fig.add_subplot(fig.add_gridspec(1, 1, left=0.09, right=0.6, top=0.34, bottom=0.17)[0, 0])
+            fig.legend(handles=b1.get_legend_handles_labels()[0], labels=b1.get_legend_handles_labels()[1],
+                       loc="center left", bbox_to_anchor=(0.66, 0.26), fontsize=5.6, handlelength=2.2, frameon=False,
+                       title="comparisons in b", title_fontsize=5.8)
+            st.panel_label(b1, "b", x=-0.3)
+        family_panel(c); time_panel(d)
+        c.set_ylabel("difference − chance", fontsize=6); d.set_ylabel("difference − chance", fontsize=6)
+        st.panel_label(a[0], "a", x=-0.42); st.panel_label(c, "c", x=-0.25)
+        st.panel_label(d, "d", x=-0.25 if args.layout == "topo" else -0.1)
     elif args.layout == "occlusion_v1":
         fig = plt.figure(figsize=(5.5, 6.4))
         a = regime_row(fig, fig.add_gridspec(1, 4, left=0.09, right=0.99, top=0.93, bottom=0.75, wspace=0.12),
@@ -437,7 +620,7 @@ def main():
             ax.set_ylim(-0.06 * (4 if NC["suffix"] else 1), 0.117 * (4 if NC["suffix"] else 1))
         for ax, letter, x in ((a[0], "a", -0.38), (b, "b", -0.16), (c, "c", -0.05)):
             st.panel_label(ax, letter, x=x)
-    legend_block(fig, fig.get_figheight(), ceiling=args.layout == "occlusion" and not args.nc)
+    legend_block(fig, fig.get_figheight(), ceiling=args.layout in ("occlusion", "topo", "slope") and not args.nc)
     for ext in ("pdf", "png"):
         fig.savefig(f"{out}.{ext}")
     print(f"[ok] -> {out}.{{pdf,png}}")
