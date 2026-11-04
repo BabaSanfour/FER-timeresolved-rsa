@@ -3,7 +3,7 @@
 
   a-d  the pretraining gain (H1, pooled over the six families, minus the null mean) over time in
        each scalp region (mean of the region's ROIs): mean over participants with a 95% bootstrap
-       interval (54 videos), the same for 18 videos (dashed), a bar over the windows in which one of the region's ROIs is significant (maxT
+       interval (54 videos) and its chance level (the null mean, grey), a bar over the windows in which one of the region's ROIs is significant (maxT
        across the 11 x 13 ROI-window cells) and a triangle at the peak
   e    the gain over the scalp in three time bins (each electrode takes its ROI's value; P9 and P10,
        in no ROI, are left out); electrodes of ROIs with a significant window are marked
@@ -61,21 +61,23 @@ REGION_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "
 BAR, PEAK = .085, .094                                # height of the significance bars and peak marks
 
 
-def region_mean(part, rois, W, rng):
+def region_mean(part, cell, rois, W, rng):
+    """Observed difference (participants' values plus the null mean), region mean, with bootstrap CI."""
     n = len(part[rois[0], 0])
-    x = np.array([[np.mean([part[s, w][p] for s in rois]) for w in range(W)] for p in range(n)])   # (S, W)
+    x = np.array([[np.mean([part[s, w][p] + float(cell[s, w]["null_mean"]) for s in rois]) for w in range(W)]
+                  for p in range(n)])                                                        # (S, W)
     boot = x[rng.integers(0, n, (N_BOOT, n))].mean(1)
     return x.mean(0), np.percentile(boot, 2.5, 0), np.percentile(boot, 97.5, 0)
 
 
-def region_panel(ax, region, label, cell, part, part18, starts, ends, rng):
+def region_panel(ax, region, label, cell, cell18, part, part18, starts, ends, rng):
     rois = [s for s in ROIS if s.startswith(region + "-")]
     W = len(starts)
     centres = (starts + ends) / 2
     color = st.REGIME_COLORS["Generic"]
-    m18, lo18, hi18 = region_mean(part18, rois, W, rng)
-    ax.plot(centres, m18, color=color, lw=0.7, ls=(0, (2, 1.2)), alpha=0.9, zorder=2)
-    m, lo, hi = region_mean(part, rois, W, rng)
+    m, lo, hi = region_mean(part, cell, rois, W, rng)
+    ax.plot(centres, [np.mean([float(cell[s, w]["null_mean"]) for s in rois]) for w in range(W)], color=st.INK2,
+            lw=0.9, zorder=2)
     ax.fill_between(centres, lo, hi, color=color, alpha=0.25, lw=0)
     ax.plot(centres, m, color=color, lw=1.1, zorder=3)
     sig = np.array([any(float(cell[s, w]["p_maxT"]) < .05 for s in rois) for w in range(W)])
@@ -122,20 +124,20 @@ def main():
     args = ap.parse_args()
     st.setup()
     cell, _, part, starts, ends = load()
-    _, _, part18, _, _ = load(STATS18)
+    cell18 = part18 = None                    # the 18-video time course is in the supplement
     rng = np.random.default_rng(0)
     fig = plt.figure(figsize=(5.5, 3.3))
     gs = fig.add_gridspec(1, 4, left=0.08, right=0.97, top=0.9, bottom=0.52, wspace=0.2)
     axes = [fig.add_subplot(gs[0, i]) for i in range(4)]
     for ax, (region, label) in zip(axes, REGIONS):
-        region_panel(ax, region, label, cell, part, part18, starts, ends, rng)
+        region_panel(ax, region, label, cell, cell18, part, part18, starts, ends, rng)
     for ax in axes[1:]:
         ax.tick_params(labelleft=False)
-    axes[0].set_ylabel(r"$\Delta\rho$ − chance")
+    axes[0].set_ylabel(r"pretrained − random ($\rho$)")
     fig.text(0.535, 0.43, "time from onset (ms)", ha="center", fontsize=6.5)
     color = st.REGIME_COLORS["Generic"]
     handles = [Line2D([], [], color=color, lw=1.1, label="pretrained − random,\n54 videos, 95% CI"),
-               Line2D([], [], color=color, lw=0.7, ls=(0, (2, 1.2)), label="18 videos"),
+               Line2D([], [], color=st.INK2, lw=0.9, label="chance"),
                Line2D([], [], color=st.INK, lw=1.6, label="significant (maxT)"),
                Line2D([], [], color=st.INK, marker="v", ls="none", ms=3.5, label="peak")]
     fig.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.06, 0.05), frameon=False, fontsize=5.6,
@@ -143,7 +145,7 @@ def main():
     scalp = scalp_info()
     for k, (a, b) in enumerate(BINS):
         ax = fig.add_axes([0.34 + k * 0.17, 0.02, 0.15, 0.3])
-        values = {s: np.mean([float(cell[s, w]["corrected"]) for w in range(a, b)]) for s in ROIS}
+        values = {s: np.mean([float(cell[s, w]["observed"]) for w in range(a, b)]) for s in ROIS}
         significant = {s: any(float(cell[s, w]["p_maxT"]) < .05 for w in range(a, b)) for s in ROIS}
         im = head(ax, values, significant, scalp)
         ax.set_title(f"{starts[a]:.0f}–{ends[b - 1]:.0f} ms", fontsize=6, pad=1)
@@ -151,7 +153,7 @@ def main():
     cb = fig.colorbar(im, cax=cax)
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=5, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-    cb.set_label(r"$\Delta\rho$ − chance", fontsize=5.5)
+    cb.set_label(r"pretrained − random ($\rho$)", fontsize=5.5)
     st.panel_label(axes[0], "a", x=-0.32)
     fig.text(0.31, 0.33, "b", fontsize=8, fontweight="bold")
     for ext in ("pdf", "png"):
