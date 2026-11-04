@@ -39,6 +39,8 @@ REGIONS = [("Frontal", "frontal"), ("Central", "central"), ("CentroParietal", "c
 REGION_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "#008300",
                  "OccipitoTemporal": "#eda100", "wholescalp": st.INK}          # as in Fig. 1
 SHORT = {"Frontal": "F", "Central": "C", "CentroParietal": "CP", "OccipitoTemporal": "OT"}
+REGION_NAMES = {"Frontal": "frontal", "Central": "central", "CentroParietal": "centro-parietal",
+                "OccipitoTemporal": "occipito-temporal"}
 GRID = [["Frontal-L", "Frontal-M", "Frontal-R", "Central-L", "Central-R", "wholescalp"],
         ["CentroParietal-L", "CentroParietal-M", "CentroParietal-R",
          "OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R"]]
@@ -122,12 +124,101 @@ def variant_panel(ax, scope, table):
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
+def ceilings(scope, partial_rows, per_rdm_raw, per_rdm_joint):
+    """Lower and upper noise ceiling at the peak windows of the main variants (mean over RDMs and the
+    three emotions), raw and after the joint controls (partial_rsa.py --ceilings)."""
+    emotions = ("fear", "happy", "neutral")
+    raw = [(float(r["nc_lower"]), float(r["nc_upper"])) for r in per_rdm_raw
+           if r["group"] == "main" and r["roi"] == scope and r["emotion"] in emotions and r["nc_lower"]]
+    part = {(r["emotion"], int(r["window"])): (float(r["lower"]), float(r["upper"])) for r in partial_rows
+            if r["set"] == "joint" and r["scope"] == scope}
+    joint = [part[r["emotion"], int(r["max_window"])] for r in per_rdm_joint
+             if r["group"] == "main" and r["roi"] == scope and r["emotion"] in emotions and r["max_window"]]
+    return np.mean(raw, 0), np.mean(joint, 0)
+
+
+def paired_panel(ax, scope, raw, joint, ceiling):
+    """Each regime: the raw bar (filled) and the bar after joint controls (open), family markers on
+    each, chance dashes, and the noise ceilings (grey band raw, dashed after controls)."""
+    (rl, ru), (jl, ju) = ceiling
+    ax.axhspan(rl, ru, color=st.RULE, alpha=0.45, lw=0, zorder=0)
+    for y in (jl, ju):
+        ax.axhline(y, color=st.MUTED, lw=0.6, ls=(0, (2, 1.5)), zorder=0)
+    for xi, regime in enumerate(st.REGIMES):
+        c = st.REGIME_COLORS[regime]
+        for table, dx, filled in ((raw, -0.2, True), (joint, 0.2, False)):
+            vals, chance = [], []
+            for fi, (family, vrows) in enumerate(variants.MAIN.items()):
+                for variant, _ in vrows:
+                    if st.REGIME_OF[variant] != regime:
+                        continue
+                    r = table[f"{family} {variant}", scope]
+                    y = float(r["observed"]); vals.append(y); chance.append(float(r["null_mean"]))
+                    m = st.MARKERS[family]
+                    ax.plot(xi + dx + (fi - 2.5) * 0.04, y, m, ms=st.size(m) - 1.6, mfc=c if filled else "white",
+                            mec="white" if filled else c, mew=0.3 if filled else 0.5, zorder=4)
+            ax.bar(xi + dx, np.mean(vals), width=0.36, fc=c if filled else "white", alpha=0.3 if filled else 1,
+                   ec="none" if filled else c, lw=0.6, zorder=1)
+            ax.plot([xi + dx - 0.18, xi + dx + 0.18], [np.mean(chance)] * 2, color=st.INK2, lw=1.0,
+                    solid_capstyle="butt", zorder=5)
+    ax.set_xticks(range(len(st.REGIMES)), [st.REGIME_LABELS[r] for r in st.REGIMES], fontsize=5.2, rotation=30,
+                  ha="right", rotation_mode="anchor")
+    ax.tick_params(axis="x", length=0, pad=1.5)
+    ax.set_xlim(-0.5, len(st.REGIMES) - 0.5)
+    ax.set_title(scope_label(scope), fontsize=6, color=REGION_COLORS[region_of(scope)], pad=2, fontweight="bold")
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+
+
+COMPARISONS = [("H1 pretrained vs random", "pretrained\n− random", "Generic"),
+               ("H4 video vs image", "video\n− image", "Generic"),
+               ("H2 face vs ImageNet", "face\n− ImageNet", "Face"),
+               ("H3 fine-tuned vs start", "emotion FT\n− start", "Emotion")]
+CONDITIONS = [("", "raw"), ("occlusion", "occlusion removed"), ("joint", "all controls removed")]
+
+
+def region_panel(ax, regions):
+    """The four comparisons at the region means, raw, with occlusion removed and with all controls
+    removed; maxT across the four regions."""
+    tables = {name: {(r["hypothesis"], r["scope"]): r
+                     for r in rows(STATS["54"] / f"contrasts{'_' + name if name else ''}.csv") if r["contrast"] == "pooled"}
+              for name, _ in CONDITIONS}
+    x0, ticks, labels = 0.0, [], []
+    for region in regions:
+        start = x0
+        for hyp, label, regime in COMPARISONS:
+            color = st.REGIME_COLORS[regime]
+            for k, (name, _) in enumerate(CONDITIONS):
+                r = tables[name][hyp, region]
+                x = x0 + (k - 1) * 0.24
+                c0 = float(r["null_mean"])
+                m, lo, hi = float(r["observed"]), float(r["low"]) + c0, float(r["high"]) + c0
+                ax.plot([x - 0.08, x + 0.08], [c0, c0], color=st.INK2, lw=0.9, solid_capstyle="butt", zorder=5)
+                ax.errorbar(x, m, yerr=[[m - lo], [hi - m]], fmt="o", ms=3,
+                            mfc=[color, st.blend(color, 0.45), "white"][k], mec=color, mew=0.6, ecolor=color,
+                            elinewidth=0.7, capsize=0, zorder=4)
+                if float(r["p_maxT"]) < .05:
+                    ax.text(x, 0.075, "*", ha="center", va="center", fontsize=6.5, color=st.INK)
+            ticks.append(x0); labels.append(label); x0 += 1
+        ax.text((start + x0 - 1) / 2, 0.092, REGION_NAMES[region], ha="center", fontsize=6,
+                color=REGION_COLORS[region])
+        x0 += 0.5
+    ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)), zorder=1)
+    ax.set_xticks(ticks, labels, fontsize=5.2)
+    ax.set_xlim(-0.5, x0 - 0.9)
+    ax.set_ylim(-0.045, 0.1)
+    ax.set_ylabel(r"difference in $\rho_{\max}$")
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    ax.legend(handles=[Line2D([], [], marker="o", ls="none", ms=3, mfc=f, mec=st.INK2, label=lab)
+                       for f, (_, lab) in zip([st.INK2, st.blend(st.INK2, 0.45), "white"], CONDITIONS)],
+              loc="lower left", ncol=3, handletextpad=0.2, columnspacing=0.8, borderaxespad=0.2, fontsize=5.4)
+
+
 def scope_positions(scopes):
     """x position of each ROI, grouped by region with a gap between regions, then the whole scalp."""
     pos, x = {}, 0.0
     for region, _ in REGIONS:
         for side in "LMR":
-            if f"{region}-{side}" in scopes:
+            if f"{region}-{side}" in scopes:      # region-mean scopes (no side) are not drawn here
                 pos[f"{region}-{side}"] = x; x += 1
         x += 0.6
     pos["wholescalp"] = x + 0.2
@@ -231,7 +322,7 @@ def regime_row(fig, gs_row, scopes, table, layout, title=None):
     return axes
 
 
-def legend_block(fig, height):
+def legend_block(fig, height, ceiling=False):
     regimes = [Patch(fc=st.REGIME_COLORS[r], ec="none", label=f"{st.REGIME_LABELS[r]} ({st.REGIME_LABELS[r][0]})")
                for r in st.REGIMES]
     families = [Line2D([], [], marker=m, ls="none", ms=st.size(m), mfc=st.INK2, mec="white", mew=0.4, label=f)
@@ -240,7 +331,10 @@ def legend_block(fig, height):
              Line2D([], [], marker="o", ls="none", ms=3, mfc="white", mec=st.INK2, label="after joint controls"),
              Line2D([], [], color=st.INK2, lw=1.1, label="chance"),
              Line2D([], [], marker="$*$", ls="none", ms=4, color=st.INK, label="p < .05, corrected")]
-    kw = dict(frameon=False, handletextpad=0.3, columnspacing=1.1, borderaxespad=0, fontsize=6, loc="lower left")
+    if ceiling:
+        marks += [Patch(fc=st.RULE, alpha=0.45, ec="none", label="noise ceiling"),
+                  Line2D([], [], color=st.MUTED, lw=0.6, ls=(0, (2, 1.5)), label="ceiling after controls")]
+    kw = dict(frameon=False, handletextpad=0.3, columnspacing=0.9, borderaxespad=0, fontsize=6, loc="lower left")
     dy = 0.16 / height
     for y, title, handles in ((2 * dy, "Training regime", regimes), (dy, "Model family", families),
                               (0.0, "Estimates", marks)):
@@ -250,7 +344,7 @@ def legend_block(fig, height):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--layout", choices=["occlusion", "face"], default="occlusion",
+    ap.add_argument("--layout", choices=["occlusion", "occlusion_v1", "face"], default="occlusion",
                     help="occlusion: raw and controlled OT panels, control breakdown, face per ROI; "
                          "face: raw OT panels, face and Qwen3-VL per ROI after controls")
     ap.add_argument("--out", default=None, help="output path without extension")
@@ -263,6 +357,34 @@ def main():
     layout = sensor_layout()
     comparisons = {"raw": raw, "joint": joint}
     if args.layout == "occlusion":
+        partial = rows(STATS["54"] / "noise_ceilings_partial.csv")
+        per_raw = rows(STATS["54"] / "rho_max_per_rdm.csv")
+        per_joint = rows(STATS["54"] / "rho_max_partial_joint_per_rdm.csv")
+        fig = plt.figure(figsize=(5.5, 6.6))
+        gs_a = fig.add_gridspec(1, 4, left=0.09, right=0.99, top=0.95, bottom=0.74, wspace=0.1)
+        a = [fig.add_subplot(gs_a[0, j]) for j in range(4)]
+        for ax, sc in zip(a, scopes):
+            paired_panel(ax, sc, variant(raw), variant(joint), ceilings(sc, partial, per_raw, per_joint))
+        for j, ax in enumerate(a):
+            ax.set_ylim(0, 0.3)
+            sensor_inset(ax, scopes[j], layout)
+            if j:
+                ax.tick_params(labelleft=False)
+        a[0].set_ylabel(r"$\rho_{\max}$")
+        b = fig.add_subplot(fig.add_gridspec(1, 1, left=0.09, right=0.99, top=0.62, bottom=0.46)[0, 0])
+        region_panel(b, ["OccipitoTemporal", "Central"])
+        gs = fig.add_gridspec(1, 2, left=0.09, right=0.99, top=0.36, bottom=0.17, wspace=0.08)
+        c, d = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
+        contrast_panel(c, "H2 face vs ImageNet", "face − ImageNet pretraining", "Face", comparisons, None,
+                       (("pooled", "o"),), None, ("raw", "joint"))
+        contrast_panel(d, "H3 fine-tuned vs start", "emotion fine-tuned − its start", "Emotion", comparisons, None,
+                       (("pooled", "o"),), None, ("raw", "joint"))
+        c.set_ylabel(r"difference in $\rho_{\max}$"); d.tick_params(labelleft=False)
+        for ax in (c, d):
+            ax.set_ylim(-0.06, 0.117)
+        for ax, letter, x in ((a[0], "a", -0.42), (b, "b", -0.09), (c, "c", -0.16), (d, "d", -0.05)):
+            st.panel_label(ax, letter, x=x)
+    elif args.layout == "occlusion_v1":
         fig = plt.figure(figsize=(5.5, 6.4))
         a = regime_row(fig, fig.add_gridspec(1, 4, left=0.09, right=0.99, top=0.93, bottom=0.75, wspace=0.12),
                        scopes, variant(raw), layout, "raw")
@@ -293,7 +415,7 @@ def main():
             ax.set_ylim(-0.06, 0.117)
         for ax, letter, x in ((a[0], "a", -0.38), (b, "b", -0.16), (c, "c", -0.05)):
             st.panel_label(ax, letter, x=x)
-    legend_block(fig, fig.get_figheight())
+    legend_block(fig, fig.get_figheight(), ceiling=args.layout == "occlusion")
     for ext in ("pdf", "png"):
         fig.savefig(f"{out}.{ext}")
     print(f"[ok] -> {out}.{{pdf,png}}")

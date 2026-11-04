@@ -48,3 +48,9 @@ def point_format(x):
 
 def stars(p):
     return "***" if p < .001 else "**" if p < .01 else "*" if p < .05 else "n.s."
+
+
+def blend(color, t):
+    """color mixed with white (t = share of the colour kept)."""
+    from matplotlib.colors import to_rgb
+    return tuple(t * c + (1 - t) for c in to_rgb(color))
