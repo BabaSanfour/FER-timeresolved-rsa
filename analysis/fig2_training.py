@@ -59,7 +59,7 @@ def YLAB():
 
 
 def DLAB():
-    return "difference (fraction of ceiling)" if NC["suffix"] else r"difference in $\rho_{\max}$"
+    return "difference − chance" if NC["suffix"] else r"difference in $\rho_{\max}$"
 
 
 def cfile(name=""):
@@ -267,26 +267,33 @@ def topo_head(ax, values, significant, scalp, vmax):
     return im
 
 
-def topo_grid(fig, box, scalp):
-    """Rows: the four comparisons; columns: raw, occlusion removed, all controls removed. Each head:
-    the corrected difference (observed - chance) per ROI; dots on ROIs with p < .05 (maxT)."""
+def topo_grid(fig, box, scalp, transpose=False):
+    """Rows: the four comparisons; columns: raw, occlusion removed, all controls removed (transpose:
+    the other way round). Each head: the corrected difference (observed - chance) per ROI; dots on
+    ROIs with p < .05 (maxT)."""
     x0, y0, w, h = box
     vmax = 0.05 * (4 if NC["suffix"] else 1)
     tables = {name: {(r["hypothesis"], r["scope"]): r for r in rows(STATS["54"] / cfile(name))
                      if r["contrast"] == "pooled"} for name, _ in CONDITIONS}
-    cw, rh = w / (len(CONDITIONS) + 0.9), h / len(COMPARISONS)
-    for i, (hyp, label, regime) in enumerate(COMPARISONS):
-        fig.text(x0, y0 + h - (i + 0.5) * rh, label, ha="left", va="center", fontsize=6.8,
-                 color=st.REGIME_COLORS[regime])
-        for j, (name, title) in enumerate(CONDITIONS):
+    rows_, cols_ = (CONDITIONS, COMPARISONS) if transpose else (COMPARISONS, CONDITIONS)
+    cw, rh = w / (len(cols_) + 0.9), h / len(rows_)
+    for i, row in enumerate(rows_):
+        rlabel = row[1].replace(" removed", "\nremoved") if transpose else row[1]
+        fig.text(x0, y0 + h - (i + 0.5) * rh, rlabel, ha="left", va="center", fontsize=6.8,
+                 color=st.INK2 if transpose else st.REGIME_COLORS[row[2]])
+        for j, col in enumerate(cols_):
+            (hyp, clabel, regime), (name, ctitle) = (col, row) if transpose else (row, col)
             ax = fig.add_axes([x0 + (j + 0.9) * cw, y0 + h - (i + 1) * rh, cw * 0.95, rh * 0.95])
             t = tables[name]
             values = {sc: float(t[hyp, sc]["corrected"]) for sc in ROI_CHANNELS}
             sig = {sc: float(t[hyp, sc]["p_maxT"]) < .05 for sc in ROI_CHANNELS}
             im = topo_head(ax, values, sig, scalp, vmax)
             if i == 0:
-                ax.set_title(title.replace(" removed", "\nremoved"), fontsize=6.8, pad=1)
-    cax = fig.add_axes([x0 + 0.9 * cw + 0.03, y0 - 0.035, (len(CONDITIONS) * cw) - 0.06, 0.008])
+                if transpose:
+                    ax.set_title(clabel, fontsize=6.8, pad=1, color=st.REGIME_COLORS[regime])
+                else:
+                    ax.set_title(ctitle.replace(" removed", "\nremoved"), fontsize=6.8, pad=1)
+    cax = fig.add_axes([x0 + 0.9 * cw + 0.03, y0 - 0.035, (len(cols_) * cw) - 0.06, 0.008])
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-vmax, 0, vmax], labels=[st.point_format(round(-vmax, 3)), "0", st.point_format(round(vmax, 3))])
     cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
@@ -442,8 +449,9 @@ def contrast_panel(ax, hyp, title, regime, comparisons, participants, series, rn
         tick.set_color(REGION_COLORS[region_of(sc)])
     for region, label in REGIONS:
         xs = [x for s, x in pos.items() if s.startswith(region + "-")]
-        ax.text(np.mean(xs), -0.2, label, transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=6.6,
-                color=REGION_COLORS[region])
+        ax.text(np.mean(xs), -0.2, label.replace("-", "-\n") if len(label) > 8 else label,
+                transform=ax.get_xaxis_transform(), ha="center", va="top", fontsize=6.6,
+                color=REGION_COLORS[region], linespacing=0.95)
     ax.set_xlim(-0.7, pos["wholescalp"] + 0.6)
     ax.set_ylim(-0.1 * (4 if NC["suffix"] else 1), top + 0.012 * (4 if NC["suffix"] else 1))
     ax.set_title(title)
@@ -527,6 +535,8 @@ def main():
                          "face: raw OT panels, face and Qwen3-VL per ROI after controls")
     ap.add_argument("--out", default=None, help="output path without extension")
     ap.add_argument("--nc", action="store_true", help="noise-ceiling-normalised values (ceiling = 1)")
+    ap.add_argument("--cd", choices=["families", "strips"], default="families",
+                    help="panels c-d: face and emotion by family plus their time course, or per ROI")
     args = ap.parse_args()
     if args.nc:
         NC["suffix"] = "_nc"
@@ -570,7 +580,8 @@ def main():
         partial = rows(STATS["54"] / "noise_ceilings_partial.csv")
         per_raw = rows(STATS["54"] / "rho_max_per_rdm.csv")
         per_joint = rows(STATS["54"] / "rho_max_partial_joint_per_rdm.csv")
-        fig = plt.figure(figsize=(5.5, 6.7 if args.layout == "topo" else 6.1))
+        fig = plt.figure(figsize=(5.5, {("topo", "families"): 6.7, ("slope", "families"): 6.1,
+                                        ("topo", "strips"): 7.4, ("slope", "strips"): 6.4}[args.layout, args.cd]))
         top_a = 0.95
         gs_a = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=top_a, bottom=top_a - 0.17, wspace=0.1)
         a = [fig.add_subplot(gs_a[0, j]) for j in range(4)]
@@ -584,7 +595,31 @@ def main():
             if j:
                 ax.tick_params(labelleft=False)
         a[0].set_ylabel(YLAB())
-        if args.layout == "topo":
+        if args.cd == "strips":
+            if args.layout == "topo":
+                topo_grid(fig, (0.03, 0.42, 0.94, 0.28), topo_scalp(), transpose=True)
+                fig.text(0.02, 0.715, "b", fontsize=9, fontweight="bold")
+            else:
+                gs_b = fig.add_gridspec(1, 2, left=0.1, right=0.6, top=0.67, bottom=0.47, wspace=0.12)
+                b1, b2 = fig.add_subplot(gs_b[0, 0]), fig.add_subplot(gs_b[0, 1])
+                slope_panel(b1, "OccipitoTemporal"); slope_panel(b2, "Central")
+                b1.set_ylabel("difference − chance", fontsize=7.2); b2.tick_params(labelleft=False)
+                fig.legend(handles=b1.get_legend_handles_labels()[0], labels=b1.get_legend_handles_labels()[1],
+                           loc="center left", bbox_to_anchor=(0.66, 0.57), fontsize=6.8, handlelength=2.2,
+                           frameon=False, title="comparisons in b", title_fontsize=7)
+                st.panel_label(b1, "b", x=-0.3)
+            top = 0.29 if args.layout == "topo" else 0.36
+            gs = fig.add_gridspec(1, 2, left=0.1, right=0.99, top=top, bottom=top - 0.15, wspace=0.08)
+            c, d = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
+            contrast_panel(c, "H2 face vs ImageNet", "face − ImageNet pretraining", "Face", comparisons, None,
+                           (("pooled", "o"),), None, ("raw", "joint"))
+            contrast_panel(d, "H3 fine-tuned vs start", "emotion fine-tuned − its start", "Emotion", comparisons,
+                           None, (("pooled", "o"),), None, ("raw", "joint"))
+            c.set_ylabel(DLAB(), fontsize=7.2); d.tick_params(labelleft=False)
+            for ax in (c, d):
+                ax.set_ylim(-0.06 * 4 if args.nc else -0.06, 0.117 * 4 if args.nc else 0.117)
+            st.panel_label(a[0], "a", x=-0.42); st.panel_label(c, "c", x=-0.16); st.panel_label(d, "d", x=-0.05)
+        elif args.layout == "topo":
             topo_grid(fig, (0.03, 0.2, 0.54, 0.47), topo_scalp())
             gs = fig.add_gridspec(2, 1, left=0.7, right=0.97, top=0.65, bottom=0.21, hspace=0.55)
             c, d = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[1, 0])
@@ -600,10 +635,11 @@ def main():
                        loc="center left", bbox_to_anchor=(0.66, 0.26), fontsize=6.8, handlelength=2.2, frameon=False,
                        title="comparisons in b", title_fontsize=7)
             st.panel_label(b1, "b", x=-0.3)
-        family_panel(c); time_panel(d)
-        c.set_ylabel("difference − chance", fontsize=7.2); d.set_ylabel("difference − chance", fontsize=7.2)
-        st.panel_label(a[0], "a", x=-0.42); st.panel_label(c, "c", x=-0.25)
-        st.panel_label(d, "d", x=-0.25 if args.layout == "topo" else -0.1)
+        if args.cd == "families":
+            family_panel(c); time_panel(d)
+            c.set_ylabel("difference − chance", fontsize=7.2); d.set_ylabel("difference − chance", fontsize=7.2)
+            st.panel_label(a[0], "a", x=-0.42); st.panel_label(c, "c", x=-0.25)
+            st.panel_label(d, "d", x=-0.25 if args.layout == "topo" else -0.1)
     elif args.layout == "occlusion_v1":
         fig = plt.figure(figsize=(5.5, 6.4))
         a = regime_row(fig, fig.add_gridspec(1, 4, left=0.09, right=0.99, top=0.93, bottom=0.75, wspace=0.12),
