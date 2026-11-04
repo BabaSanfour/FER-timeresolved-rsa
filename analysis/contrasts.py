@@ -200,7 +200,7 @@ def upper_ceiling(z):
     return np.nanmean(np.sum(z * unit[None], -1), 0)
 
 
-def permutation_nulls(s, tags, hyp, W, partial, normalize=False):
+def permutation_nulls(s, tags, hyp, W, partial, normalize=False, observed=None):
     """{key: (N_PERM, O[, W])} of all_contrasts under within-emotion label permutation, and the
     upper noise ceilings (O, 3, W) of the EEG (after the controls with --partial). With normalize,
     every cell is divided by its ceiling before the selection, as for the observed grids."""
@@ -220,6 +220,8 @@ def permutation_nulls(s, tags, hyp, W, partial, normalize=False):
             z = rank_normalise(upper(eeg[..., idx, :][..., idx]))[0][:, :, :W]            # (S, O, W, P)
         eeg_mean[e] = z.mean(0)
         ceiling[e] = upper_ceiling(z)                                                    # (O, W)
+        if observed is not None:
+            observed.setdefault("z", {})[e] = z
         perms[e] = [pair_permutation(rng.permutation(len(idx))) for _ in range(N_PERM)]
     del eeg
     needed = sorted({t for items in hyp.values() for _, a, b in items for t in tags[a] + tags[b]})
@@ -228,6 +230,24 @@ def permutation_nulls(s, tags, hyp, W, partial, normalize=False):
         m = rsa_core.load_model_rdm(s, tag)[:, :W]
         model[tag] = [(ranked_centered if partial else lambda v: rank_normalise(v)[0])(
             upper(m[..., rsa_core.EMOTIONS[s][e], :][..., rsa_core.EMOTIONS[s][e]])) for e in EMOTIONS]
+    if observed is not None:                       # participant grids on the stimulus subset (--drop-actor)
+        for tag in needed:
+            g = []
+            for ei, e in enumerate(EMOTIONS):
+                mv, z = model[tag][ei], observed["z"][e]                                 # (L, W, P), (S, O, W, P)
+                if partial:
+                    x = np.empty(z.shape[:2] + (mv.shape[0], W))
+                    for w in range(W):
+                        mz, bad = residual_normalise(mv[:, w], bases[e][w])
+                        x[:, :, :, w] = np.einsum("sop,lp->sol", z[:, :, w], mz, optimize=True)
+                        x[:, :, bad, w] = np.nan
+                else:
+                    flat = np.linalg.norm(mv, axis=-1) < 1e-12
+                    x = np.einsum("sowp,lwp->solw", z, mv, optimize=True)
+                    x[:, :, flat] = np.nan
+                g.append(x)
+            observed[tag] = np.stack(g, 3)                                                # (S, O, L, 3, W)
+        del observed["z"]
     null = None
     for k in range(N_PERM):
         grids = {}
@@ -289,6 +309,8 @@ def main():
     ap.add_argument("--design", choices=["ckpt", "ids"], default=None,
                     help="a FaceNet learning design instead: checkpoints along training or identity counts")
     ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
+    ap.add_argument("--drop-actor", type=int, default=None,
+                    help="leave out the k-th actor (0-5) of every emotion: stimulus-level robustness")
     ap.add_argument("--per-rdm", action="store_true",
                     help="also each RDM (seed or training run) at its own peak against the null (hypothesis 'rdm')")
     ap.add_argument("--normalize", action="store_true",
@@ -296,11 +318,23 @@ def main():
     args = ap.parse_args()
     globals()["N_PERM"] = args.n_perm
     PER_RDM["on"] = args.per_rdm
+    if args.drop_actor is not None:                # leave one actor out of every emotion
+        names = rsa_core.STIMULI[args.stimuli]
+        for e, idx in list(rsa_core.EMOTIONS[args.stimuli].items()):
+            if e == "all":
+                continue
+            actors = sorted({names[i].rsplit("_", 1)[1] for i in idx})
+            gone = actors[args.drop_actor]
+            rsa_core.EMOTIONS[args.stimuli][e] = np.array([i for i in idx if not names[i].endswith("_" + gone)])
     s = args.stimuli
     tags = {(f, v if g == "main" else f"{g} {v}"): t for g, f, v, t in variants.variants(s) if g in ("main", "size", "step", "ckpt", "ids")}
     cache, scale = {}, {}
+    observed = {} if args.drop_actor is not None else None
 
     def grid(tag):
+        if observed is not None and tag in observed:
+            g = observed[tag]
+            return g / scale["ceiling"][None, :, None, :, :g.shape[-1]] if "ceiling" in scale else g
         if tag not in cache:
             g = np.load(rsa_core.grid_path(s, tag, args.partial))["rsa"].astype(np.float64)[:, :, :, EMOTION_CELLS, :]
             cache[tag] = g / scale["ceiling"][None, :, None, :, :g.shape[-1]] if "ceiling" in scale else g
@@ -310,7 +344,7 @@ def main():
     W = grid(tags["ResNet18", "Random"][0]).shape[-1]
     scopes = rsa_core.scopes()
     bounds = rsa_core.window_bounds()[:W]
-    null, ceiling = permutation_nulls(s, tags, hyp, W, args.partial, args.normalize)
+    null, ceiling = permutation_nulls(s, tags, hyp, W, args.partial, args.normalize, observed)
     if args.normalize:
         scale["ceiling"] = ceiling; cache.clear()
     obs = all_contrasts(grid, tags, hyp)
@@ -358,7 +392,8 @@ def main():
     for r, ph in zip(whole, holm([r["p"] for r in whole])):     # sizes: Holm across all size contrasts
         r["p_holm"] = float(ph)
     suffix = (f"_{args.design}" if args.design else "_sizes" if args.sizes else "") + \
-        (f"_{args.partial}" if args.partial else "") + ("_nc" if args.normalize else "")
+        (f"_{args.partial}" if args.partial else "") + ("_nc" if args.normalize else "") + \
+        (f"_dropactor{args.drop_actor}" if args.drop_actor is not None else "")
     out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
     out.mkdir(parents=True, exist_ok=True)
     for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows),
