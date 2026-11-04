@@ -7,13 +7,11 @@ Four primary hypotheses, one test each, Holm across the four:
   H2 face pretraining adds to generic pretraining: face minus ImageNet, pooled over
      the 4 image families
   H3 emotion fine-tuning adds nothing consistent: fine-tuned minus its starting
-     model, pooled over the 5 fine-tuned models (95% CI; equivalence test with
-     --sesoi)
+     model, pooled over the 5 fine-tuned models
   H4 video input does not beat image models: the two pretrained video models
      (M3DFEL Kinetics-400, Qwen3-VL) minus the 8 pretrained image variants
      (ImageNet and face, each image family), pooled over the 16 pairs
-Secondary: each family's (or video model's) contrast alone, with p and 95% CI,
-uncorrected.
+Secondary: each family's (or video model's) contrast alone, uncorrected.
 
 The difference of a contrast A - B is computed on pairs of single RDMs, so both
 sides of every selection carry the same noise: training run r of A with run r of
@@ -21,11 +19,19 @@ B (a fine-tune starts from pretraining run r), a released model with each of the
 ten RDMs of the other variant, or two released models. In every ROI x emotion
 cell (6 ROIs x fear, happiness, neutral) of a pair, layer and window are selected
 on the participant mean of (A + B) / 2 when A and B share a layer axis (same
-family), an unbiased selection for the difference; across families each model is
-read at its own peak. Each participant's difference is averaged over the 18 cells,
-then over the pairs, then (pooled tests) over the contrasts. Tests: two-sided
-sign-flip (20,000 flips) on the participants' differences; 95% CI by bootstrap
-over participants (10,000 resamples).
+family); across families each model is read at its own peak. Each participant's
+difference is averaged over the 18 cells, then over the pairs, then (pooled tests)
+over the contrasts.
+
+Selecting the best of many layer x window cells favours the model whose cells
+differ more from one another, so the difference is not centred on zero when
+neither model relates to the EEG. Each contrast is therefore tested against its
+own null: the stimulus labels are permuted within each emotion (1,000 times, the
+same permutations for every RDM) and the whole contrast, selection included, is
+recomputed on the participant-mean grids (linear in the participants' EEG).
+Reported: the observed difference, the null mean, the corrected difference
+(observed - null mean) with a 95% bootstrap CI over participants shifted by the
+null mean, and the two-sided permutation p around the null mean.
 
 Output: analysis/paper_stats[_54]/contrasts.csv
 """
@@ -36,8 +42,10 @@ import numpy as np
 
 import rsa_core
 import variants
+from rho_max_null import EMOTIONS, pair_permutation
+from rsa_core import rank_normalise, upper
 
-N_FLIP = 20000
+N_PERM = 1000
 N_BOOT = 10000
 SEED = 42
 EMOTION_CELLS = (1, 2, 3)       # fear, happy, neutral on the grid's emotion axis (all, fear, happy, neutral)
@@ -61,25 +69,72 @@ def hypotheses():
     }
 
 
+def pairs_of(ta, tb):
+    return list(zip(ta, tb)) if len(ta) == len(tb) else [(x, y) for x in ta for y in tb]
+
+
 def cell_values(grid, select):
-    """grid (S, O, L, E, W); select (O, L, E, W) participant mean that picks the cells
-    -> (S,) each participant's value at the picked cells, mean over the 18 ROI x emotion cells."""
+    """grid (..., O, L, E, W) with E = the 3 emotions; select (O, L, E, W) participant mean that
+    picks the cells -> (...) value at the picked cells, mean over the 18 ROI x emotion cells."""
     vals = []
     for oi in range(rsa_core.N_ROI):
-        for ei in EMOTION_CELLS:
+        for ei in range(select.shape[2]):
             block = select[oi, :, ei, :]
             li, wi = np.unravel_index(np.nanargmax(block), block.shape)
-            vals.append(grid[:, oi, li, ei, wi])
+            vals.append(grid[..., oi, li, ei, wi])
     return np.mean(vals, axis=0)
 
 
-def sign_flip_p(d, rng, shift=0.0, side="two"):
-    """Sign-flip p for the mean of d - shift: two-sided, or one-sided 'greater' / 'less'."""
-    x = d - shift
-    flips = (rng.choice(np.array([-1., 1.]), size=(N_FLIP, len(x))) * x).mean(1)
-    obs = x.mean()
-    hits = {"two": np.abs(flips) >= abs(obs), "greater": flips >= obs, "less": flips <= obs}[side]
-    return float((1 + np.sum(hits)) / (N_FLIP + 1))
+def pair_difference(ga, gb, same_family):
+    """Grids (..., 6, L, 3, W) of A and B -> (...) A - B at the selected cells."""
+    if same_family:
+        sel = np.nanmean((ga + gb) / 2, 0) if ga.ndim == 5 else (ga + gb) / 2
+        return cell_values(ga, sel) - cell_values(gb, sel)
+    sa = np.nanmean(ga, 0) if ga.ndim == 5 else ga
+    sb = np.nanmean(gb, 0) if gb.ndim == 5 else gb
+    return cell_values(ga, sa) - cell_values(gb, sb)
+
+
+def contrast(grid, tags, a, b):
+    """grid(tag) -> participant (S,) or participant-mean () difference A - B, mean over pairs."""
+    return np.mean([pair_difference(grid(x), grid(y), a[0] == b[0]) for x, y in pairs_of(tags[a], tags[b])], axis=0)
+
+
+def null_contrasts(s, tags, hyp, W):
+    """{(hypothesis, label) or hypothesis: (N_PERM,)} contrasts under within-emotion label permutation."""
+    eeg, _, _ = rsa_core.load_eeg(s)
+    rng = np.random.default_rng(SEED)
+    eeg_mean, perms = {}, {}
+    for e in EMOTIONS:
+        idx = rsa_core.EMOTIONS[s][e]
+        eeg_mean[e] = rank_normalise(upper(eeg[..., idx, :][..., idx]))[0].mean(0)[:rsa_core.N_ROI]   # (6, W, P)
+        perms[e] = [pair_permutation(rng.permutation(len(idx))) for _ in range(N_PERM)]
+    del eeg
+    needed = sorted({t for items in hyp.values() for _, a, b in items for t in tags[a] + tags[b]})
+    ranked = {}
+    for tag in needed:
+        model = rsa_core.load_model_rdm(s, tag)[:, :W]
+        ranked[tag] = [rank_normalise(upper(model[..., rsa_core.EMOTIONS[s][e], :][..., rsa_core.EMOTIONS[s][e]]))
+                       for e in EMOTIONS]
+    out = {key: np.zeros(N_PERM) for h, items in hyp.items() for key in [h] + [(h, lab) for lab, _, _ in items]}
+    for k in range(N_PERM):
+        grids = {}
+        for tag in needed:
+            g = []
+            for ei, e in enumerate(EMOTIONS):
+                mz, flat = ranked[tag][ei]
+                m = np.einsum("owp,lwp->olw", eeg_mean[e], mz[..., perms[e][k]], optimize=True)
+                m[:, flat] = np.nan
+                g.append(m)
+            grids[tag] = np.stack(g, 2)                                   # (6, L, 3, W)
+        for h, items in hyp.items():
+            vals = [contrast(grids.get, tags, a, b) for _, a, b in items]
+            for (lab, _, _), v in zip(items, vals):
+                out[h, lab][k] = v
+            out[h][k] = np.mean(vals)
+        if (k + 1) % 100 == 0:
+            print(f"  [null] {k + 1}/{N_PERM} permutations", flush=True)
+    return out
 
 
 def bootstrap_ci(d, rng):
@@ -97,8 +152,6 @@ def holm(p):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
-    ap.add_argument("--sesoi", type=float, default=None,
-                    help="smallest effect of interest (rho): adds an equivalence test (TOST) for H3")
     args = ap.parse_args()
     s = args.stimuli
     tags = {(f, v): t for g, f, v, t in variants.variants(s) if g == "main"}
@@ -106,51 +159,40 @@ def main():
 
     def grid(tag):
         if tag not in cache:
-            cache[tag] = np.load(rsa_core.grid_path(s, tag))["rsa"].astype(np.float64)
+            cache[tag] = np.load(rsa_core.grid_path(s, tag))["rsa"].astype(np.float64)[:, :, :, EMOTION_CELLS, :]
         return cache[tag]
 
-    def difference(a, b):
-        """(S,) participant differences A - B, averaged over the equal-noise pairs."""
-        ta, tb = tags[a], tags[b]
-        pairs = list(zip(ta, tb)) if len(ta) == len(tb) else [(x, y) for x in ta for y in tb]
-        diffs = []
-        for x, y in pairs:
-            ga, gb = grid(x), grid(y)
-            if a[0] == b[0]:                       # same layers: cells chosen on the pair mean
-                sel = np.nanmean((ga + gb) / 2, 0)
-                diffs.append(cell_values(ga, sel) - cell_values(gb, sel))
-            else:                                  # different layers: each at its own peak
-                diffs.append(cell_values(ga, np.nanmean(ga, 0)) - cell_values(gb, np.nanmean(gb, 0)))
-        return np.mean(diffs, axis=0), len(pairs)
-
+    hyp = hypotheses()
+    W = grid(tags["ResNet18", "Random"][0]).shape[-1]
+    null = null_contrasts(s, tags, hyp, W)
     rng = np.random.default_rng(SEED)
 
-    def row(level, hyp, label, a, b, d, n_pairs):
+    def row(level, h, label, a, b, d, n_pairs, nd):
+        centre = float(nd.mean())
         lo, hi = bootstrap_ci(d, rng)
-        return {"level": level, "hypothesis": hyp, "contrast": label, "a": a, "b": b, "n_pairs": n_pairs,
-                "n": len(d), "mean_difference": round(float(d.mean()), 5), "ci95_low": round(lo, 5),
-                "ci95_high": round(hi, 5), "n_positive": int((d > 0).sum()), "p": sign_flip_p(d, rng)}
+        obs = float(d.mean())
+        return {"level": level, "hypothesis": h, "contrast": label, "a": a, "b": b, "n_pairs": n_pairs,
+                "n": len(d), "mean_difference": round(obs, 5), "null_mean": round(centre, 5),
+                "corrected_difference": round(obs - centre, 5), "ci95_low": round(lo - centre, 5),
+                "ci95_high": round(hi - centre, 5), "n_above_null": int((d > centre).sum()),
+                "p": float((1 + np.sum(np.abs(nd - centre) >= abs(obs - centre))) / (N_PERM + 1))}
 
     primary, secondary = [], []
-    for hyp, items in hypotheses().items():
+    for h, items in hyp.items():
         ds = []
         for label, a, b in items:
-            d, n_pairs = difference(a, b)
+            d = contrast(grid, tags, a, b)
             ds.append(d)
-            if not hyp.startswith("H4"):
-                secondary.append(row("secondary", hyp, label, " ".join(a), " ".join(b), d, n_pairs))
-        if hyp.startswith("H4"):                   # secondary: each video model against the 8 image variants
+            if not h.startswith("H4"):
+                secondary.append(row("secondary", h, label, " ".join(a), " ".join(b), d,
+                                     len(pairs_of(tags[a], tags[b])), null[h, label]))
+        if h.startswith("H4"):                   # secondary: each video model against the 8 image variants
             for v in VIDEO:
-                dv = np.mean([d for (label, a, b), d in zip(items, ds) if a == v], axis=0)
-                secondary.append(row("secondary", hyp, " ".join(v), " ".join(v), "8 pretrained image variants",
-                                     dv, len(IMAGE_PRETRAINED)))
-        r = row("primary", hyp, f"pooled over {len(items)}", "", "", np.mean(ds, axis=0), len(items))
-        if hyp.startswith("H3") and args.sesoi is not None:
-            d = np.mean(ds, axis=0)
-            r["p_equivalence"] = max(sign_flip_p(d, rng, -args.sesoi, "greater"),
-                                     sign_flip_p(d, rng, args.sesoi, "less"))
-            r["sesoi"] = args.sesoi
-        primary.append(r)
+                keep = [i for i, (_, a, _) in enumerate(items) if a == v]
+                secondary.append(row("secondary", h, " ".join(v), " ".join(v), "8 pretrained image variants",
+                                     np.mean([ds[i] for i in keep], axis=0), len(IMAGE_PRETRAINED),
+                                     np.mean([null[h, items[i][0]] for i in keep], axis=0)))
+        primary.append(row("primary", h, f"pooled over {len(items)}", "", "", np.mean(ds, axis=0), len(items), null[h]))
     for r, ph in zip(primary, holm([r["p"] for r in primary])):
         r["p_holm"] = float(ph)
     rows = primary + secondary
@@ -161,9 +203,9 @@ def main():
         w = csv.DictWriter(f, fieldnames=fields); w.writeheader(); w.writerows(rows)
     for r in rows:
         extra = f"  Holm={r['p_holm']:.4f}" if "p_holm" in r else ""
-        extra += f"  p_equiv={r['p_equivalence']:.4f}" if "p_equivalence" in r else ""
-        print(f"{r['level']:9s} {r['hypothesis']:24s} {r['contrast']:44s} {r['mean_difference']:+.4f} "
-              f"[{r['ci95_low']:+.4f}, {r['ci95_high']:+.4f}] (+{r['n_positive']}/{r['n']}) p={r['p']:.4f}{extra}")
+        print(f"{r['level']:9s} {r['hypothesis']:24s} {r['contrast']:44s} observed {r['mean_difference']:+.4f} "
+              f"null {r['null_mean']:+.4f} corrected {r['corrected_difference']:+.4f} "
+              f"[{r['ci95_low']:+.4f}, {r['ci95_high']:+.4f}] p={r['p']:.4f}{extra}")
     print(f"[ok] -> {out}")
 
 
