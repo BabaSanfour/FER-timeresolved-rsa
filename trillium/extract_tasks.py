@@ -2,6 +2,8 @@
 """Task lists for the RDM extraction on Trillium (same line format as make_tasks.py).
 
 Every variant, both stimulus sets (the size curve and step-matched check: 18 videos only).
+--features: the main variants' final-layer features for the linear probe instead,
+into features/set*/ (Qwen3-VL: from the activations kept by its RDM run).
 Layers: every layer with learned parameters except the output layer; M3DFEL: backbone
 convolutions and batch norms; Qwen3-VL: its 64 blocks. Random variants load saved weights.
 """
@@ -17,6 +19,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--root", default=os.path.expandvars("$SCRATCH/fer_revision"))
     p.add_argument("--out", default="trillium/tasks")
+    p.add_argument("--features", action="store_true", help="final-layer features of the main variants")
     a = p.parse_args()
     R, repo = a.root, f"{a.root}/repo"
     D, W, res = f"{R}/data", f"{R}/data/drive", f"{R}/results"
@@ -25,21 +28,23 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     cnn, qwen = [], []
 
+    flag = " --features" if a.features else ""
     for s in ("18", "54"):
-        frames, rdms = f"{D}/stim_frames/set{s}", f"{R}/rdms/set{s}"
+        frames = f"{D}/stim_frames/set{s}"
+        rdms = f"{R}/features/set{s}" if a.features else f"{R}/rdms/set{s}"
 
         def image(name, arch, ckpt, preproc):
             out = f"{rdms}/{name}"
             resize = " --resize 112" if preproc == "half" else ""
             cnn.append(f"{out}\t^\\[ok\\] \\(\tpython {repo}/models/extract_model_rdms.py --arch {arch} "
                        f"--checkpoint {ckpt} --preproc {preproc}{resize} "
-                       f"--h5-dir {frames} --out-dir {out} --out-name {name}")
+                       f"--h5-dir {frames} --out-dir {out} --out-name {name}{flag}")
 
         def m3dfel(name, extra):
             out = f"{rdms}/{name}"
             cnn.append(f"{out}\t^\\[ok\\] \\(\tM3DFEL_R3D={W}/M3DFEL/pretrained/r3d_18-b3b3357e.pth "
                        f"python {repo}/models/m3dfel_extract_rdms.py {extra} --frames-dir {frames} "
-                       f"--out-dir {out} --out-name {name}")
+                       f"--out-dir {out} --out-name {name}{flag}")
 
         for arch in ("resnet18", "resnet50", "facenet", "vgg16"):
             for seed in SEEDS:
@@ -63,7 +68,7 @@ def main():
                 else:
                     image(f"{arch}_vggface2_r{i:02d}", arch, f"{res}/pretrain/{arch}/{rep}/best_weights.pt", "half")
                     image(f"{arch}_affectnet_r{i:02d}", arch, f"{res}/finetune/{arch}/{rep}/best_weights.pt", "half")
-                if arch == "facenet" and s == "18":
+                if arch == "facenet" and s == "18" and not a.features:
                     for size in SIZES:
                         image(f"facenet_size{size}_r{i:02d}", arch,
                               f"{res}/sizecurve/{rep}/{size}/best_weights.pt", "half")
@@ -81,13 +86,19 @@ def main():
 
         for name, extra in [("qwen_released", "")] + [(f"qwen_random_s{x}", f"--random --seed {x}") for x in SEEDS]:
             out = f"{rdms}/{name}"
+            if a.features:                            # the activations of the RDM run are kept
+                cnn.append(f"{out}\t^\\[ok\\] \\(\tpython {repo}/models/vlm/compute_rdms_from_vlm_activations.py "
+                           f"--run-dir {R}/rdms/set{s}/{name}/run --out-dir {out} --out-name {name} "
+                           f"--manifest {frames}/stimulus_manifest.json --features")
+                continue
             qwen.append(f"{out}\t^\\[ok\\] \\(\tpython {repo}/models/vlm/vlm_extract_video_mode.py "
                         f"--metadata_csv {frames}/qwen_videos.csv --output_dir {out}/run "
                         f"--model_id {qwen_dir} --dtype float32 {extra} "
                         f"&& python {repo}/models/vlm/compute_rdms_from_vlm_activations.py --run-dir {out}/run "
                         f"--out-dir {out} --out-name {name} --manifest {frames}/stimulus_manifest.json")
 
-    for name, lines in (("extract_cnn", cnn), ("extract_qwen", qwen)):
+    groups = (("extract_features", cnn),) if a.features else (("extract_cnn", cnn), ("extract_qwen", qwen))
+    for name, lines in groups:
         with open(f"{a.out}/{name}.txt", "w") as f:
             f.write("\n".join(lines) + "\n")
         print(f"{name}: {len(lines)} extractions")
