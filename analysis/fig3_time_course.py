@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""Fig. 3: when each training regime changes EEG alignment (54 videos, noise-ceiling scale).
+"""Fig. 3: at 187-250 ms, left occipito-temporal sites carry the effects of training that survive the
+controls (54 videos, noise-ceiling scale).
 
-Every value is a fraction of the upper EEG noise ceiling (contrasts.py --normalize), as in Fig. 2.
+Every value is the difference above chance as a fraction of the upper EEG noise ceiling (contrasts.py
+--normalize), window by window with the layer selected in each window, pooled over families.
 
-  a     the three time-resolved comparisons (rows: pretrained vs random, face identity vs ImageNet,
-        emotion-tuned vs base model) in the three occipito-temporal ROIs, the two central ROIs and on the
-        whole scalp (columns), window by window with the layer selected in each window: pooled over
-        families before (solid, 95% CI) and after (dashed) removing all nuisance structure, and the
-        strongest family of Fig. 2c (thin grey); bars above the traces mark windows with p < .05 (maxT
-        across the 11 x 13 ROI-window cells; whole scalp across its 13 windows), raw (thick) and after
-        the controls (thin)
-  b     the pooled comparisons over the scalp in five time bins, before and after the controls: the
-        difference above chance per ROI (mean over the bin's windows), dots on ROIs with a significant
-        window in the bin
+  a     each comparison (rows) in the 11 ROIs and on the whole scalp (WS) x 13 windows, before and after
+        removing identity, occlusion, pixel, optical-flow and motion-energy structure jointly; dots: p < .05
+        (maxT across the 11 x 13 ROI-window cells; whole scalp across its 13 windows); the 187-250 ms
+        window is outlined
+  b     the same comparisons over the scalp in the 187-250 ms window
+  c     the three comparisons at occipito-temporal left after the controls (95% CI), bars over the windows
+        with p < .05 (above the traces: above chance; below: below chance); the ROI is chosen from a
 
 Reads analysis/paper_stats_54/contrasts_time{,_joint}_nc.csv; writes analysis/paper_stats_54/fig3_time_course.{pdf,png}.
 """
@@ -24,28 +23,28 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
+from matplotlib.patches import Rectangle
 
 import figure_style as st
-from fig2_training import BEST, DIVERGING, REGION_COLORS, STATS, full_label, region_of, topo_scalp
+from fig2_training import DIVERGING, REGION_COLORS, STATS, region_of, topo_scalp
 
-SCOPES = ["OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "Central-L", "Central-R", "wholescalp"]
+ROWS = ["Frontal-L", "Frontal-M", "Frontal-R", "Central-L", "Central-R", "CentroParietal-L", "CentroParietal-M",
+        "CentroParietal-R", "OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "wholescalp"]
+SHORT = {"Frontal": "F", "Central": "C", "CentroParietal": "CP", "OccipitoTemporal": "OT"}
 COMPARISONS = [("H1 pretrained vs random", "pretrained\nvs random", "Generic"),
                ("H2 face vs ImageNet", "face identity\nvs ImageNet", "Face"),
                ("H3 fine-tuned vs start", "emotion-tuned\nvs base model", "Emotion")]
-BINS = [(0, 2), (2, 4), (4, 6), (6, 8), (8, 13)]          # window indices: 0-125, 125-250, 250-375, 375-500, 500-800 ms
-MAP_ROWS = [("H1 pretrained vs random", "", "pretrained vs random\nraw"),
-            ("H1 pretrained vs random", "joint", "controls\nremoved"),
-            ("H2 face vs ImageNet", "", "face identity\nvs ImageNet, raw"),
-            ("H2 face vs ImageNet", "joint", "controls\nremoved")]
+WINDOW = 3                                               # 187.5-250 ms
+FOCUS = "OccipitoTemporal-L"
 VMAX = 0.2
 
 
 def load(name):
-    """{(hypothesis, contrast, scope): rows sorted by window}."""
     out = {}
     with (STATS / f"contrasts_time{'_' + name if name else ''}_nc.csv").open() as fh:
         for r in csv.DictReader(fh):
-            out.setdefault((r["hypothesis"], r["contrast"], r["scope"]), []).append(r)
+            if r["contrast"] == "pooled":
+                out.setdefault((r["hypothesis"], r["scope"]), []).append(r)
     for rs in out.values():
         rs.sort(key=lambda r: float(r["window_start_ms"]))
     return out
@@ -55,58 +54,42 @@ def series(rs, key):
     return np.array([float(r[key]) for r in rs])
 
 
-def sig_bars(ax, rs, y, color, lw):
-    t0, t1 = series(rs, "window_start_ms"), series(rs, "window_end_ms")
-    sig = series(rs, "p_maxT") < .05
-    for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
-        ax.plot([t0[a], t1[b - 1]], [y, y], color=color, lw=lw, solid_capstyle="butt")
+def label(scope):
+    return "WS" if scope == "wholescalp" else f"{SHORT[region_of(scope)]}-{scope.split('-')[1]}"
 
 
-def trace_panel(ax, hyp, regime, scope, raw, joint, top):
-    color = st.REGIME_COLORS[regime]
-    r = raw[hyp, "pooled", scope]
-    c = (series(r, "window_start_ms") + series(r, "window_end_ms")) / 2
-    ax.fill_between(c, series(r, "low"), series(r, "high"), color=color, alpha=0.2, lw=0)
-    ax.plot(c, series(r, "corrected"), color=color, lw=1.0)
-    ax.plot(c, series(joint[hyp, "pooled", scope], "corrected"), color=color, lw=0.9, ls=(0, (3, 1.5)))
-    ax.plot(c, series(raw[hyp, BEST[hyp], scope], "corrected"), color=st.INK2, lw=0.6, alpha=0.8)
-    sig_bars(ax, r, top * 0.93, color, 1.8)
-    sig_bars(ax, joint[hyp, "pooled", scope], top * 0.84, color, 0.8)
-    ax.axhline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2)))
-    ax.set_xlim(0, 800); ax.set_xticks([0, 400, 800], ["0", "400", "800"])
-    ax.tick_params(labelsize=5.8, length=2, pad=1)
-    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+def grid(ax, table, hyp, labels):
+    vals = np.array([series(table[hyp, sc], "corrected") for sc in ROWS])
+    sig = np.array([series(table[hyp, sc], "p_maxT") < .05 for sc in ROWS])
+    n = len(ROWS)
+    y = np.arange(n, dtype=float); y[-1] += 0.5                      # whole scalp set apart
+    for i in range(n):
+        ax.imshow(vals[i:i + 1], cmap=DIVERGING, vmin=-VMAX, vmax=VMAX, aspect="auto", interpolation="nearest",
+                  extent=(-0.5, vals.shape[1] - 0.5, y[i] + 0.5, y[i] - 0.5))
+        xs = np.flatnonzero(sig[i])
+        ax.plot(xs, [y[i]] * len(xs), "o", ms=1.3, color=st.INK, mec="none")
+    ax.add_patch(Rectangle((WINDOW - 0.5, -0.5), 1, y[-1] + 1, fill=False, ec=st.INK, lw=0.7))
+    ax.set_xlim(-0.5, vals.shape[1] - 0.5); ax.set_ylim(y[-1] + 0.5, -0.5)
+    ax.set_xticks([0, 4, 8, 12], ["0", "250", "500", "750"], fontsize=5.6)
+    ax.set_yticks(y, [label(s) for s in ROWS] if labels else [""] * n, fontsize=5.2)
+    if labels:
+        for tick, sc in zip(ax.get_yticklabels(), ROWS):
+            tick.set_color(REGION_COLORS["wholescalp" if sc == "wholescalp" else region_of(sc)])
+    ax.tick_params(length=0, pad=1)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
 
 
-def maps(fig, box, raw, joint):
+def head(ax, table, hyp, scalp):
     import mne
-    info, roi_of = topo_scalp()
-    x0, y0, w, h = box
-    lab_w = 0.2
-    cw = (w - lab_w) / len(BINS)
-    rh = h / len(MAP_ROWS)
-    ref = raw["H1 pretrained vs random", "pooled", "wholescalp"]
-    starts, ends = series(ref, "window_start_ms"), series(ref, "window_end_ms")
-    for i, (hyp, name, label) in enumerate(MAP_ROWS):
-        t = raw if name == "" else joint
-        yy = y0 + h - (i + 1) * rh
-        fig.text(x0 + lab_w - 0.01, yy + rh / 2, label, ha="right", va="center", fontsize=6.4, linespacing=1.0,
-                 color=st.INK if name == "" else st.INK2)
-        for j, (a, b) in enumerate(BINS):
-            ax = fig.add_axes([x0 + lab_w + j * cw, yy, cw * 0.95, rh * 0.95])
-            vals = [np.mean([float(r["corrected"]) for r in t[hyp, "pooled", roi][a:b]]) for roi in roi_of]
-            sig = [any(float(r["p_maxT"]) < .05 for r in t[hyp, "pooled", roi][a:b]) for roi in roi_of]
-            im, _ = mne.viz.plot_topomap(np.array(vals), info, axes=ax, show=False, cmap=DIVERGING, vlim=(-VMAX, VMAX),
-                                         contours=0, sensors=False, extrapolate="head", mask=np.array(sig),
-                                         mask_params=dict(marker="o", markersize=0.9, markerfacecolor=st.INK,
-                                                          markeredgecolor="none"))
-            if i == 0:
-                ax.set_title(f"{starts[a]:.0f}–{ends[b - 1]:.0f} ms", fontsize=6.4, pad=2)
-    cax = fig.add_axes([x0 + lab_w + 0.05, y0 - 0.025, len(BINS) * cw - 0.1, 0.007])
-    cb = fig.colorbar(im, cax=cax, orientation="horizontal")
-    cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
-    cb.ax.tick_params(labelsize=6, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-    cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.4)
+    info, roi_of = scalp
+    vals = np.array([float(table[hyp, r][WINDOW]["corrected"]) for r in roi_of])
+    sig = np.array([float(table[hyp, r][WINDOW]["p_maxT"]) < .05 for r in roi_of])
+    im, _ = mne.viz.plot_topomap(vals, info, axes=ax, show=False, cmap=DIVERGING, vlim=(-VMAX, VMAX), contours=0,
+                                 sensors=False, extrapolate="head", mask=sig,
+                                 mask_params=dict(marker="o", markersize=1.0, markerfacecolor=st.INK,
+                                                  markeredgecolor="none"))
+    return im
 
 
 def main():
@@ -115,41 +98,67 @@ def main():
     args = ap.parse_args()
     st.setup()
     raw, joint = load(""), load("joint")
-    H = 6.95
+    H = 5.9
     f = lambda inch: 1 - inch / H
     fig = plt.figure(figsize=(5.5, H))
-    gs = fig.add_gridspec(3, 6, left=0.15, right=0.99, top=f(0.45), bottom=f(3.15), wspace=0.15, hspace=0.35)
-    for i, (hyp, label, regime) in enumerate(COMPARISONS):
-        vals = [v for sc in SCOPES for t in (raw, joint) for k in ("low", "high", "corrected")
-                for v in series(t[hyp, "pooled", sc], k)] + \
-               [v for sc in SCOPES for v in series(raw[hyp, BEST[hyp], sc], "corrected")]
-        top = max(vals) * 1.25
-        for j, sc in enumerate(SCOPES):
-            ax = fig.add_subplot(gs[i, j])
-            trace_panel(ax, hyp, regime, sc, raw, joint, top)
-            ax.set_ylim(min(vals) * 1.1, top)
-            if j:
-                ax.tick_params(labelleft=False)
-            if i < 2:
+    scalp = topo_scalp()
+    row_h, gap = 1.12, 0.13
+    xg = [0.17, 0.42]                                    # grid columns (raw, controls removed)
+    gw = 0.23
+    hw = 0.16                                            # head width (figure fraction)
+    xh = [0.69, 0.84]
+    for i, (hyp, name, regime) in enumerate(COMPARISONS):
+        top = 0.55 + i * (row_h + gap)
+        y0, h = f(top + row_h), row_h / H
+        fig.text(0.055, y0 + h / 2, name, ha="center", va="center", fontsize=6.8, color=st.REGIME_COLORS[regime],
+                 linespacing=1.0, rotation=90)
+        for j, t in enumerate((raw, joint)):
+            ax = fig.add_axes([xg[j], y0, gw, h])
+            grid(ax, t, hyp, labels=j == 0)
+            if i == len(COMPARISONS) - 1:
+                ax.set_xlabel("time from onset (ms)", fontsize=6.4, labelpad=1)
+            else:
                 ax.tick_params(labelbottom=False)
-            if i == 0:
-                ax.set_title(full_label(sc), fontsize=6.4, pad=2, linespacing=1.0,
-                             color=REGION_COLORS["wholescalp" if sc == "wholescalp" else region_of(sc)])
-            if j == 0:
-                ax.set_ylabel(label, fontsize=6.6, color=st.REGIME_COLORS[regime], linespacing=1.0, labelpad=3)
-    fig.text(0.565, f(3.38), "time from onset (ms)", ha="center", fontsize=7)
-    fig.text(0.015, f(1.8), "difference above chance (fraction of noise ceiling)", rotation=90, ha="center",
-             va="center", fontsize=6.6, color=st.INK2)
-    handles = [Line2D([], [], color=st.INK2, lw=1.0, label="pooled, raw (95% CI)"),
-               Line2D([], [], color=st.INK2, lw=0.9, ls=(0, (3, 1.5)), label="pooled, controls removed"),
-               Line2D([], [], color=st.INK2, lw=0.6, alpha=0.8, label="strongest family (Qwen3-VL, ResNet50, VGG16)"),
-               Line2D([], [], color=st.INK2, lw=1.8, label="p < .05, raw"),
-               Line2D([], [], color=st.INK2, lw=0.8, label="p < .05, controls removed")]
-    fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.55, f(3.68)), ncol=3, fontsize=6.4, frameon=False,
-               handlelength=1.8, columnspacing=1.0)
-    maps(fig, (0.02, f(6.3), 0.96, 2.2 / H), raw, joint)
-    fig.text(0.01, f(0.05), "a", fontsize=9, fontweight="bold", va="top")
-    fig.text(0.01, f(3.95), "b", fontsize=9, fontweight="bold", va="top")
+            hh = hw * 5.5 / H
+            axh = fig.add_axes([xh[j], y0 + (h - hh) / 2, hw, hh])
+            im = head(axh, t, hyp, scalp)
+    for j, lab in enumerate(("raw", "controls removed")):
+        fig.text(xg[j] + gw / 2, f(0.5), lab, ha="center", va="bottom", fontsize=6.8, color=st.INK2)
+        fig.text(xh[j] + hw / 2, f(0.5), lab, ha="center", va="bottom", fontsize=6.8, color=st.INK2)
+    fig.text(xh[0] + hw, f(0.3), "187–250 ms", ha="center", va="bottom", fontsize=7.2)
+    fig.text(xg[0] + gw + 0.01, f(0.3), "11 ROIs and whole scalp × 13 windows", ha="center", va="bottom", fontsize=7.2)
+    cax = fig.add_axes([0.69, f(4.42), 0.3, 0.06 / H])
+    cb = fig.colorbar(im, cax=cax, orientation="horizontal")
+    cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
+    cb.ax.tick_params(labelsize=5.8, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+    cb.set_label("difference above chance\n(fraction of noise ceiling)", fontsize=6.2, linespacing=1.0)
+    # c: the focus ROI after the controls
+    c = fig.add_axes([0.17, f(5.55), 0.48, 0.95 / H])
+    for k, (hyp, name, regime) in enumerate(COMPARISONS):
+        rs = joint[hyp, FOCUS]
+        color = st.REGIME_COLORS[regime]
+        t0, t1 = series(rs, "window_start_ms"), series(rs, "window_end_ms")
+        cx = (t0 + t1) / 2
+        c.fill_between(cx, series(rs, "low"), series(rs, "high"), color=color, alpha=0.15, lw=0)
+        c.plot(cx, series(rs, "corrected"), color=color, lw=1.0)
+        p, m = series(rs, "p_maxT"), series(rs, "corrected")
+        for sign, yb in ((1, 0.34 - k * 0.035), (-1, -0.27 + k * 0.035)):   # above / below chance
+            sig = (p < .05) & (np.sign(m) == sign)
+            for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
+                c.plot([t0[a], t1[b - 1]], [yb, yb], color=color, lw=1.8, solid_capstyle="butt")
+    c.axvspan(187.5, 250, color=st.RULE, alpha=0.4, lw=0, zorder=0)
+    c.axhline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2)))
+    c.set_xlim(0, 800); c.set_ylim(-0.3, 0.37)
+    c.set_xlabel("time from onset (ms)", fontsize=6.6)
+    c.set_ylabel("above chance\n(fraction of ceiling)", fontsize=6.4)
+    c.set_title("occipito-temporal left, controls removed", fontsize=6.8, pad=2, color=REGION_COLORS["OccipitoTemporal"])
+    c.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    fig.legend(handles=[Line2D([], [], color=st.REGIME_COLORS[r], lw=1.2, label=n.replace("\n", " "))
+                        for _, n, r in COMPARISONS] +
+               [Line2D([], [], color=st.INK2, lw=1.8, label="p < .05, corrected")],
+               loc="center left", bbox_to_anchor=(0.69, f(5.05)), fontsize=6.4, frameon=False, handlelength=1.6)
+    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.66, 0.05), ("c", 0.01, 4.45)):
+        fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")
