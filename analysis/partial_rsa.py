@@ -16,6 +16,7 @@ maxr_table.py --partial <set> summarises them and cluster_permutation.py
   analysis/partial_rsa[_54]/<set>/<model>_rsa_grid.npz   rsa (S, 7, L, 4, W), ..., controls
 """
 import argparse
+import csv
 
 import numpy as np
 from scipy.stats import rankdata
@@ -55,11 +56,38 @@ def control_sets(stimuli):
     return {**{name: [name] for name in names}, "joint": names}
 
 
+def partial_ceilings(s, eeg_ranked, bases, sets, scopes, emotions, W):
+    """Noise ceilings of the EEG after removing each control set, as for the models: each
+    participant's ranked, centred EEG vector is residualised on the controls of the window and
+    correlated with the mean of all participants' residuals (upper) or of the others' (lower),
+    mean over participants (rsa_core.noise_ceilings without controls)."""
+    rows = []
+    for ei, emotion in enumerate(emotions):
+        for name in sets:
+            for k in range(W):
+                ez, invalid = residual_normalise(eeg_ranked[ei][:, :, k], bases[ei][name][k])  # (S, O, P)
+                ez[invalid] = np.nan
+                total = np.nansum(ez, 0)                                                     # (O, P)
+                unit = lambda v: v / np.linalg.norm(v, axis=-1, keepdims=True)
+                up = np.nanmean(np.sum(ez * unit(total)[None], -1), 0)
+                lo = np.nanmean(np.sum(ez * unit(total[None] - ez), -1), 0)
+                rows += [{"set": name, "scope": sc, "emotion": emotion, "window": k,
+                          "lower": round(float(lo[oi]), 5), "upper": round(float(up[oi]), 5)}
+                         for oi, sc in enumerate(scopes)]
+    out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54") / "noise_ceilings_partial.csv"
+    with out.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
+    print(f"[ok] {len(rows)} rows -> {out}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
     ap.add_argument("--models", nargs="+", default=None,
                     help="RDM names (default: every RDM of the main variants, analysis/variants.py)")
+    ap.add_argument("--ceilings", action="store_true",
+                    help="only the noise ceilings of the residual EEG for each control set "
+                         "(analysis/paper_stats[_54]/noise_ceilings_partial.csv)")
     args = ap.parse_args()
     s = args.stimuli
     eeg, subjects, scopes = rsa_core.load_eeg(s)
@@ -76,6 +104,9 @@ def main():
     bases = [{name: [nuisance_basis([upper(controls[c][k][idx][:, idx]) for c in members])
                      for k in range(W)] for name, members in sets.items()}
              for idx in emotions.values()]
+    if args.ceilings:
+        partial_ceilings(s, eeg_ranked, bases, sets, scopes, list(emotions), W)
+        return
 
     for tag in tags:
         model = rsa_core.load_model_rdm(s, tag)[:, :W]                       # (L, W, n, n)
