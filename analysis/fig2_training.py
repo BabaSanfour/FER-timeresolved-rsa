@@ -217,43 +217,45 @@ BEST = {"H1 pretrained vs random": "Qwen3-VL", "H4 video vs image": "Qwen3-VL Pr
 
 
 def pooled_and_best(fig, box, scalp, tables):
-    """b and c side by side: rows = the four comparisons; b = all models pooled, c = the strongest family,
-    each raw and with all controls removed."""
+    """b and c side by side, each 2 rows (raw, controls removed) x 4 columns (the comparisons); b = all
+    models pooled, c = the strongest family of each comparison (named in the column title)."""
     import mne
     x0, y0, w, h = box
     info, roi_of = scalp
-    rh = h / len(COMPARISONS)
-    hw = rh * fig.get_figheight() / fig.get_figwidth()           # head width in figure fraction (square)
-    xb = [x0 + 0.19 * w, x0 + 0.19 * w + hw * 1.02]              # b: raw, controls removed
-    xc = [x0 + 0.54 * w, x0 + 0.54 * w + hw * 1.02]              # c: raw, controls removed
-    for i, (hyp, label, regime) in enumerate(COMPARISONS):
+    lab_w, gap = 0.055, 0.03                                      # row-label column and gap between b and c
+    hw = (w - lab_w - gap) / 8                                     # head width (figure fraction)
+    rh = hw * fig.get_figwidth() / fig.get_figheight()             # square heads
+    xb = [x0 + lab_w + j * hw for j in range(4)]
+    xc = [x0 + lab_w + 4 * hw + gap + j * hw for j in range(4)]
+    for i, (name, rlabel) in enumerate(CONDITIONS):
         yy = y0 + h - (i + 1) * rh
-        fig.text(x0, yy + rh / 2, label.replace(" vs ", "\nvs "), ha="left", va="center", fontsize=6.8,
-                 linespacing=1.0)
-        fig.text(xc[1] + hw * 1.02, yy + rh / 2, BEST[hyp].split()[0], ha="left", va="center", fontsize=6.8,
-                 color=st.INK2)                                    # the family shown in c, to the right
-        for xs, contrast in ((xb, "pooled"), (xc, BEST[hyp])):
-            for xx, (name, _) in zip(xs, CONDITIONS):
-                t = {r["scope"]: r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == contrast}
-                ax = fig.add_axes([xx, yy + 0.04 * rh, hw * 0.95, rh * 0.95])
+        fig.text(x0 + lab_w * 0.6, yy + rh / 2, rlabel, ha="center", va="center", fontsize=7, color=st.INK2,
+                 rotation=90, linespacing=1.0)
+        for xs, pick in ((xb, lambda hyp: "pooled"), (xc, lambda hyp: BEST[hyp])):
+            for xx, (hyp, _, _) in zip(xs, COMPARISONS):
+                t = {r["scope"]: r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == pick(hyp)}
+                ax = fig.add_axes([xx + 0.03 * hw, yy, hw * 0.94, rh * 0.94])
                 im, _ = mne.viz.plot_topomap(
                     np.array([float(t[r]["corrected"]) for r in roi_of]), info, axes=ax, show=False, cmap=DIVERGING,
                     vlim=(-VMAX, VMAX), contours=0, sensors=False, extrapolate="head",
                     mask=np.array([float(t[r]["p_maxT"]) < .05 for r in roi_of]),
-                    mask_params=dict(marker="o", markersize=1.1, markerfacecolor=st.INK, markeredgecolor="none"))
+                    mask_params=dict(marker="o", markersize=0.9, markerfacecolor=st.INK, markeredgecolor="none"))
     top = y0 + h + 0.004
-    for xs, title in ((xb, "all models (pooled)"), (xc, "strongest family")):
-        for xx, (_, lab) in zip(xs, CONDITIONS):
-            fig.text(xx + hw * 0.475, top, lab, ha="center", va="bottom", fontsize=6.6, color=st.INK2, linespacing=1.0)
-        fig.text((xs[0] + xs[1] + hw) / 2, top + 0.25 / fig.get_figheight(), title, ha="center", va="bottom",
+    for xs, group, fam in ((xb, "all models (pooled)", False), (xc, "strongest family", True)):
+        for xx, (hyp, label, _) in zip(xs, COMPARISONS):
+            text = label.replace(" vs ", "\nvs ")
+            if fam:
+                text = f"{BEST[hyp].split()[0]}\n" + text
+            fig.text(xx + hw / 2, top, text, ha="center", va="bottom", fontsize=6.2, linespacing=1.0)
+        fig.text((xs[0] + xs[-1] + hw) / 2, top + 0.42 / fig.get_figheight(), group, ha="center", va="bottom",
                  fontsize=7.2)
-    cax = fig.add_axes([x0 + 0.19 * w, y0 - 0.12 / fig.get_figheight(), xc[1] + hw - x0 - 0.19 * w,
+    cax = fig.add_axes([xb[0] + hw, y0 + h - 2 * rh - 0.14 / fig.get_figheight(), xc[-1] - xb[0] - hw,
                         0.05 / fig.get_figheight()])
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
     cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
-    return xc[0]
+    return xc[0], 2 * rh
 
 
 # ---------------------------------------------------------------- c: what each control removes
@@ -317,7 +319,7 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
-    H = 8.8
+    H = 7.25
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.3), bottom=f(1.55), wspace=0.1)
@@ -329,20 +331,20 @@ def layout_best(args, tables, variant):
         if j:
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
-    xc = pooled_and_best(fig, (0.03, f(5.7), 0.96, 3.0 / H), topo_scalp(), tables)
-    top_d = f(6.55)
-    gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=top_d, bottom=f(7.55), wspace=0.12)
+    xc, _ = pooled_and_best(fig, (0.02, f(4.15), 0.97, 1.4 / H), topo_scalp(), tables)
+    top_d = f(5.02)
+    gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=top_d, bottom=f(6.02), wspace=0.12)
     ds = [fig.add_subplot(gs[0, j]) for j in range(4)]
     for j, (ax, (hyp, title, _)) in enumerate(zip(ds, COMPARISONS)):
         control_panel(ax, hyp, title.replace(" vs ", "\nvs "), tables, labels=j == 0)
     ds[0].text(-0.62, 0.5, "removed", rotation=90, transform=ds[0].transAxes, ha="center", va="center", fontsize=7,
                color=st.INK2)
-    fig.text(0.16, f(7.88), "difference above chance (fraction of noise ceiling)", ha="left", va="center", fontsize=7)
+    fig.text(0.16, f(6.35), "difference above chance (fraction of noise ceiling)", ha="left", va="center", fontsize=7)
     fig.legend(handles=[Line2D([], [], marker=m, ls="none", ms=3.2, mfc=REGION_COLORS[r], mec=REGION_COLORS[r],
                                label=f"{REGION_NAMES[r]} (region mean)") for r, m in C_REGIONS],
-               loc="center right", bbox_to_anchor=(0.99, f(8.05)), ncol=2, fontsize=6.8, handletextpad=0.2,
+               loc="center right", bbox_to_anchor=(0.99, f(6.52)), ncol=2, fontsize=6.8, handletextpad=0.2,
                columnspacing=1.0, frameon=False)
-    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc - 0.03, 2.12), ("d", 0.01, 6.08)):
+    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc - 0.02, 2.12), ("d", 0.01, 4.55)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
     legend_block(fig, H)
     for ext in ("pdf", "png"):
