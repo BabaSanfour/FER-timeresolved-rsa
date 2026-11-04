@@ -12,6 +12,9 @@ import os
 
 SIZES = ["10k", "50k", "100k", "200k", "300k", "500k"]
 SEEDS = [42] + list(range(9))
+CHECKPOINT_STEPS = [0, 30, 100, 300, 1000, 3000, 10000, 30000, 55920]       # as in make_tasks.py
+IDENTITIES = ["50ids", "300ids", "1500ids", "3500ids"]
+N_DESIGN_REPEATS = 3
 REPS = [f"repeat_{r:02d}" for r in range(1, 11)]
 
 
@@ -75,6 +78,16 @@ def main():
                         if size != "500k":
                             image(f"facenet_step{size}_r{i:02d}", arch,
                                   f"{res}/stepmatched/{rep}/{size}/best_weights.pt", "half")
+
+        # FaceNet learning designs (make_tasks.py): weights along full-pool training, and
+        # identity subsets at 100 images each; RDMs and final-layer features for both sets
+        for i in range(1, N_DESIGN_REPEATS + 1):
+            rep = f"repeat_{i:02d}"
+            for step in CHECKPOINT_STEPS:
+                image(f"facenet_ckpt{step:05d}_r{i:02d}", "facenet",
+                      f"{res}/checkpoints/{rep}/checkpoints/step{step:06d}_weights.pt", "half")
+            for ids in IDENTITIES:
+                image(f"facenet_{ids}_r{i:02d}", "facenet", f"{res}/identities/{rep}/{ids}/best_weights.pt", "half")
 
         for seed in SEEDS:
             state = f"{W}/random_init_weights/m3dfel/m3dfel_random_seed{seed}.pt"
