@@ -96,13 +96,13 @@ def label_block(codes, n_segments, conditions):
     """Behaviour trials of a block -> (segment indices, stimulus names) or None if unalignable."""
     names, beh = zip(*(parse_condition(c) for c in conditions))
     if codes is None:
-        return (np.arange(n_segments), list(names)) if n_segments == len(names) else None
+        return (np.arange(n_segments), list(names), np.arange(len(names))) if n_segments == len(names) else None
     sm = difflib.SequenceMatcher(None, codes, list(beh), autojunk=False)
     blocks = [b for b in sm.get_matching_blocks() if b.size]
     if len(blocks) != 1 or blocks[0].size != min(len(codes), len(beh)):
         return None                                   # anything but a cut at either end
     b = blocks[0]
-    return np.arange(b.a, b.a + b.size), list(names[b.b:b.b + b.size])
+    return np.arange(b.a, b.a + b.size), list(names[b.b:b.b + b.size]), np.arange(b.b, b.b + b.size)
 
 
 def interpolate(x, channels, bad):
@@ -136,25 +136,30 @@ def rdms(avgs, channels):
     return out
 
 
+CORRECT_ONLY = {"on": False}
+
+
 def build(subject, behaviour):
     log = {"blocks": {}, "dropped_blocks": []}
-    xs, labels, channels = [], [], None
+    xs, labels, correct, channels = [], [], [], None
     for vhdr in sorted(RAW.glob(f"{subject}_EmoDyn_Bloc*_y.vhdr")):
         block = int(re.search(r"Bloc(\d)", vhdr.name).group(1))
         seg, ch, codes = read_block(vhdr)
         channels = channels or ch
         assert ch == channels, f"{vhdr.name}: channel order differs"
-        cond = behaviour[(behaviour.Subject == subject) & (behaviour.Block == block)].Condition.tolist()
+        rows = behaviour[(behaviour.Subject == subject) & (behaviour.Block == block)]
+        cond = rows.Condition.tolist()
         got = label_block(codes, len(seg), cond)
         if got is None:
             log["dropped_blocks"].append(block)
             print(f"  [drop] {subject} block {block}: {len(seg)} segments, {len(cond)} trials, "
                   f"{'no markers' if codes is None else 'codes do not align'}")
             continue
-        keep, names = got
+        keep, names, trial = got
         log["blocks"][block] = {"segments": len(seg), "behaviour_trials": len(cond), "labelled": len(keep),
                                 "markers": codes is not None}
         xs.append(seg[keep]); labels += names
+        correct += list(rows.Performance.to_numpy()[trial] == 1)
     n = sum(len(x) for x in xs)
     log["trials_recorded"] = n
     if n < MIN_FRACTION * TRIALS_EXPECTED:
@@ -167,6 +172,9 @@ def build(subject, behaviour):
     if bad.any():
         x = interpolate(x, channels, bad)
     clean = np.abs(x).max((1, 2)) <= REJECT_UV
+    if CORRECT_ONLY["on"]:                         # only trials the participant classified correctly
+        log["trials_incorrect"] = int(np.sum(clean & ~np.array(correct)))
+        clean &= np.array(correct)
     counts = {s: int(np.sum(clean & (labels == s))) for s in STIMULI}
     log.update(bad_channels=[channels[i] for i in np.flatnonzero(bad)], trials_rejected=int((~clean).sum()),
                trials_kept=int(clean.sum()), trials_per_video_min=min(counts.values()),
@@ -180,7 +188,13 @@ def build(subject, behaviour):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--subjects", nargs="*", default=None)
+    ap.add_argument("--correct-only", action="store_true",
+                    help="average only the trials each participant classified correctly (output eeg_rdms_correct/)")
     args = ap.parse_args()
+    global OUT
+    if args.correct_only:
+        CORRECT_ONLY["on"] = True
+        OUT = ROOT / "eeg_rdms_correct"
     behaviour = pd.read_csv(RAW / "behavior_RT_perf_identity_occlusion.csv")
     subjects = args.subjects or sorted({p.name.split("_")[0] for p in RAW.glob("*_EmoDyn_Bloc*_y.vhdr")})
     OUT.mkdir(parents=True, exist_ok=True)
