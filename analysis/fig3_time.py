@@ -2,7 +2,7 @@
 """Fig. 3: where and when model-EEG alignment survives the study-wide test (54 videos).
 
 One column per grid that survives Holm across all grids of all variants
-(cluster_permutation.py, p_holm_study < .05).
+(cluster_permutation.py, p_study < .05).
   top     layer x time map of the variant (participant mean; grid averaged over its
           RDMs, as tested), significant clusters outlined
   bottom  time course at the layer with the highest participant mean inside the
@@ -48,7 +48,7 @@ def main():
     args = ap.parse_args()
     st.setup()
     summary = pd.read_csv(RESULTS / "grid_summary.csv")
-    survivors = summary[summary.survives_holm_study == 1].sort_values(["family", "variant", "scope", "emotion"])
+    survivors = summary[summary.survives_study == 1].sort_values(["family", "variant", "scope", "emotion"])
     if survivors.empty:
         raise SystemExit("no grid survives the study-wide Holm correction: nothing to plot")
     tags = {(f, v): t for g, f, v, t in variants.variants("54") if g == "main"}
@@ -67,7 +67,7 @@ def main():
         ei = [str(e) for e in z["emotions"]].index(r.emotion)
         bounds = np.asarray(z["window_bounds"], float)
         centres = bounds.mean(1)
-        sig = np.load(RESULTS / f"{r.model}_cluster_masks.npz")["significant"][si, :, ei, :]
+        sig = np.load(RESULTS / f"{r.model}_cluster_masks.npz")["significant_study"][si, :, ei, :]
         mean = np.nanmean(rsa[:, si, :, ei, :], axis=0)                       # layers x windows
         n_layers, n_windows = mean.shape
 
@@ -82,7 +82,7 @@ def main():
         ax.axhline(y[best], color=st.INK, lw=0.5, ls=(0, (2, 2)))
         ax.set_title(f"{r.family} {r.variant.lower()} · {r.scope}" +
                      ("" if r.emotion == "all" else f" · {r.emotion}") +
-                     rf"  ($p_{{\mathrm{{Holm}}}}$ = {st.point_format(round(r.p_holm_study, 3))})", fontsize=6.5)
+                     rf"  ($p$ = {st.point_format(round(r.p_study, 3))}, study-wide)", fontsize=6.5)
         ax.set_ylabel("relative layer depth" if col == 0 else "")
         ax.set_xticks([0, 250, 500, 750, 1000])
         ax.set_xticklabels([])

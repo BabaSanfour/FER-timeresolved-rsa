@@ -3,11 +3,16 @@
 
 One test per variant (analysis/variants.py, main group) on its participant-level
 grid averaged over its ten seeds or training runs (rsa_core.variant_grid; a
-released model has one RDM), for each of the 7 scopes x 4 conditions (28 grids).
+released model has one RDM), for each scope x condition (12 x 4 = 48 grids).
 Within a grid: one-sided sign-flip test of the cluster mass (sum of t over
 4-neighbour clusters of cells with t above the one-sided .05 threshold), FWER
-from the maximum cluster mass. Across grids: Holm over the 28 grids of a model
-(p_holm_within_model) and over all grids of all variants (p_holm_study).
+from the maximum cluster mass. Across the 48 grids of a model: Holm
+(p_holm_within_model). Across all grids of all variants: maximum statistic
+(p_study). Every grid uses the same sign flips, so for each flip the largest
+cluster mass of each grid, standardised by that grid's null mean and SD, gives a
+study-wide maximum; a cluster's study-wide p is the share of flips whose maximum
+reaches its standardised mass. Standardising puts grids of 15 to 245 layers on
+one scale, and the p does not shrink with the number of grids tested.
 
 Every participant enters every grid (the EEG has no missing values, rsa_core.py).
 A cell is NaN only where a model RDM is constant (no correlation), and then for
@@ -25,8 +30,6 @@ import rsa_core
 import variants
 
 ROOT = rsa_core.ROOT
-# 20,000 sign flips: the smallest p is 1/20,001, so a grid can survive Holm across
-# all grids of all variants (21 x 28 = 588: 588 / 20,001 = .029 < .05)
 N_PERM = 20000
 SEED = 42
 ALPHA = .05
@@ -116,6 +119,8 @@ def main():
         raise SystemExit(f"ABORT: {len(missing)} grids missing, e.g. {missing[:3]}")
     OUT.mkdir(parents=True, exist_ok=True)
     grid_rows, cluster_rows = [], []
+    grid_nulls = []                      # (mean, sd, null) of each grid's maximum cluster mass, in grid_rows order
+    cluster_masks = []                   # (scope, emotion, mask) of every observed cluster, in cluster_rows order
 
     for pi, (family, variant, tags) in enumerate(tested, 1):
         tag = rsa_core.slug(family, variant)
@@ -140,15 +145,17 @@ def main():
                 observed_t = np.where(valid, t_values(x), 0.)
                 observed_clusters = clusters(observed_t, threshold, valid)
                 null = max_cluster_null(x, signs, threshold, valid)
+                grid_nulls.append((float(null.mean()), float(null.std()) or 1.0, null))
                 cluster_ps = []
                 for ci, (mask, mass) in enumerate(observed_clusters, 1):
+                    cluster_masks.append((si, ei, mask))
                     p = float((1 + np.sum(null >= mass)) / (N_PERM + 1))
                     cluster_ps.append(p)
                     if p < ALPHA:
                         masks[si, :, ei, :][mask] = 1
                     where = np.argwhere(mask)
                     cluster_rows.append({
-                        **base,
+                        **base, "grid": len(grid_nulls) - 1,
                         "cluster": ci, "mass": mass, "size": int(mask.sum()),
                         "layer_min": int(where[:, 0].min()),
                         "layer_max": int(where[:, 0].max()),
@@ -184,10 +191,23 @@ def main():
               f"{sum(r['survives_grid_fwer'] for r in model_rows)} grid-FWER, "
               f"{sum(r['survives_holm_within_model'] for r in model_rows)} Holm within model", flush=True)
 
-    # study-wide: Holm over every grid of every variant
-    for row, adj in zip(grid_rows, holm([row["min_cluster_p"] for row in grid_rows])):
-        row["p_holm_study"] = float(adj)
-        row["survives_holm_study"] = int(adj < ALPHA)
+    # study-wide: maximum over all grids of the standardised maximum cluster mass, per sign flip
+    study_max = np.max([(null - mu) / sd for mu, sd, null in grid_nulls], axis=0)
+    for row in cluster_rows:
+        mu, sd, _ = grid_nulls[row["grid"]]
+        row["p_study"] = float((1 + np.sum(study_max >= (row["mass"] - mu) / sd)) / (N_PERM + 1))
+    for gi, row in enumerate(grid_rows):
+        row["p_study"] = min((c["p_study"] for c in cluster_rows if c["grid"] == gi), default=1.0)
+        row["survives_study"] = int(row["p_study"] < ALPHA)
+    # study-wide masks: cells of the clusters with p_study < .05
+    for tag in dict.fromkeys(row["model"] for row in grid_rows):
+        path = OUT / f"{tag}_cluster_masks.npz"
+        saved = dict(np.load(path))
+        study = np.zeros_like(saved["significant"])
+        for (si, ei, mask), c in zip(cluster_masks, cluster_rows):    # same order
+            if c["model"] == tag and c["p_study"] < ALPHA:
+                study[si, :, ei, :][mask] = 1
+        np.savez_compressed(path, **saved, significant_study=study)
 
     with (OUT / "grid_summary.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=grid_rows[0].keys())
@@ -204,10 +224,10 @@ def main():
             "n_rdms": rows[0]["n_rdms"], "n": rows[0]["n"],
             "n_grid_fwer_survivors": sum(r["survives_grid_fwer"] for r in rows),
             "n_holm_within_model_survivors": sum(r["survives_holm_within_model"] for r in rows),
-            "n_holm_study_survivors": sum(r["survives_holm_study"] for r in rows),
+            "n_study_survivors": sum(r["survives_study"] for r in rows),
             "best_cluster_p": min(r["min_cluster_p"] for r in rows),
             "best_holm_within_model_p": min(r["p_holm_within_model"] for r in rows),
-            "best_holm_study_p": min(r["p_holm_study"] for r in rows),
+            "best_study_p": min(r["p_study"] for r in rows),
         })
     with (OUT / "model_survivors.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=survivors[0].keys())
@@ -221,8 +241,9 @@ def main():
         "within_grid_correction": "maximum cluster mass FWER",
         "n_permutations": N_PERM, "seed": SEED,
         "tested_grid": "per variant, the mean of its RDMs' participant-level grids (10 seeds or runs)",
-        "across_grid_correction": {"within_model": "Holm across the 7 scopes x 4 conditions of a model",
-                                   "study": f"Holm across all {len(grid_rows)} grids of all {len(tested)} variants"},
+        "across_grid_correction": {"within_model": "Holm across the scopes x conditions of a model",
+                                   "study": f"maximum statistic across all {len(grid_rows)} grids of all {len(tested)} variants: "
+                                            "each grid's maximum cluster mass standardised by its null mean and SD"},
         "missing_data": "none: every participant in every grid; cells of a constant model RDM are excluded",
     }, indent=2))
     print(f"[ok] -> {OUT}")
