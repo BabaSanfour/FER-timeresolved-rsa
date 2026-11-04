@@ -50,11 +50,14 @@ REGION_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "
                  "OccipitoTemporal": "#eda100", "wholescalp": st.INK}          # as in Fig. 1
 SIDES = {"L": "left", "M": "midline", "R": "right"}
 PANEL_A = ["OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "wholescalp"]
-COMPARISONS = [("H1 pretrained vs random", "pretrained vs random", "Generic"),
-               ("H5 face vs random", "face identity vs random", "Face"),
-               ("H2 face vs ImageNet", "face identity vs ImageNet", "Face"),
-               ("H4 video vs image", "video vs image models", "Generic"),
-               ("H3 fine-tuned vs start", "emotion-tuned vs base model", "Emotion")]
+COMPARISONS = [("H1 pretrained vs random", "generic pretraining vs random", "Generic"),
+               ("H5 face vs random", "face recognition vs random", "Face"),
+               ("H2 face vs ImageNet", "face vs object recognition", "Face"),
+               ("H4 video vs image", "video vs image tasks", "Generic"),
+               ("H3 fine-tuned vs start", "emotion recognition vs base task", "Emotion")]
+SHORT_NAMES = {"H1 pretrained vs random": "generic\nvs random", "H5 face vs random": "face\nvs random",
+               "H2 face vs ImageNet": "face vs object\nrecognition", "H4 video vs image": "video vs\nimage tasks",
+               "H3 fine-tuned vs start": "emotion vs\nbase task"}
 CONDITIONS = [("", "raw"), ("joint", "controls\nremoved")]                          # rows of b
 CONTROL_SETS = [("", "raw"), ("identity", "identity"), ("occlusion", "occlusion"), ("pixel", "pixel"),
                 ("optical_flow", "optical flow"), ("motion_energy", "motion energy"), ("joint", "all")]
@@ -189,8 +192,7 @@ def pooled_and_best(fig, box, scalp, tables):
     bottom = y0 + h - 2 * rh
     for xs, group, fam in ((xb, "all models (pooled)", False), (xc, "strongest family", True)):
         for xx, (hyp, label, _) in zip(xs, COMPARISONS):
-            short = label.replace(" vs ", "\nvs ").replace("vs image models", "vs image").replace("vs base model", "vs base")
-            fig.text(xx + hw / 2, top, short, ha="center", va="bottom", fontsize=5.4,
+            fig.text(xx + hw / 2, top, SHORT_NAMES[hyp], ha="center", va="bottom", fontsize=5.4,
                      linespacing=1.0)
             if fam:                                                 # the family shown, under its heads
                 fig.text(xx + hw / 2, bottom + 0.01 / H, BEST[hyp].split()[0], ha="center", va="top", fontsize=6.6,

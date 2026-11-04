@@ -31,7 +31,7 @@ from fig2_training import DIVERGING, REGION_COLORS, STATS, full_label, region_of
 ROWS = ["Frontal-L", "Frontal-M", "Frontal-R", "Central-L", "Central-R", "CentroParietal-L", "CentroParietal-M",
         "CentroParietal-R", "OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "wholescalp"]
 SHORT = {"Frontal": "F", "Central": "C", "CentroParietal": "CP", "OccipitoTemporal": "OT"}
-from fig2_training import COMPARISONS                    # the same five comparisons as Fig. 2
+from fig2_training import COMPARISONS, SHORT_NAMES       # the same five comparisons as Fig. 2
 LINE_STYLE = {"H1 pretrained vs random": "-", "H5 face vs random": "-", "H2 face vs ImageNet": (0, (3, 1.5)),
               "H4 video vs image": (0, (3, 1.5)), "H3 fine-tuned vs start": "-"}
 WINDOW = 3                                               # 187.5-250 ms
@@ -291,7 +291,7 @@ def main():
             axm = fig.add_axes([x0 + k * step + (step - hw) / 2, yy, hw, hh])
             im = bin_map(axm, joint, hyp, contrast, scalp)
             if i == 0:
-                axm.set_title(name.replace(" vs ", "\nvs "), fontsize=6.2, pad=2, linespacing=1.0,
+                axm.set_title(SHORT_NAMES[hyp], fontsize=6.2, pad=2, linespacing=1.0,
                               color=st.REGIME_COLORS[regime])
             else:
                 axm.text(1.04, 0.5, contrast.split()[0], transform=axm.transAxes, ha="left", va="center",

@@ -13,8 +13,8 @@ REGIMES = ["Random", "Generic", "Face", "Emotion"]
 REGIME_COLORS = {"Random": MUTED, "Generic": "#e87ba4", "Face": "#2a78d6", "Emotion": "#008300"}
 REGIME_OF = {"Random": "Random", "ImageNet": "Generic", "Kinetics-400": "Generic", "Pretrained": "Generic",
              "VGGFace2": "Face", "VGG-Face": "Face", "AffectNet FT": "Emotion", "DFEW FT": "Emotion"}
-REGIME_LABELS = {"Random": "random", "Generic": "generic pretraining", "Face": "face identity",
-                 "Emotion": "emotion fine-tuning"}
+REGIME_LABELS = {"Random": "random", "Generic": "generic pretraining", "Face": "face recognition",
+                 "Emotion": "emotion recognition"}
 MARKERS = {"ResNet18": "o", "ResNet50": "s", "FaceNet": "^", "VGG16": "D", "M3DFEL": "p", "Qwen3-VL": "*"}
 MARKER_SIZE = {"*": 7.5, "p": 5.5, "D": 4.2}
 
