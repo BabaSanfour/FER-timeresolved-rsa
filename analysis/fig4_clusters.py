@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fig. 3: where and when model-EEG alignment survives the study-wide test (54 videos).
+"""Fig. 4: where and when model-EEG alignment survives the study-wide test (54 videos).
 
 One column per grid that survives Holm across all grids of all variants
 (cluster_permutation.py, p_holm_study < .05).
@@ -11,7 +11,7 @@ One column per grid that survives Holm across all grids of all variants
           triangle = peak
 
 Reads analysis/rsa_grid_54/ and analysis/cluster_permutation_54/; writes
-analysis/paper_stats_54/fig3_time.{pdf,png}.
+analysis/paper_stats_54/fig4_clusters.{pdf,png}.
 """
 import argparse
 
@@ -43,7 +43,7 @@ def outer(mask):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(rsa_core.ROOT / "analysis/paper_stats_54/fig3_time"),
+    ap.add_argument("--out", default=str(rsa_core.ROOT / "analysis/paper_stats_54/fig4_clusters"),
                     help="output path without extension")
     args = ap.parse_args()
     st.setup()
