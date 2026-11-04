@@ -55,7 +55,7 @@ COMPARISONS = [("H1 pretrained vs random", "generic pretraining vs random", "Gen
                ("H2 face vs ImageNet", "face vs object recognition", "Face"),
                ("H4 video vs image", "video vs image tasks", "Generic"),
                ("H3 fine-tuned vs start", "emotion recognition vs base task", "Emotion")]
-SHORT_NAMES = {"H1 pretrained vs random": "generic\nvs random", "H5 face vs random": "face\nvs random",
+SHORT_NAMES = {"H1 pretrained vs random": "generic\nvs random", "H5 face vs random": "face\nrecognition\nvs random",
                "H2 face vs ImageNet": "face vs object\nrecognition", "H4 video vs image": "video vs\nimage tasks",
                "H3 fine-tuned vs start": "emotion vs\nbase task"}
 CONDITIONS = [("", "raw"), ("joint", "controls\nremoved")]                          # rows of b
@@ -188,14 +188,14 @@ def pooled_and_best(fig, box, scalp, tables):
                     mask=np.array([float(t[r]["p_maxT"]) < .05 for r in roi_of]),
                     mask_params=dict(marker="o", markersize=0.9, markerfacecolor=st.INK, markeredgecolor="none"))
     H = fig.get_figheight()
-    top = y0 + h - 0.12 * rh                                        # just above the heads
+    top = y0 + h - 0.12 * rh + 0.07 / H                             # above the heads, with a small gap
     bottom = y0 + h - 2 * rh
     for xs, group, fam in ((xb, "all models (pooled)", False), (xc, "strongest family", True)):
         for xx, (hyp, label, _) in zip(xs, COMPARISONS):
             fig.text(xx + hw / 2, top, SHORT_NAMES[hyp], ha="center", va="bottom", fontsize=5.4,
                      linespacing=1.0)
             if fam:                                                 # the family shown, under its heads
-                fig.text(xx + hw / 2, bottom + 0.01 / H, BEST[hyp].split()[0], ha="center", va="top", fontsize=6.6,
+                fig.text(xx + hw / 2, bottom - 0.06 / H, BEST[hyp].split()[0], ha="center", va="top", fontsize=6.6,
                          color=st.INK2)
         fig.text((xs[0] + xs[-1] + hw) / 2, top + 0.24 / H, group, ha="center", va="bottom", fontsize=7.2)
     cax = fig.add_axes([xb[0] + hw, bottom - 0.25 / H, xc[-1] - xb[0] - hw, 0.05 / H])
@@ -262,7 +262,7 @@ def grid_panel(ax, hyp, contrast, tables, labels=False):
             r = next(r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == contrast
                      and r["scope"] == scope)
             vals[k, j] = float(r["corrected"]); sig[k, j] = float(r["p_maxT"]) < .05
-    cols = [0, 1, 2, 3.6, 4.6, 6.2]                                    # gaps between OT, central, whole scalp
+    cols = [0, 1.15, 2.3, 4.0, 5.15, 6.85]                             # gaps between OT, central, whole scalp
     for j, x in enumerate(cols):
         ax.imshow(vals[:, j:j + 1], cmap=DIVERGING, vmin=-VMAX, vmax=VMAX, aspect="auto", interpolation="nearest",
                   extent=(x - 0.5, x + 0.5, n - 0.5, -0.5))
@@ -270,7 +270,13 @@ def grid_panel(ax, hyp, contrast, tables, labels=False):
         ax.plot([x] * len(yy), yy, "o", ms=1.6, color=st.INK, mec="none")
     ax.set_xlim(-0.5, cols[-1] + 0.5); ax.set_ylim(n - 0.5, -0.5)
     ax.axhline(n - 1.5, color="white", lw=1.2)                         # before "all"
-    ax.set_xticks(cols, ["OT-L", "OT-M", "OT-R", "C-L", "C-R", "WS"], fontsize=5.4, rotation=90)
+    ax.set_xticks([])                                                  # groups labelled below (L-M-R order)
+    for xs_, lab, reg in (((cols[0], cols[2]), "OT", "OccipitoTemporal"), ((cols[3], cols[4]), "C", "Central"),
+                          ((cols[5], cols[5]), "WS", "wholescalp")):
+        ax.plot([xs_[0] - 0.4, xs_[1] + 0.4], [n - 0.5 + 0.25] * 2, color=REGION_COLORS[reg], lw=1.2,
+                clip_on=False, solid_capstyle="butt")
+        ax.text(np.mean(xs_), n - 0.5 + 0.45, lab, ha="center", va="top", fontsize=5.8, color=REGION_COLORS[reg],
+                clip_on=False)
     for tick, scope in zip(ax.get_xticklabels(), D_SCOPES):
         tick.set_color(REGION_COLORS["wholescalp" if scope == "wholescalp" else region_of(scope)])
     ax.set_yticks(range(n), [lab for _, lab in CONTROL_SETS] if labels else [""] * n, fontsize=6.4)
@@ -341,7 +347,8 @@ def layout_best(args, tables, variant):
                           orientation="horizontal")
         cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
         cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-        cb.set_label("difference above chance (fraction of noise ceiling); WS, whole scalp", fontsize=6.6)
+        cb.set_label("difference above chance (fraction of noise ceiling)\ncolumns: occipito-temporal (OT) L, M, R; "
+                     "central (C) L, R; whole scalp (WS)", fontsize=6.4, linespacing=1.1)
     for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc[0] - 0.02, 2.12), ("d", 0.01, 4.3),
                          ("e", xc[0] - 0.02, 4.3)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
