@@ -303,10 +303,10 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
-    H = 7.75 if args.de == "bars" else 7.2
+    H = 8.25 if args.de == "bars" else 7.7
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
-    gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.3), bottom=f(1.55), wspace=0.1)
+    gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.45), bottom=f(1.7), wspace=0.1)
     a = [fig.add_subplot(gs[0, j]) for j in range(4)]
     layout = sensor_layout()
     for j, (ax, sc) in enumerate(zip(a, PANEL_A)):
@@ -315,8 +315,8 @@ def layout_best(args, tables, variant):
         if j:
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
-    xb, xc, hw = pooled_and_best(fig, (0.02, f(3.57), 0.97, 1.0 / H), topo_scalp(), tables)
-    top_d, bot_d = f(4.6), f(6.37) if args.de == "bars" else f(5.83)
+    xb, xc, hw = pooled_and_best(fig, (0.02, f(3.92), 0.97, 1.0 / H), topo_scalp(), tables)
+    top_d, bot_d = f(5.1), f(6.87) if args.de == "bars" else f(6.33)
     for xs, group, pick in ((xb, "all models (pooled)", lambda h: "pooled"), (xc, "strongest family", lambda h: BEST[h])):
         axes = []
         for j, (xx, (hyp, label, regime)) in enumerate(zip(xs, COMPARISONS)):
@@ -331,7 +331,7 @@ def layout_best(args, tables, variant):
                 ax.set_xlim(lo, hi + 0.03)
         fig.text((xs[0] + xs[-1] + hw) / 2, top_d + 0.2 / H, group, ha="center", va="bottom", fontsize=7.2)
     if args.de == "bars":
-        fig.text((xb[0] + xc[-1] + hw) / 2, f(6.62), "difference above chance (fraction of noise ceiling)", ha="center",
+        fig.text((xb[0] + xc[-1] + hw) / 2, f(7.12), "difference above chance (fraction of noise ceiling)", ha="center",
                  va="center", fontsize=7)
     handles = []
     for scope in D_SCOPES:
@@ -339,17 +339,17 @@ def layout_best(args, tables, variant):
         handles.append(Patch(fc="white" if hatch else color, ec=color, hatch=hatch, alpha=1 if hatch else alpha,
                              lw=0.4, label=full_label(scope).replace("\n", " ")))
     if args.de == "bars":
-        fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.55, f(6.9)), ncol=3, fontsize=6.6,
+        fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.55, f(7.4)), ncol=3, fontsize=6.6,
                    handletextpad=0.4, columnspacing=1.0, frameon=False)
     else:
-        cax = fig.add_axes([xb[0] + hw, f(6.3), xc[-1] - xb[0] - hw, 0.05 / H])
+        cax = fig.add_axes([xb[0] + hw, f(6.8), xc[-1] - xb[0] - hw, 0.05 / H])
         cb = fig.colorbar(plt.cm.ScalarMappable(cmap=DIVERGING, norm=plt.Normalize(-VMAX, VMAX)), cax=cax,
                           orientation="horizontal")
         cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
         cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
         cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
-    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc[0] - 0.02, 2.12), ("d", 0.01, 4.3),
-                         ("e", xc[0] - 0.02, 4.3)):
+    for letter, x, y in (("a", 0.01, 0.04), ("b", 0.01, 2.34), ("c", xc[0] - 0.02, 2.34), ("d", 0.01, 4.68),
+                         ("e", xc[0] - 0.02, 4.68)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
     legend_block(fig, H)
     for ext in ("pdf", "png"):
