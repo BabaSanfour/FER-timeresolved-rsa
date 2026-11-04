@@ -170,7 +170,7 @@ def main():
 
     with (out / "rho_max_per_rdm.csv").open() as fh:
         align = {r["rdm"]: float(r["max_r"]) for r in csv.DictReader(fh)
-                 if r["roi"] == rsa_core.ROI_AVG and r["emotion"] == rsa_core.EMO_AVG}
+                 if r["roi"] == rsa_core.ROI_AVG and r["emotion"] == rsa_core.EMO_AVG and r["max_r"]}
     probe_acc = {r["rdm"]: r["accuracy"] for r in per_rdm}
     ident_path = rsa_core.ROOT / "analysis/identity_accuracy.csv"
     ident = {r["rdm"]: float(r["accuracy"]) for r in csv.DictReader(ident_path.open())} if ident_path.exists() else {}
