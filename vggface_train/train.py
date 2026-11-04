@@ -148,6 +148,9 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--compile", action="store_true")
     p.add_argument("--resume", default="auto")
+    p.add_argument("--save-at-steps", default="",
+                   help="comma-separated steps (0 = initialisation) at which to evaluate and keep the "
+                        "weights in <out-dir>/checkpoints/, for alignment over training")
     args = p.parse_args()
 
     t0 = time.time()
@@ -229,6 +232,27 @@ def main():
                 ["epoch", "train_loss", "train_top1", "val_top1", "val_top5",
                  "lr", "img_per_s", "epoch_s", "elapsed_s"])
 
+    save_at = {int(x) for x in args.save_at_steps.split(",") if x.strip()}
+    ckpt_dir = os.path.join(args.out_dir, "checkpoints")
+
+    def snapshot(step):
+        """Evaluate and keep the weights at one training step (checkpoints.csv: step, val_top1, val_top5)."""
+        os.makedirs(ckpt_dir, exist_ok=True)
+        top1, top5 = evaluate(model, val_loader, device, amp_dtype, cuda)
+        model.train()
+        path = os.path.join(ckpt_dir, f"step{step:06d}_weights.pt")
+        torch.save(model.state_dict(), path + ".tmp")
+        os.replace(path + ".tmp", path)
+        new = not os.path.exists(os.path.join(ckpt_dir, "checkpoints.csv"))
+        with open(os.path.join(ckpt_dir, "checkpoints.csv"), "a", newline="") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(["step", "val_top1", "val_top5"])
+            w.writerow([step, f"{top1:.4f}", f"{top5:.4f}"])
+        print(f"[{args.arch}] checkpoint step={step} val_top1={top1:.2f}%", flush=True)
+
+    if global_step == 0 and 0 in save_at:
+        snapshot(0)
     stop_reason = "completed"
     # running stats cover the interval since the last evaluation
     e0 = time.time()
@@ -258,6 +282,8 @@ def main():
             run_top1 += accuracy(logits.detach().float(), target, topk=(1,))[0]
             seen += bs
             global_step += 1
+            if global_step in save_at:
+                snapshot(global_step)
 
             if (i + 1) % args.log_every == 0:
                 rate = seen / (time.time() - e0)
