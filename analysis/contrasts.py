@@ -20,7 +20,7 @@ two released models. In each scope x emotion cell (fear, happiness, neutral) of 
 layer and window are selected on the participant mean of (A + B) / 2 when A and B share
 a layer axis (same family); across families each model is read at its own peak. Each
 participant's difference is averaged over the three emotions, then over the pairs, then
-(pooled tests) over the contrasts. The time course of H1 uses the same procedure with
+(pooled tests) over the contrasts. The time courses of H1-H3 use the same procedure with
 the layer selected in each window.
 
 With --normalize, every cell (scope, emotion, window) of every grid, observed and permuted, is
@@ -42,7 +42,7 @@ corrected difference (observed - null mean) with a 95% bootstrap CI over partici
 shifted by the null mean, the two-sided permutation p, and p corrected across the 11 ROIs
 by the maximum statistic over ROIs in the same permutations (Westfall-Young maxT). The
 whole-scalp test of each pooled hypothesis is Holm-corrected across the four hypotheses.
-The H1 time course is corrected across the 11 x 13 ROI-window cells (whole scalp: across
+Each time course (H1-H3) is corrected across the 11 x 13 ROI-window cells (whole scalp: across
 its 13 windows).
 
 --sizes: the FaceNet size curve instead: each training-set size (and each step-matched
@@ -80,6 +80,7 @@ FINE_TUNED = {"ResNet18": ("AffectNet FT", "VGGFace2"), "ResNet50": ("AffectNet 
 VIDEO = [("M3DFEL", "Kinetics-400"), ("Qwen3-VL", "Pretrained")]
 IMAGE_PRETRAINED = [(f, v) for f in FACE for v in (GENERIC[f], FACE[f])]
 H1 = "H1 pretrained vs random"
+TIME_HYPOTHESES = (H1, "H2 face vs ImageNet", "H3 fine-tuned vs start")     # also resolved in time
 
 
 def hypotheses():
@@ -157,7 +158,7 @@ def own_peak(g):
 
 def all_contrasts(grid, tags, hyp):
     """-> {key: value}: every contrast and pooled test per scope, each variant at its own peak
-    (keys ('variant', 'family variant')), and the H1 time course (keys ('time', label) and ('time', H1))."""
+    (keys ('variant', 'family variant')), and the H1-H3 time courses (keys ('time', hypothesis, label))."""
     out = {}
     for key in sorted({x for items in hyp.values() for _, a, b in items for x in (a, b)}):
         out["variant", " ".join(key)] = np.mean([own_peak(grid(t)) for t in tags[key]], axis=0)
@@ -170,11 +171,11 @@ def all_contrasts(grid, tags, hyp):
         else:
             for (label, _, _), x in zip(items, vals):
                 out[h, label] = x
-    if H1 in hyp:
-        time = [contrast(grid, tags, a, b, by_window=True) for _, a, b in hyp[H1]]
-        out["time", H1] = np.mean(time, axis=0)
-        for (label, _, _), x in zip(hyp[H1], time):
-            out["time", label] = x
+    for h in (x for x in TIME_HYPOTHESES if x in hyp):
+        time = [contrast(grid, tags, a, b, by_window=True) for _, a, b in hyp[h]]
+        out["time", h, "pooled"] = np.mean(time, axis=0)
+        for (label, _, _), x in zip(hyp[h], time):
+            out["time", h, label] = x
     return out
 
 
@@ -310,16 +311,17 @@ def main():
     for key, value in obs.items():
         r = tests(value, null[key], rng)
         if key[0] == "time":
-            if key[1] == H1:
+            _, th, label = key
+            if label == "pooled":
                 centre = null[key].mean(0)
                 for oi, sc in enumerate(scopes):
                     for wi in range(W):
                         for pi, v in enumerate(value[:, oi, wi] - centre[oi, wi]):
-                            participant_rows.append({"hypothesis": "time " + H1, "scope": sc, "window": wi,
+                            participant_rows.append({"hypothesis": "time " + th, "scope": sc, "window": wi,
                                                      "participant": pi, "difference": round(float(v), 5)})
             for oi, sc in enumerate(scopes):
                 for wi in range(W):
-                    time_rows.append({"contrast": "pooled" if key[1] == H1 else key[1], "scope": sc,
+                    time_rows.append({"hypothesis": th, "contrast": label, "scope": sc,
                                       "window_start_ms": bounds[wi, 0], "window_end_ms": bounds[wi, 1],
                                       **{k: round(float(v[oi, wi]), 5) if k not in ("p", "p_maxT", "n_above") else
                                          (int(v[oi, wi]) if k == "n_above" else float(v[oi, wi])) for k, v in r.items()}})
