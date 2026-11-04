@@ -252,7 +252,7 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
-    H = 6.85
+    H = 6.92
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.3), bottom=f(1.55), wspace=0.1)
@@ -265,22 +265,24 @@ def layout_best(args, tables, variant):
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
     xb, xc, hw = pooled_and_best(fig, (0.02, f(3.97), 0.97, 1.4 / H), topo_scalp(), tables)
-    top_d, bot_d = f(4.6), f(5.7)
+    top_d, bot_d = f(4.72), f(5.77)
     for xs, group, pick in ((xb, "all models (pooled)", lambda h: "pooled"), (xc, "strongest family", lambda h: BEST[h])):
         axes = []
         for j, (xx, (hyp, label, regime)) in enumerate(zip(xs, COMPARISONS)):
             ax = fig.add_axes([xx + 0.12 * hw, bot_d, hw * 0.8, top_d - bot_d])
             bar_panel(ax, hyp, pick(hyp), regime, tables, labels=xs is xb and j == 0)
+            if xs is xc:                                            # the family shown, as under c's maps
+                ax.set_title(BEST[hyp].split()[0], fontsize=6.6, color=st.INK2, pad=2)
             axes.append(ax)
         lo = min(ax.get_xlim()[0] for ax in axes); hi = max(ax.get_xlim()[1] for ax in axes)
         for ax in axes:
             ax.set_xlim(lo, hi + 0.03)
-        fig.text((xs[0] + xs[-1] + hw) / 2, top_d + 0.06 / H, group, ha="center", va="bottom", fontsize=7.2)
-    fig.text((xb[0] + xc[-1] + hw) / 2, f(5.95), "difference above chance (fraction of noise ceiling)", ha="center",
+        fig.text((xs[0] + xs[-1] + hw) / 2, top_d + 0.2 / H, group, ha="center", va="bottom", fontsize=7.2)
+    fig.text((xb[0] + xc[-1] + hw) / 2, f(6.02), "difference above chance (fraction of noise ceiling)", ha="center",
              va="center", fontsize=7)
     fig.legend(handles=[Patch(fc=st.INK2, alpha=0.85, ec=st.INK2, label="occipito-temporal (region mean)"),
                         Patch(fc="white", ec=st.INK2, hatch="//////", label="central (region mean)")],
-               loc="center", bbox_to_anchor=(0.55, f(6.17)), ncol=2, fontsize=6.8, handletextpad=0.4,
+               loc="center", bbox_to_anchor=(0.55, f(6.24)), ncol=2, fontsize=6.8, handletextpad=0.4,
                columnspacing=1.2, frameon=False)
     for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc[0] - 0.02, 2.12), ("d", 0.01, 4.42),
                          ("e", xc[0] - 0.02, 4.42)):
