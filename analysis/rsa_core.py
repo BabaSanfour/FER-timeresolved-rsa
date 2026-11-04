@@ -93,14 +93,6 @@ def rank_normalise(v):
     return np.divide(rc, np.clip(n, 1e-12, None)), (n[..., 0] < 1e-12)
 
 
-def spearman(x, y):
-    """Spearman's rho; NaN if either vector is constant."""
-    rx, ry = rankdata(x), rankdata(y)
-    if np.std(rx) == 0 or np.std(ry) == 0:
-        return np.nan
-    return float(np.corrcoef(rx, ry)[0, 1])
-
-
 def row_spearman(x, y):
     """Row-wise Spearman of two (rows, pairs) arrays."""
     rx, ry = rankdata(x, axis=1), rankdata(y, axis=1)
