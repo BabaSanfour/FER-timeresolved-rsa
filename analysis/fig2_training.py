@@ -162,7 +162,7 @@ BEST = {"H1 pretrained vs random": "Qwen3-VL", "H4 video vs image": "Qwen3-VL Pr
         "H5 face vs random": "ResNet18"}            # most ROIs with p < .05 after the controls, chosen after the results
 
 
-def pooled_and_best(fig, box, scalp, tables):
+def pooled_and_best(fig, box, scalp, tables, colorbar=True):
     """b and c side by side, each 2 rows (raw, controls removed) x 4 columns (the comparisons); b = all
     models pooled, c = the best model of each comparison (named in the column title)."""
     import mne
@@ -192,17 +192,18 @@ def pooled_and_best(fig, box, scalp, tables):
     bottom = y0 + h - 2 * rh
     for xs, group, fam in ((xb, "all models (pooled)", False), (xc, "best model", True)):
         for xx, (hyp, label, _) in zip(xs, COMPARISONS):
-            fig.text(xx + hw / 2, top, SHORT_NAMES[hyp], ha="center", va="bottom", fontsize=5.4,
+            fig.text(xx + hw / 2, top, SHORT_NAMES[hyp], ha="center", va="bottom", fontsize=5.0,
                      linespacing=1.0)
             if fam:                                                 # the family shown, under its heads
-                fig.text(xx + hw / 2, bottom - 0.06 / H, BEST[hyp].split()[0], ha="center", va="top", fontsize=6.6,
+                fig.text(xx + hw / 2, bottom - 0.06 / H, BEST[hyp].split()[0], ha="center", va="top", fontsize=5.8,
                          color=st.INK2)
         fig.text((xs[0] + xs[-1] + hw) / 2, top + 0.24 / H, group, ha="center", va="bottom", fontsize=7.2)
-    cax = fig.add_axes([xb[0] + hw, bottom - 0.25 / H, xc[-1] - xb[0] - hw, 0.05 / H])
-    cb = fig.colorbar(im, cax=cax, orientation="horizontal")
-    cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
-    cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-    cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
+    if colorbar:
+        cax = fig.add_axes([xb[0] + hw, bottom - 0.25 / H, xc[-1] - xb[0] - hw, 0.05 / H])
+        cb = fig.colorbar(im, cax=cax, orientation="horizontal")
+        cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
+        cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+        cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
     return xb, xc, hw
 
 
@@ -303,7 +304,7 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (best model) side by side; d what each control removes."""
-    H = 8.25 if args.de == "bars" else 7.7
+    H = 8.25 if args.de == "bars" else 6.62
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.45), bottom=f(1.7), wspace=0.1)
@@ -315,15 +316,17 @@ def layout_best(args, tables, variant):
         if j:
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
-    xb, xc, hw = pooled_and_best(fig, (0.02, f(3.92), 0.97, 1.0 / H), topo_scalp(), tables)
-    top_d, bot_d = f(5.1), f(6.87) if args.de == "bars" else f(6.33)
+    grid = args.de == "grid"
+    xb, xc, hw = pooled_and_best(fig, (0.02, f(3.92), 0.875 if grid else 0.97, 1.0 / H), topo_scalp(), tables,
+                                 colorbar=not grid)
+    top_d, bot_d = (f(5.1), f(6.87)) if not grid else (f(4.38), f(5.61))
     for xs, group, pick in ((xb, "all models (pooled)", lambda h: "pooled"), (xc, "best model", lambda h: BEST[h])):
         axes = []
         for j, (xx, (hyp, label, regime)) in enumerate(zip(xs, COMPARISONS)):
             ax = fig.add_axes([xx + 0.12 * hw, bot_d, hw * 0.8, top_d - bot_d])
             (grid_panel if args.de == "grid" else bar_panel)(ax, hyp, pick(hyp), tables, labels=xs is xb and j == 0)
             if xs is xc:                                            # the family shown, as under c's maps
-                ax.set_title(BEST[hyp].split()[0], fontsize=6.6, color=st.INK2, pad=2)
+                ax.set_title(BEST[hyp].split()[0], fontsize=5.8, color=st.INK2, pad=2)
             axes.append(ax)
         if args.de == "bars":
             lo = min(ax.get_xlim()[0] for ax in axes); hi = max(ax.get_xlim()[1] for ax in axes)
@@ -342,14 +345,15 @@ def layout_best(args, tables, variant):
         fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.55, f(7.4)), ncol=3, fontsize=6.6,
                    handletextpad=0.4, columnspacing=1.0, frameon=False)
     else:
-        cax = fig.add_axes([xb[0] + hw, f(6.8), xc[-1] - xb[0] - hw, 0.05 / H])
-        cb = fig.colorbar(plt.cm.ScalarMappable(cmap=DIVERGING, norm=plt.Normalize(-VMAX, VMAX)), cax=cax,
-                          orientation="horizontal")
-        cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
+        cax = fig.add_axes([0.905, bot_d, 0.012, f(2.6) - bot_d])          # one vertical colorbar for b-e
+        cb = fig.colorbar(plt.cm.ScalarMappable(cmap=DIVERGING, norm=plt.Normalize(-VMAX, VMAX)), cax=cax)
+        cb.set_ticks([-VMAX, -VMAX / 2, 0, VMAX / 2, VMAX],
+                     labels=[st.point_format(v) for v in (-VMAX, -VMAX / 2)] + ["0"] +
+                            [st.point_format(v) for v in (VMAX / 2, VMAX)])
         cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
         cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
-    for letter, x, y in (("a", 0.01, 0.04), ("b", 0.01, 2.34), ("c", xc[0] - 0.02, 2.34), ("d", 0.01, 4.68),
-                         ("e", xc[0] - 0.02, 4.68)):
+    for letter, x, y in (("a", 0.01, 0.04), ("b", 0.01, 2.34), ("c", xc[0] - 0.02, 2.34), ("d", 0.01, 4.68 if not grid else 3.96),
+                         ("e", xc[0] - 0.02, 4.68 if not grid else 3.96)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
     legend_block(fig, H)
     for ext in ("pdf", "png"):
