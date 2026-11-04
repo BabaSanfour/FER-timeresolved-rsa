@@ -212,6 +212,51 @@ def head_rows(fig, box, scalp, spec, col_titles, row_label_size=6.6):
                  linespacing=1.0)
 
 
+BEST = {"H1 pretrained vs random": "Qwen3-VL", "H4 video vs image": "Qwen3-VL Pretrained",
+        "H2 face vs ImageNet": "ResNet50", "H3 fine-tuned vs start": "VGG16"}
+
+
+def pooled_and_best(fig, box, scalp, tables):
+    """b and c side by side: rows = the four comparisons; b = all models pooled, c = the strongest family,
+    each raw and with all controls removed."""
+    import mne
+    x0, y0, w, h = box
+    info, roi_of = scalp
+    rh = h / len(COMPARISONS)
+    hw = rh * fig.get_figheight() / fig.get_figwidth()           # head width in figure fraction (square)
+    xb = [x0 + 0.2 * w, x0 + 0.2 * w + hw * 1.02]                # b: raw, controls removed
+    xc = [x0 + 0.66 * w, x0 + 0.66 * w + hw * 1.02]              # c: raw, controls removed
+    for i, (hyp, label, regime) in enumerate(COMPARISONS):
+        yy = y0 + h - (i + 1) * rh
+        fig.text(x0, yy + rh / 2, label.replace(" vs ", "\nvs "), ha="left", va="center", fontsize=6.8,
+                 linespacing=1.0)
+        fam = BEST[hyp].split()[0]
+        fig.text(x0 + 0.645 * w, yy + rh / 2, fam + ("\n(none above\nchance)" if hyp.startswith("H3") else ""),
+                 ha="right", va="center", fontsize=6.8, color=st.INK2, linespacing=1.0)
+        for xs, contrast in ((xb, "pooled"), (xc, BEST[hyp])):
+            for xx, (name, _) in zip(xs, CONDITIONS):
+                t = {r["scope"]: r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == contrast}
+                ax = fig.add_axes([xx, yy + 0.04 * rh, hw * 0.95, rh * 0.95])
+                im, _ = mne.viz.plot_topomap(
+                    np.array([float(t[r]["corrected"]) for r in roi_of]), info, axes=ax, show=False, cmap=DIVERGING,
+                    vlim=(-VMAX, VMAX), contours=0, sensors=False, extrapolate="head",
+                    mask=np.array([float(t[r]["p_maxT"]) < .05 for r in roi_of]),
+                    mask_params=dict(marker="o", markersize=1.1, markerfacecolor=st.INK, markeredgecolor="none"))
+    top = y0 + h + 0.004
+    for xs, title in ((xb, "all models (pooled)"), (xc, "strongest family")):
+        for xx, (_, lab) in zip(xs, CONDITIONS):
+            fig.text(xx + hw * 0.475, top, lab, ha="center", va="bottom", fontsize=6.6, color=st.INK2, linespacing=1.0)
+        fig.text((xs[0] + xs[1] + hw) / 2, top + 0.25 / fig.get_figheight(), title, ha="center", va="bottom",
+                 fontsize=7.2)
+    cax = fig.add_axes([x0 + 0.2 * w, y0 - 0.12 / fig.get_figheight(), xc[1] + hw - x0 - 0.2 * w,
+                        0.05 / fig.get_figheight()])
+    cb = fig.colorbar(im, cax=cax, orientation="horizontal")
+    cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
+    cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+    cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
+    return xc[0]
+
+
 # ---------------------------------------------------------------- c: what each control removes
 
 C_REGIONS = [("OccipitoTemporal", "o"), ("Central", "s")]
@@ -271,17 +316,56 @@ def legend_block(fig, height):
         fig.legend(handles=handles, ncol=len(handles), bbox_to_anchor=(0.16, y), handlelength=1.4, **kw)
 
 
+def layout_best(args, tables, variant):
+    """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
+    H = 8.7
+    f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
+    fig = plt.figure(figsize=(5.5, H))
+    gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.32), bottom=f(1.62), wspace=0.1)
+    a = [fig.add_subplot(gs[0, j]) for j in range(4)]
+    layout = sensor_layout()
+    for j, (ax, sc) in enumerate(zip(a, PANEL_A)):
+        regime_panel(ax, sc, variant(tables[""]), variant(tables["joint"]))
+        sensor_inset(ax, sc, layout)
+        if j:
+            ax.tick_params(labelleft=False)
+    a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
+    xc = pooled_and_best(fig, (0.03, f(5.45), 0.96, 2.8 / H), topo_scalp(), tables)
+    top_d = f(6.35)
+    gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=top_d, bottom=f(7.45), wspace=0.12)
+    ds = [fig.add_subplot(gs[0, j]) for j in range(4)]
+    for j, (ax, (hyp, title, _)) in enumerate(zip(ds, COMPARISONS)):
+        control_panel(ax, hyp, title.replace(" vs ", "\nvs "), tables, labels=j == 0)
+    ds[0].text(-0.62, 0.5, "removed", rotation=90, transform=ds[0].transAxes, ha="center", va="center", fontsize=7,
+               color=st.INK2)
+    fig.text(0.16, f(7.8), "difference above chance (fraction of noise ceiling)", ha="left", va="center", fontsize=7)
+    fig.legend(handles=[Line2D([], [], marker=m, ls="none", ms=3.2, mfc=REGION_COLORS[r], mec=REGION_COLORS[r],
+                               label=f"{REGION_NAMES[r]} (region mean)") for r, m in C_REGIONS],
+               loc="center right", bbox_to_anchor=(0.99, f(8.0)), ncol=2, fontsize=6.8, handletextpad=0.2,
+               columnspacing=1.0, frameon=False)
+    st.panel_label(a[0], "a", x=-0.42)
+    fig.text(0.02, f(2.35), "b", fontsize=9, fontweight="bold", va="top")
+    fig.text(xc - 0.13, f(2.35), "c", fontsize=9, fontweight="bold", va="top")
+    fig.text(0.02, f(5.95), "d", fontsize=9, fontweight="bold", va="top")
+    legend_block(fig, H)
+    for ext in ("pdf", "png"):
+        fig.savefig(f"{args.out}.{ext}")
+    print(f"[ok] -> {args.out}.{{pdf,png}}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(STATS / "fig2_training"), help="output path without extension")
-    ap.add_argument("--families", choices=["none", "grid", "best", "forest"], default="none",
+    ap.add_argument("--families", choices=["none", "grid", "best", "forest"], default="best",
                     help="per-family results: a head grid after controls, the best family per comparison, "
                          "or family markers in the control panel")
     args = ap.parse_args()
     st.setup()
     tables = {name: rows(name) for name, _ in CONTROL_SETS}
     variant = lambda t: {(r["contrast"], r["scope"]): r for r in t if r["hypothesis"] == "variant"}
-    H = {"none": 7.0, "forest": 7.0, "best": 8.4, "grid": 9.6}[args.families]
+    if args.families == "best":
+        return layout_best(args, tables, variant)
+    H = {"none": 7.0, "forest": 7.0, "grid": 9.6}[args.families]
     k = 7.0 / H                                     # vertical positions below are for a 7-inch figure
     Y = lambda y: 1 - (1 - y) * k
     fig = plt.figure(figsize=(5.5, H))
@@ -295,8 +379,13 @@ def main():
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
     scalp = topo_scalp()
-    topo_grid(fig, (0.06, Y(0.47), 0.93, 0.185 * k), scalp, tables)
-    extra = {"none": 0, "forest": 0, "best": 1.75, "grid": 2.85}[args.families] / H   # height of the extra panel
+    if args.families == "best":
+        bc_h = 3.3 / H                                             # four rows of heads
+        xc = pooled_and_best(fig, (0.03, Y(0.70) - bc_h, 0.96, bc_h), scalp, tables)
+        extra = (3.3 - 0.185 * 7.0 - 0.1) / H + 0.02
+    else:
+        topo_grid(fig, (0.06, Y(0.47), 0.93, 0.185 * k), scalp, tables)
+    extra = extra if args.families == "best" else {"none": 0, "forest": 0, "grid": 2.85}[args.families] / H
     if args.families == "grid":
         spec = [(fam, [(tables["joint"], hyp, c) if (c := family_contrast(hyp, fam, tables["joint"])) else None
                        for hyp, _, _ in COMPARISONS]) for fam in FAMILY_ROWS]
@@ -305,14 +394,8 @@ def main():
         fig.text(0.02, Y(0.42) - 0.045, "c", fontsize=9, fontweight="bold")
         fig.text(0.06, Y(0.42) - 0.045, "each family, after all controls", fontsize=7, color=st.INK2)
     elif args.families == "best":
-        best = {"H1 pretrained vs random": "Qwen3-VL", "H4 video vs image": "Qwen3-VL Pretrained",
-                "H2 face vs ImageNet": "ResNet50", "H3 fine-tuned vs start": "VGG16"}
-        spec = [(lab, [(tables[name], hyp, best[hyp]) for hyp, _, _ in COMPARISONS]) for name, lab in CONDITIONS]
-        head_rows(fig, (0.06, Y(0.42) - extra, 0.93, extra - 0.095), scalp, spec,
-                  [f"{best[h].split()[0]}" + (" (none above chance)" if h.startswith("H3") else "") + "\n" + t.replace(" vs ", "\nvs ")
-                   for h, t, _ in COMPARISONS])
-        fig.text(0.02, Y(0.42) - 0.05, "c", fontsize=9, fontweight="bold")
-        fig.text(0.06, Y(0.42) - 0.05, "strongest family per comparison", fontsize=7, color=st.INK2)
+        fig.text(0.02, Y(0.685), "b", fontsize=9, fontweight="bold")
+        fig.text(xc - 0.03, Y(0.685), "c", fontsize=9, fontweight="bold")
     top_c = Y(0.36) - extra
     gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=top_c, bottom=top_c - 0.19 * k, wspace=0.12)
     cs = [fig.add_subplot(gs[0, j]) for j in range(4)]
@@ -327,7 +410,8 @@ def main():
                loc="lower right", bbox_to_anchor=(0.99, top_c - 0.283 * k), ncol=2, fontsize=6.8, handletextpad=0.2,
                columnspacing=1.0, frameon=False)
     st.panel_label(a[0], "a", x=-0.42)
-    fig.text(0.02, Y(0.685), "b", fontsize=9, fontweight="bold")
+    if args.families != "best":
+        fig.text(0.02, Y(0.685), "b", fontsize=9, fontweight="bold")
     fig.text(0.02, top_c + 0.025 * k, "c" if args.families in ("none", "forest") else "d", fontsize=9,
              fontweight="bold")
     legend_block(fig, fig.get_figheight())
