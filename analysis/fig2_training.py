@@ -224,8 +224,8 @@ def pooled_and_best(fig, box, scalp, tables):
     info, roi_of = scalp
     rh = h / len(COMPARISONS)
     hw = rh * fig.get_figheight() / fig.get_figwidth()           # head width in figure fraction (square)
-    xb = [x0 + 0.2 * w, x0 + 0.2 * w + hw * 1.02]                # b: raw, controls removed
-    xc = [x0 + 0.58 * w, x0 + 0.58 * w + hw * 1.02]              # c: raw, controls removed
+    xb = [x0 + 0.19 * w, x0 + 0.19 * w + hw * 1.02]              # b: raw, controls removed
+    xc = [x0 + 0.54 * w, x0 + 0.54 * w + hw * 1.02]              # c: raw, controls removed
     for i, (hyp, label, regime) in enumerate(COMPARISONS):
         yy = y0 + h - (i + 1) * rh
         fig.text(x0, yy + rh / 2, label.replace(" vs ", "\nvs "), ha="left", va="center", fontsize=6.8,
@@ -247,7 +247,7 @@ def pooled_and_best(fig, box, scalp, tables):
             fig.text(xx + hw * 0.475, top, lab, ha="center", va="bottom", fontsize=6.6, color=st.INK2, linespacing=1.0)
         fig.text((xs[0] + xs[1] + hw) / 2, top + 0.25 / fig.get_figheight(), title, ha="center", va="bottom",
                  fontsize=7.2)
-    cax = fig.add_axes([x0 + 0.2 * w, y0 - 0.12 / fig.get_figheight(), xc[1] + hw - x0 - 0.2 * w,
+    cax = fig.add_axes([x0 + 0.19 * w, y0 - 0.12 / fig.get_figheight(), xc[1] + hw - x0 - 0.19 * w,
                         0.05 / fig.get_figheight()])
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
@@ -317,10 +317,10 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (strongest family) side by side; d what each control removes."""
-    H = 8.7
+    H = 8.8
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
-    gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.32), bottom=f(1.62), wspace=0.1)
+    gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.3), bottom=f(1.55), wspace=0.1)
     a = [fig.add_subplot(gs[0, j]) for j in range(4)]
     layout = sensor_layout()
     for j, (ax, sc) in enumerate(zip(a, PANEL_A)):
@@ -329,23 +329,21 @@ def layout_best(args, tables, variant):
         if j:
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
-    xc = pooled_and_best(fig, (0.03, f(5.45), 0.96, 2.8 / H), topo_scalp(), tables)
-    top_d = f(6.35)
-    gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=top_d, bottom=f(7.45), wspace=0.12)
+    xc = pooled_and_best(fig, (0.03, f(5.7), 0.96, 3.0 / H), topo_scalp(), tables)
+    top_d = f(6.55)
+    gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=top_d, bottom=f(7.55), wspace=0.12)
     ds = [fig.add_subplot(gs[0, j]) for j in range(4)]
     for j, (ax, (hyp, title, _)) in enumerate(zip(ds, COMPARISONS)):
         control_panel(ax, hyp, title.replace(" vs ", "\nvs "), tables, labels=j == 0)
     ds[0].text(-0.62, 0.5, "removed", rotation=90, transform=ds[0].transAxes, ha="center", va="center", fontsize=7,
                color=st.INK2)
-    fig.text(0.16, f(7.8), "difference above chance (fraction of noise ceiling)", ha="left", va="center", fontsize=7)
+    fig.text(0.16, f(7.88), "difference above chance (fraction of noise ceiling)", ha="left", va="center", fontsize=7)
     fig.legend(handles=[Line2D([], [], marker=m, ls="none", ms=3.2, mfc=REGION_COLORS[r], mec=REGION_COLORS[r],
                                label=f"{REGION_NAMES[r]} (region mean)") for r, m in C_REGIONS],
-               loc="center right", bbox_to_anchor=(0.99, f(8.0)), ncol=2, fontsize=6.8, handletextpad=0.2,
+               loc="center right", bbox_to_anchor=(0.99, f(8.05)), ncol=2, fontsize=6.8, handletextpad=0.2,
                columnspacing=1.0, frameon=False)
-    st.panel_label(a[0], "a", x=-0.42)
-    fig.text(0.02, f(2.35), "b", fontsize=9, fontweight="bold", va="top")
-    fig.text(xc - 0.04, f(2.35), "c", fontsize=9, fontweight="bold", va="top")
-    fig.text(0.02, f(5.95), "d", fontsize=9, fontweight="bold", va="top")
+    for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc - 0.03, 2.12), ("d", 0.01, 6.08)):
+        fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
     legend_block(fig, H)
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
