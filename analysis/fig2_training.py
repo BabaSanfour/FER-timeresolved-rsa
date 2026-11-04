@@ -347,8 +347,7 @@ def layout_best(args, tables, variant):
                           orientation="horizontal")
         cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
         cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-        cb.set_label("difference above chance (fraction of noise ceiling)\ncolumns: occipito-temporal (OT) L, M, R; "
-                     "central (C) L, R; whole scalp (WS)", fontsize=6.4, linespacing=1.1)
+        cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
     for letter, x, y in (("a", 0.01, 0.05), ("b", 0.01, 2.12), ("c", xc[0] - 0.02, 2.12), ("d", 0.01, 4.3),
                          ("e", xc[0] - 0.02, 4.3)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
