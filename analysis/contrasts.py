@@ -37,7 +37,12 @@ whole-scalp test of each pooled hypothesis is Holm-corrected across the four hyp
 The H1 time course is corrected across the 11 x 13 ROI-window cells (whole scalp: across
 its 13 windows).
 
+--sizes: the FaceNet size curve instead: each training-set size (and each step-matched
+subset) against the random FaceNet and against the full pool, same procedure and output
+columns (the full-pool rows repeat H1 FaceNet).
+
 Output: analysis/paper_stats[_54]/contrasts[_<set>].csv and contrasts_time[_<set>].csv
+(--sizes: contrasts_sizes[_<set>].csv)
 """
 import argparse
 import csv
@@ -73,6 +78,17 @@ def hypotheses():
         "H3 fine-tuned vs start": [(f, (f, ft), (f, start)) for f, (ft, start) in FINE_TUNED.items()],
         "H4 video vs image": [(f"{' '.join(v)} - {' '.join(i)}", v, i) for v in VIDEO for i in IMAGE_PRETRAINED],
     }
+
+
+def size_hypotheses():
+    """{hypothesis: [(label, A, B)]} of the size curve, one contrast each."""
+    out = {}
+    for group in ("size", "step"):
+        for size in variants.SIZES if group == "size" else variants.SIZES[:-1]:
+            a = ("FaceNet", f"{group} {size}")
+            out[f"{group} {size} vs random"] = [("FaceNet", a, ("FaceNet", "Random"))]
+            out[f"{group} {size} vs full pool"] = [("FaceNet", a, ("FaceNet", "VGGFace2"))]
+    return out
 
 
 def pairs_of(ta, tb):
@@ -122,10 +138,11 @@ def all_contrasts(grid, tags, hyp):
         else:
             for (label, _, _), x in zip(items, vals):
                 out[h, label] = x
-    time = [contrast(grid, tags, a, b, by_window=True) for _, a, b in hyp[H1]]
-    out["time", H1] = np.mean(time, axis=0)
-    for (label, _, _), x in zip(hyp[H1], time):
-        out["time", label] = x
+    if H1 in hyp:
+        time = [contrast(grid, tags, a, b, by_window=True) for _, a, b in hyp[H1]]
+        out["time", H1] = np.mean(time, axis=0)
+        for (label, _, _), x in zip(hyp[H1], time):
+            out["time", label] = x
     return out
 
 
@@ -210,11 +227,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
     ap.add_argument("--partial", default=None, help="a control set of partial_rsa.py (e.g. joint)")
+    ap.add_argument("--sizes", action="store_true", help="the FaceNet size curve instead of H1-H4")
     ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
     args = ap.parse_args()
     globals()["N_PERM"] = args.n_perm
     s = args.stimuli
-    tags = {(f, v): t for g, f, v, t in variants.variants(s) if g == "main"}
+    tags = {(f, v if g == "main" else f"{g} {v}"): t for g, f, v, t in variants.variants(s) if g in ("main", "size", "step")}
     cache = {}
 
     def grid(tag):
@@ -222,7 +240,7 @@ def main():
             cache[tag] = np.load(rsa_core.grid_path(s, tag, args.partial))["rsa"].astype(np.float64)[:, :, :, EMOTION_CELLS, :]
         return cache[tag]
 
-    hyp = hypotheses()
+    hyp = size_hypotheses() if args.sizes else hypotheses()
     W = grid(tags["ResNet18", "Random"][0]).shape[-1]
     scopes = rsa_core.scopes()
     bounds = rsa_core.window_bounds()[:W]
@@ -248,12 +266,14 @@ def main():
                          **{k: round(float(v[oi]), 5) if k not in ("p", "p_maxT", "n_above") else
                             (int(v[oi]) if k == "n_above" else float(v[oi])) for k, v in r.items()}})
     whole = [r for r in rows if r["contrast"] == "pooled" and r["scope"] == "wholescalp"]
-    for r, ph in zip(whole, holm([r["p"] for r in whole])):
+    for r, ph in zip(whole, holm([r["p"] for r in whole])):     # sizes: Holm across all size contrasts
         r["p_holm"] = float(ph)
-    suffix = f"_{args.partial}" if args.partial else ""
+    suffix = ("_sizes" if args.sizes else "") + (f"_{args.partial}" if args.partial else "")
     out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
     out.mkdir(parents=True, exist_ok=True)
     for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows)):
+        if not table:
+            continue
         fields = list(dict.fromkeys(k for r in table for k in r))
         with (out / name).open("w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=fields); w.writeheader(); w.writerows(table)
