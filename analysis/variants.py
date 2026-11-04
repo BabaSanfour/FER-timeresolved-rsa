@@ -43,6 +43,13 @@ MAIN = {
 SIZE_CURVE = [(size, runs(f"facenet_size{size}")) for size in SIZES] + [
     (FULL_POOL, runs("facenet_vggface2"))]
 STEP_MATCHED = [(size, runs(f"facenet_step{size}")) for size in SIZES[:-1]]
+# FaceNet learning designs (trillium/make_tasks.py, three runs each): the weights at nine steps
+# of full-pool training (seeds of runs r01-r03), and 50 to 3,500 identities at 100 images each,
+# every model trained for the full pool's steps and so able to learn its task.
+CHECKPOINT_STEPS = (0, 30, 100, 300, 1000, 3000, 10000, 30000, 55920)
+IDENTITIES = ("50ids", "300ids", "1500ids", "3500ids")
+CHECKPOINTS = [(str(step), [f"facenet_ckpt{step:05d}_r{r:02d}" for r in range(1, 4)]) for step in CHECKPOINT_STEPS]
+IDENTITY_COUNTS = [(ids, [f"facenet_{ids}_r{r:02d}" for r in range(1, 4)]) for ids in IDENTITIES]
 CONTROLS = [("Identity", "identity"), ("Occlusion", "occlusion"), ("Pixel", "pixel"),
             ("Optical flow", "optical_flow"), ("Motion energy", "motion_energy")]
 
@@ -53,10 +60,12 @@ def controls(stimuli):
 
 
 def variants(stimuli):
-    """-> [(group, family, variant, RDM names)]; groups: main, size, step, control."""
+    """-> [(group, family, variant, RDM names)]; groups: main, size, step, ckpt, ids, control."""
     out = [("main", family, variant, tags) for family, rows in MAIN.items() for variant, tags in rows]
     out += [("size", "FaceNet", size, tags) for size, tags in SIZE_CURVE]
     out += [("step", "FaceNet", size, tags) for size, tags in STEP_MATCHED]
+    out += [("ckpt", "FaceNet", step, tags) for step, tags in CHECKPOINTS]
+    out += [("ids", "FaceNet", ids, tags) for ids, tags in IDENTITY_COUNTS]
     out += [("control", "Control", label, [f"control_{name}"]) for label, name in controls(stimuli)]
     return out
 
