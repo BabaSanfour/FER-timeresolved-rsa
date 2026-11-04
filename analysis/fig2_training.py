@@ -51,8 +51,9 @@ REGION_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "
 SIDES = {"L": "left", "M": "midline", "R": "right"}
 PANEL_A = ["OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "wholescalp"]
 COMPARISONS = [("H1 pretrained vs random", "pretrained vs random", "Generic"),
-               ("H4 video vs image", "video vs image models", "Generic"),
+               ("H5 face vs random", "face identity vs random", "Face"),
                ("H2 face vs ImageNet", "face identity vs ImageNet", "Face"),
+               ("H4 video vs image", "video vs image models", "Generic"),
                ("H3 fine-tuned vs start", "emotion-tuned vs base model", "Emotion")]
 CONDITIONS = [("", "raw"), ("joint", "controls\nremoved")]                          # rows of b
 CONTROL_SETS = [("", "raw"), ("identity", "identity"), ("occlusion", "occlusion"), ("pixel", "pixel"),
@@ -154,7 +155,8 @@ def topo_scalp():
 
 
 BEST = {"H1 pretrained vs random": "Qwen3-VL", "H4 video vs image": "Qwen3-VL Pretrained",
-        "H2 face vs ImageNet": "ResNet50", "H3 fine-tuned vs start": "VGG16"}
+        "H2 face vs ImageNet": "ResNet50", "H3 fine-tuned vs start": "VGG16",
+        "H5 face vs random": "ResNet18"}            # most ROIs with p < .05 after the controls, chosen after the results
 
 
 def pooled_and_best(fig, box, scalp, tables):
@@ -164,10 +166,11 @@ def pooled_and_best(fig, box, scalp, tables):
     x0, y0, w, h = box
     info, roi_of = scalp
     lab_w, gap = 0.1, 0.03                                      # row-label column and gap between b and c
-    hw = (w - lab_w - gap) / 8                                     # head width (figure fraction)
+    n = len(COMPARISONS)
+    hw = (w - lab_w - gap) / (2 * n)                               # head width (figure fraction)
     rh = hw * fig.get_figwidth() / fig.get_figheight()             # square heads
-    xb = [x0 + lab_w + j * hw for j in range(4)]
-    xc = [x0 + lab_w + 4 * hw + gap + j * hw for j in range(4)]
+    xb = [x0 + lab_w + j * hw for j in range(n)]
+    xc = [x0 + lab_w + n * hw + gap + j * hw for j in range(n)]
     for i, (name, rlabel) in enumerate(CONDITIONS):
         yy = y0 + h - (i + 1) * rh
         fig.text(x0 + lab_w * 0.6, yy + rh / 2, rlabel, ha="center", va="center", fontsize=7, color=st.INK2,

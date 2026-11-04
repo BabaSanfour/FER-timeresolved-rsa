@@ -31,9 +31,9 @@ from fig2_training import DIVERGING, REGION_COLORS, STATS, full_label, region_of
 ROWS = ["Frontal-L", "Frontal-M", "Frontal-R", "Central-L", "Central-R", "CentroParietal-L", "CentroParietal-M",
         "CentroParietal-R", "OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "wholescalp"]
 SHORT = {"Frontal": "F", "Central": "C", "CentroParietal": "CP", "OccipitoTemporal": "OT"}
-COMPARISONS = [("H1 pretrained vs random", "pretrained\nvs random", "Generic"),
-               ("H2 face vs ImageNet", "face identity\nvs ImageNet", "Face"),
-               ("H3 fine-tuned vs start", "emotion-tuned\nvs base model", "Emotion")]
+from fig2_training import COMPARISONS                    # the same five comparisons as Fig. 2
+LINE_STYLE = {"H1 pretrained vs random": "-", "H5 face vs random": "-", "H2 face vs ImageNet": (0, (3, 1.5)),
+              "H4 video vs image": (0, (3, 1.5)), "H3 fine-tuned vs start": "-"}
 WINDOW = 3                                               # 187.5-250 ms
 FOCUS = "OccipitoTemporal-L"
 VMAX = 0.2
@@ -217,14 +217,14 @@ def task_panel(ax, raw, joint, contrasts, scope, top, bottom):
         t0, t1 = series(j, "window_start_ms"), series(j, "window_end_ms")
         cx = (t0 + t1) / 2
         sx, lo = smooth(cx, series(j, "low")); _, hi = smooth(cx, series(j, "high"))
-        ax.fill_between(sx, lo, hi, color=color, alpha=0.13, lw=0)
-        ax.plot(*smooth(cx, series(r, "corrected")), color=color, lw=0.8, alpha=0.4)
-        ax.plot(*smooth(cx, series(j, "corrected")), color=color, lw=1.3)
+        ax.fill_between(sx, lo, hi, color=color, alpha=0.08, lw=0)
+        ls = LINE_STYLE[hyp]
+        ax.plot(*smooth(cx, series(j, "corrected")), color=color, lw=1.3, ls=ls)
         p, m = series(j, "p_maxT"), series(j, "corrected")
-        for sign, yb in ((1, top - k * 0.035), (-1, bottom + k * 0.035)):
+        for sign, yb in ((1, top - k * 0.03), (-1, bottom + k * 0.03)):
             sig = (p < .05) & (np.sign(m) == sign)
             for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
-                ax.plot([t0[a], t1[b - 1]], [yb, yb], color=color, lw=1.8, solid_capstyle="butt")
+                ax.plot([t0[a], t1[b - 1]], [yb, yb], color=color, lw=1.6, ls=ls, solid_capstyle="butt")
     ax.axvspan(125, 250, color=st.RULE, alpha=0.35, lw=0, zorder=0)
     ax.axhline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2)))
     ax.set_xlim(0, 500); ax.set_xticks([0, 100, 200, 300, 400, 500], ["0", "", "200", "", "400", ""])
@@ -254,47 +254,57 @@ def main():
     st.setup()
     raw, joint = load_all(""), load_all("joint")
     scalp, layout = topo_scalp(), sensor_layout()
-    H = 3.55
+    H = 6.25
+    f = lambda inch: 1 - inch / H
     fig = plt.figure(figsize=(5.5, H))
-    rows = [("pooled",) * 3, tuple(BEST[h] for h, _, _ in COMPARISONS)]
-    gs = fig.add_gridspec(2, 3, left=0.11, right=0.69, top=0.88, bottom=0.27, wspace=0.12, hspace=0.25)
+    rows = [("pooled",) * len(COMPARISONS), tuple(BEST[h] for h, _, _ in COMPARISONS)]
+    gs = fig.add_gridspec(2, 3, left=0.13, right=0.99, top=f(0.45), bottom=f(2.95), wspace=0.12, hspace=0.22)
     for i, contrasts in enumerate(rows):
         vals = [v for (h, _, _), c in zip(COMPARISONS, contrasts) for t in (raw, joint) for sc in CURVES
                 for k in (("corrected", "low", "high") if t is joint else ("corrected",)) for v in series(t[h, c, sc][:8], k)]
-        top, bottom = max(vals) + 0.08, min(vals) - 0.08
+        top, bottom = max(vals) + 0.1, min(vals) - 0.1
         for j, sc in enumerate(CURVES):
             ax = fig.add_subplot(gs[i, j])
             task_panel(ax, raw, joint, contrasts, sc, top, bottom)
+            sensor_inset(ax, sc, layout)
             if j:
                 ax.tick_params(labelleft=False)
             if i == 0:
                 ax.set_title(full_label(sc), fontsize=6.6, pad=3, linespacing=1.0, color=REGION_COLORS[region_of(sc)])
                 ax.tick_params(labelbottom=False)
-            sensor_inset(ax, sc, layout)
-        # maps of this row, one per comparison
-        y0 = gs[i, 0].get_position(fig).y0; h = gs[i, 0].get_position(fig).height
-        hw = 0.09; hh = hw * 5.5 / H
-        for k, ((hyp, name, regime), contrast) in enumerate(zip(COMPARISONS, contrasts)):
-            axm = fig.add_axes([0.705 + k * 0.096, y0 + (h - hh) / 2, hw, hh])
-            im = bin_map(axm, joint, hyp, contrast, scalp)
-            label = name.replace("\n", " ").split(" vs ")[0] if i == 0 else contrast.split()[0]
-            axm.set_title(label, fontsize=5.6, pad=1, color=st.REGIME_COLORS[regime])
-    fig.text(0.02, 0.73, "all models\n(pooled)", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
-    fig.text(0.02, 0.42, "strongest\nfamily", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
-    fig.text(0.06, 0.575, "difference above chance\n(fraction of noise ceiling)", rotation=90, ha="center",
+    fig.text(0.02, f(1.1), "all models\n(pooled)", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
+    fig.text(0.02, f(2.35), "strongest\nfamily", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
+    fig.text(0.065, f(1.7), "difference above chance\n(fraction of noise ceiling)", rotation=90, ha="center",
              va="center", fontsize=6.2, color=st.INK2, linespacing=1.0)
-    fig.text(0.4, 0.19, "time from onset (ms)", ha="center", fontsize=6.8)
-    fig.text(0.857, 0.93, "125–250 ms, controls removed", ha="center", fontsize=6.4, color=st.INK2)
-    handles = [Line2D([], [], color=st.REGIME_COLORS[r], lw=1.3, label=n.replace("\n", " ")) for _, n, r in COMPARISONS]
-    handles += [Line2D([], [], color=st.INK2, lw=1.3, label="controls removed (95% CI)"),
-                Line2D([], [], color=st.INK2, lw=0.8, alpha=0.4, label="raw"),
-                Line2D([], [], color=st.INK2, lw=1.8, label="p < .05, controls removed")]
-    fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.4, 0.075), ncol=2, fontsize=6.2, frameon=False,
-               handlelength=1.6, columnspacing=1.0)
-    cax = fig.add_axes([0.73, 0.1, 0.25, 0.018])
+    fig.text(0.56, f(3.2), "time from onset (ms)", ha="center", fontsize=6.8)
+    handles = [Line2D([], [], color=st.REGIME_COLORS[r], lw=1.3, ls=LINE_STYLE[h], label=n) for h, n, r in COMPARISONS]
+    handles += [Line2D([], [], color=st.INK2, lw=1.6, label="p < .05")]
+    fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.56, f(3.55)), ncol=3, fontsize=6.2, frameon=False,
+               handlelength=1.8, columnspacing=1.0)
+    # b: maps at 125-250 ms after the controls, pooled and strongest family
+    n = len(COMPARISONS)
+    hh_in = 0.62; hw = hh_in / 5.5; hh = hh_in / H; x0 = 0.13; step = (0.99 - x0) / n
+    tops = (4.35, 5.15)
+    for i, contrasts in enumerate(rows):
+        yy = f(tops[i] + hh_in)
+        for k, ((hyp, name, regime), contrast) in enumerate(zip(COMPARISONS, contrasts)):
+            axm = fig.add_axes([x0 + k * step + (step - hw) / 2, yy, hw, hh])
+            im = bin_map(axm, joint, hyp, contrast, scalp)
+            if i == 0:
+                axm.set_title(name.replace(" vs ", "\nvs "), fontsize=6.2, pad=2, linespacing=1.0,
+                              color=st.REGIME_COLORS[regime])
+            else:
+                axm.text(1.04, 0.5, contrast.split()[0], transform=axm.transAxes, ha="left", va="center",
+                         fontsize=6, color=st.INK2, rotation=90)
+        fig.text(0.02, f(tops[i] + hh_in / 2), ("all models\n(pooled)", "strongest\nfamily")[i], rotation=90,
+                 ha="center", va="center", fontsize=6.8, linespacing=1.0)
+    fig.text(0.56, f(3.95), "125–250 ms, controls removed", ha="center", fontsize=6.6, color=st.INK2)
+    cax = fig.add_axes([0.3, f(6.05), 0.5, 0.05 / H])
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
-    cb.ax.tick_params(labelsize=5.6, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+    cb.ax.tick_params(labelsize=5.8, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+    fig.text(0.01, f(0.05), "a", fontsize=9, fontweight="bold", va="top")
+    fig.text(0.01, f(3.85), "b", fontsize=9, fontweight="bold", va="top")
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")
