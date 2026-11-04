@@ -17,10 +17,10 @@ The difference of a contrast A - B is computed on pairs of single RDMs, so both
 sides of every selection carry the same noise: training run r of A with run r of
 B (a fine-tune starts from pretraining run r), a released model with each of the
 ten RDMs of the other variant, or two released models. In every ROI x emotion
-cell (11 ROIs x fear, happiness, neutral) of a pair, layer and window are selected
+cell (6 ROIs x fear, happiness, neutral) of a pair, layer and window are selected
 on the participant mean of (A + B) / 2 when A and B share a layer axis (same
 family); across families each model is read at its own peak. Each participant's
-difference is averaged over the 33 cells, then over the pairs, then (pooled tests)
+difference is averaged over the 18 cells, then over the pairs, then (pooled tests)
 over the contrasts.
 
 Selecting the best of many layer x window cells favours the model whose cells
@@ -75,7 +75,7 @@ def pairs_of(ta, tb):
 
 def cell_values(grid, select):
     """grid (..., O, L, E, W) with E = the 3 emotions; select (O, L, E, W) participant mean that
-    picks the cells -> (...) value at the picked cells, mean over the 33 ROI x emotion cells."""
+    picks the cells -> (...) value at the picked cells, mean over the 18 ROI x emotion cells."""
     vals = []
     for oi in range(rsa_core.N_ROI):
         for ei in range(select.shape[2]):
