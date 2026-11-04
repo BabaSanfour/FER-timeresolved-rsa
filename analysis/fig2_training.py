@@ -51,7 +51,7 @@ COMPARISONS = [("H1 pretrained vs random", "pretrained vs random", "Generic"),
                ("H4 video vs image", "video vs image models", "Generic"),
                ("H2 face vs ImageNet", "face identity vs ImageNet", "Face"),
                ("H3 fine-tuned vs start", "emotion-tuned vs base model", "Emotion")]
-CONDITIONS = [("", "raw"), ("joint", "controls removed")]                          # rows of b
+CONDITIONS = [("", "raw"), ("joint", "controls\nremoved")]                          # rows of b
 CONTROL_SETS = [("", "raw"), ("identity", "identity"), ("occlusion", "occlusion"), ("pixel", "pixel"),
                 ("optical_flow", "optical flow"), ("motion_energy", "motion energy"), ("joint", "all")]
 DIVERGING = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
@@ -158,7 +158,7 @@ def topo_grid(fig, box, scalp, tables):
     cw, rh = w / (len(COMPARISONS) + 0.15), h / len(CONDITIONS)
     for i, (name, rlabel) in enumerate(CONDITIONS):
         fig.text(x0 + 0.1 * cw, y0 + h - (i + 0.5) * rh, rlabel, ha="center", va="center", fontsize=7,
-                 color=st.INK2, rotation=90)
+                 color=st.INK2, rotation=90, linespacing=1.0)
         t = {(r["hypothesis"], r["scope"]): r for r in tables[name] if r["contrast"] == "pooled"}
         for j, (hyp, clabel, regime) in enumerate(COMPARISONS):
             ax = fig.add_axes([x0 + (j + 0.15) * cw, y0 + h - (i + 1) * rh, cw * 0.95, rh * 0.95])
@@ -173,7 +173,7 @@ def topo_grid(fig, box, scalp, tables):
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-    cb.set_label("difference − chance (fraction of the noise ceiling)", fontsize=6.6)
+    cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
 
 
 # ---------------------------------------------------------------- c: what each control removes
@@ -240,13 +240,13 @@ def main():
         sensor_inset(ax, sc, layout)
         if j:
             ax.tick_params(labelleft=False)
-    a[0].set_ylabel(r"$\rho_{\max}$ / noise ceiling")
+    a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
     topo_grid(fig, (0.06, 0.47, 0.93, 0.185), topo_scalp(), tables)
     gs = fig.add_gridspec(1, 4, left=0.16, right=0.99, top=0.36, bottom=0.17, wspace=0.12)
     cs = [fig.add_subplot(gs[0, j]) for j in range(4)]
     for j, (ax, (hyp, title, _)) in enumerate(zip(cs, COMPARISONS)):
         control_panel(ax, hyp, title.replace(" vs ", "\nvs "), tables, labels=j == 0)
-    fig.text(0.16, 0.12, "difference − chance (fraction of the noise ceiling)", ha="left", fontsize=7)
+    fig.text(0.16, 0.12, "difference above chance (fraction of noise ceiling)", ha="left", fontsize=7)
     cs[0].text(-0.62, 0.5, "removed", rotation=90, transform=cs[0].transAxes, ha="center", va="center", fontsize=7,
                color=st.INK2)
     fig.legend(handles=[Line2D([], [], marker=m, ls="none", ms=3.2, mfc=REGION_COLORS[r], mec=REGION_COLORS[r],
