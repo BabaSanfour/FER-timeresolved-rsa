@@ -167,7 +167,7 @@ def draw_models(ax):
     families = ["ResNet18", "ResNet50", "FaceNet", "VGG16", "M3DFEL", "Qwen3-VL"]
     regimes = ["Random", "Generic", "Face", "Emotion"]
     img = ["*", "ImageNet", "VGGFace2", "AffectNet"]
-    cells = {"ResNet18": img, "ResNet50": img, "FaceNet": img, "VGG16": img,
+    cells = {"ResNet18": img, "ResNet50": img, "FaceNet": img, "VGG16": img[:2] + ["VGG-Face"] + img[3:],
              "M3DFEL": ["*", "Kinetics", "", "DFEW"], "Qwen3-VL": ["*", "Released", "", ""]}
     n_r = len(families)
     xs = [0.25, 0.415, 0.635, 0.855]         # column centres, axes fraction
@@ -288,8 +288,8 @@ def main():
     # ---- b: EEG (top) / c: models (bottom) ------------------------------------------
     panel_label(fig, B0, TOP, "b", "Electroencephalography")
     rule(fig, B0, B1, TOP - 0.007)
-    draw_head(fig.add_axes([B0 + 0.03, 0.600, B1 - B0 - 0.06, 0.315]))
-    draw_windows(fig.add_axes([B0 + 0.012, 0.545, B1 - B0 - 0.024, 0.028]))
+    draw_head(fig.add_axes([B0 + 0.03, 0.640, B1 - B0 - 0.06, 0.285]))
+    draw_windows(fig.add_axes([B0 + 0.012, 0.590, B1 - B0 - 0.024, 0.026]))
 
     panel_label(fig, B0, MID, "c", "Models")
     rule(fig, B0, B1, MID - 0.007)

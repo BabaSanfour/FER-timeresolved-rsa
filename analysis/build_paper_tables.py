@@ -2,11 +2,10 @@
 """The paper's rho_max tables, from maxr_table.py's outputs (both stimulus sets).
 
   table_main_results[_54].tex  Table 1 (18 videos) and its 54-video counterpart: the
-                               emotion-averaged rho_max of every variant, averaged over
-                               the 11 ROIs and on the whole scalp, mean +/- SD over its
-                               ten random seeds or training runs
-  table_rois[_54].tex          the same per ROI (means only), for the appendix
-  table_controls[_54].tex      the main-table columns for the nuisance RDMs
+                               emotion-averaged rho_max of every variant in each of the 11
+                               ROIs and on the whole scalp (mean over its ten random seeds
+                               or training runs; the SDs are in the seed table)
+  table_controls[_54].tex      the same columns for the nuisance RDMs
   table_partial[_54].tex       ROI- and emotion-averaged rho_max of every variant, raw
                                and after partialling out each control and all jointly
   table_seeds.tex              18 videos, ROI- and emotion-averaged rho_max of each
@@ -23,7 +22,6 @@ import variants
 
 REGIMES = [{"Random"}, {"ImageNet", "Kinetics-400", "Pretrained"}, {"VGGFace2", "VGG-Face"},
            {"AffectNet FT", "DFEW FT"}]
-MAIN_SCOPES = [rsa_core.ROI_AVG, "wholescalp"]
 
 
 def three(x):
@@ -61,13 +59,12 @@ def main():
         stats = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
         suffix = "" if s == "18" else "_54"
         table = read(stats / "rho_max.csv")
-        rois = rsa_core.scopes()[:rsa_core.N_ROI]
-        outputs = {f"table_main_results{suffix}.tex": roi_rows(table, "main", variants.MAIN, MAIN_SCOPES),
-                   f"table_rois{suffix}.tex": ["% columns: " + ", ".join(rois)] +
-                   roi_rows(table, "main", variants.MAIN, rois, sd=False)}
+        scopes = rsa_core.scopes()
+        outputs = {f"table_main_results{suffix}.tex": ["% columns: " + ", ".join(scopes)] +
+                   roi_rows(table, "main", variants.MAIN, scopes, sd=False)}
         controls = variants.controls(s)
         outputs[f"table_controls{suffix}.tex"] = [
-            f"{label} & " + " & ".join(value(table["control", "Control", label, sc], 1) for sc in MAIN_SCOPES) + r" \\"
+            f"{label} & " + " & ".join(value(table["control", "Control", label, sc], 1) for sc in scopes) + r" \\"
             for label, _ in controls]
 
         sets = [name for _, name in controls] + ["joint"]
