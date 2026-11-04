@@ -1,169 +1,131 @@
 #!/usr/bin/env python3
-"""Fig. 4: alignment that survives the study-wide test (54 videos).
+"""Fig. 4: study-wide clusters, and face training by amount of data (54 videos).
 
-  a  for every variant (rows, by family) and scope (columns), the number of the four stimulus
-     conditions (all, fear, happiness, neutral) with a cluster surviving the study-wide maximum
-     statistic across all grids of all variants (cluster_permutation.py, p_study < .05)
-  b  three examples, the best occipito-temporal grid of pretrained Qwen3-VL, ImageNet VGG16 and Kinetics M3DFEL:
-     layer x time map (participant mean of the grid averaged over the variant's RDMs, as tested)
-     with the study-wide clusters outlined, and the time course at the layer with the highest
-     mean inside them, against the family's random initialisation (mean +/- SEM over participants;
-     bar = the cluster's windows at that layer, triangle = peak)
+  a     number of layer x time grids (of 12 scopes x 4 emotion conditions) with a cluster that
+        survives the study-wide maximum statistic (cluster_permutation.py), by training regime:
+        one marker per family, lines join a family's regimes, bars are the mean over families
+  b     FaceNet by number of face training images, occipito-temporal rho_max (the mean of the
+        three occipito-temporal ROIs, emotion average): fixed epochs and step-matched training,
+        mean +/- SD over ten runs; the ten random seeds as a band
 
-Reads analysis/rsa_grid_54/ and analysis/cluster_permutation_54/; writes
-analysis/paper_stats_54/fig4_clusters.{pdf,png}.
+Reads analysis/cluster_permutation_54/grid_summary.csv and
+analysis/paper_stats_54/rho_max_per_rdm.csv; writes analysis/paper_stats_54/fig4_clusters.{pdf,png}.
 """
 import argparse
+import csv
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-from matplotlib.colors import LinearSegmentedColormap
-from scipy.ndimage import binary_fill_holes, label
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 import figure_style as st
 import rsa_core
 import variants
 
-RESULTS = rsa_core.ROOT / "analysis/cluster_permutation_54"
-STRUCTURE = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])        # four-neighbour, as in the test
-DIVERGING = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
-VMAX = .1
+STATS = rsa_core.ROOT / "analysis/paper_stats_54"
+CLUSTERS = rsa_core.ROOT / "analysis/cluster_permutation_54/grid_summary.csv"
+REGION = "OccipitoTemporal"
+SIZE_IMAGES = {"10k": 1e4, "50k": 5e4, "100k": 1e5, "200k": 2e5, "300k": 3e5, "500k": 5e5, "715k": 715810}
 
 
-def outer(mask):
-    """Cluster filled in, so only its outer boundary is drawn."""
-    padded = np.pad(mask, 1)
-    padded[0, :], padded[-1, :] = mask[0].any(), mask[-1].any()
-    padded[:, 0], padded[:, -1] = mask[:, 0].any(), mask[:, -1].any()
-    return binary_fill_holes(padded)[1:-1, 1:-1]
+def rows(path):
+    with path.open() as fh:
+        return list(csv.DictReader(fh))
 
 
-EXAMPLES = [("Qwen3-VL", "Pretrained"), ("VGG16", "ImageNet"), ("M3DFEL", "Kinetics-400")]
-REGIONS = {"Frontal": "F", "Central": "C", "CentroParietal": "CP", "OccipitoTemporal": "OT"}
+def cluster_panel(ax, path):
+    counts, n_grids = {}, {}
+    for r in rows(path):
+        key = (r["family"], r["variant"])
+        counts[key] = counts.get(key, 0) + int(r["survives_study"])
+        n_grids[key] = n_grids.get(key, 0) + 1
+    xs = {regime: i for i, regime in enumerate(st.REGIMES)}
+    by_regime = {regime: [] for regime in st.REGIMES}
+    for fi, (family, vrows) in enumerate(variants.MAIN.items()):
+        pts = []
+        for variant, _ in vrows:
+            regime = st.REGIME_OF[variant]
+            y = counts[family, variant]
+            pts.append((xs[regime] + (fi - 2.5) * 0.07, y, regime)); by_regime[regime].append(y)
+        ax.plot([p[0] for p in pts], [p[1] for p in pts], color=st.RULE, lw=0.6, zorder=2)
+        m = st.MARKERS[family]
+        for x, y, regime in pts:
+            ax.plot(x, y, m, ms=st.size(m), mfc=st.REGIME_COLORS[regime], mec="white", mew=0.4, zorder=4)
+    for regime, vals in by_regime.items():
+        ax.bar(xs[regime], np.mean(vals), width=0.62, color=st.REGIME_COLORS[regime], alpha=0.25, lw=0, zorder=1)
+    ax.set_xticks(range(len(st.REGIMES)), [st.REGIME_LABELS[r] for r in st.REGIMES], rotation=30,
+                  ha="right", rotation_mode="anchor")
+    ax.set_xlim(-0.55, len(st.REGIMES) - 0.45)
+    ax.set_ylabel(f"grids with a study-wide\ncluster (of {max(n_grids.values())})")
 
 
-def scope_order(scopes):
-    return [f"{r}-{x}" for r in REGIONS for x in "LMR" if f"{r}-{x}" in scopes] + ["wholescalp"]
+def region_values(per_rdm, group, variant=None):
+    """{variant: [occipito-temporal rho_max of each RDM]} for one group (FaceNet only)."""
+    by_rdm = {}
+    for r in per_rdm:
+        if (r["group"] == group and r["family"] == "FaceNet" and r["emotion"] == rsa_core.EMO_AVG
+                and r["roi"].startswith(REGION + "-") and (variant is None or r["variant"] == variant)):
+            by_rdm.setdefault((r["variant"], r["rdm"]), []).append(float(r["max_r"]))
+    out = {}
+    for (v, _), vals in by_rdm.items():
+        out.setdefault(v, []).append(np.mean(vals))
+    return out
 
 
-def matrix(ax, summary):
-    rows = [(f, v) for f, vs in variants.MAIN.items() for v, _ in vs]
-    scopes = scope_order(set(summary.scope))
-    count = summary.groupby(["family", "variant", "scope"]).survives_study.sum()
-    for i, (f, v) in enumerate(rows):
-        color = st.REGIME_COLORS[st.REGIME_OF[v]]
-        for j, sc in enumerate(scopes):
-            n = int(count.get((f, v, sc), 0))
-            if n:
-                ax.add_patch(plt.Rectangle((j - 0.45, i - 0.42), 0.9, 0.84, color=color, alpha=0.25 + 0.75 * n / 4, lw=0))
-                ax.text(j, i, str(n), ha="center", va="center", fontsize=5.2, color="white" if n >= 3 else st.INK)
-            else:
-                ax.plot(j, i, ".", ms=1.5, color=st.RULE)
-    ax.set_xlim(-0.6, len(scopes) - 0.4)
-    ax.set_ylim(len(rows) - 0.5, -0.5)
-    ax.set_xticks(range(len(scopes)), ["whole\nscalp" if s == "wholescalp" else
-                                       f"{REGIONS[s.split('-')[0]]}-{s.split('-')[1]}" for s in scopes], fontsize=5.4)
-    ax.xaxis.tick_top()
-    ax.set_yticks(range(len(rows)), [f"{f}  {v.lower()}" if v != rows[i - 1][1] or f != rows[i - 1][0] else ""
-                                     for i, (f, v) in enumerate(rows)], fontsize=5.4)
-    for i in range(1, len(rows)):
-        if rows[i][0] != rows[i - 1][0]:
-            ax.axhline(i - 0.5, color=st.RULE, lw=0.6)
-    ax.axvline(len(scopes) - 1.5, color=st.RULE, lw=0.6)
-    ax.tick_params(length=0, pad=1.5)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
+def size_panel(ax, per_rdm):
+    rnd = region_values(per_rdm, "main", "Random")["Random"]
+    m, sd = np.mean(rnd), np.std(rnd, ddof=1)
+    ax.axhspan(m - sd, m + sd, color=st.REGIME_COLORS["Random"], alpha=0.25, lw=0)
+    ax.text(7e5, m - sd - 0.002, "random (10 seeds)", fontsize=5.3, color=st.INK2, va="top", ha="right")
+    size = region_values(per_rdm, "size")
+    color = st.REGIME_COLORS["Face"]
+    for group, mfc, label in (("size", color, "fixed epochs"), ("step", "white", "matched steps")):
+        vals = region_values(per_rdm, group)
+        if group == "step":                                  # the full pool is the end point of both
+            vals[variants.FULL_POOL] = size[variants.FULL_POOL]
+        pts = sorted((SIZE_IMAGES[v], np.mean(x), np.std(x, ddof=1)) for v, x in vals.items())
+        x, y, e = map(np.array, zip(*pts))
+        ax.errorbar(x, y, yerr=e, fmt="^", ms=3.6, mfc=mfc, mec=color, mew=0.7, color=color, lw=0.9,
+                    elinewidth=0.7, capsize=0, ls="-" if group == "size" else (0, (3, 1.5)), label=label, zorder=3)
+    ax.set_xscale("log")
+    ax.set_xticks([1e4, 1e5, 715810], ["10k", "100k", "716k"])
+    ax.minorticks_off()
+    ax.set_xlabel("face training images (FaceNet)")
+    ax.set_ylabel(r"$\rho_{\max}$, occipito-temporal")
+    ax.set_ylim(bottom=0)
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    ax.legend(loc="lower right", handlelength=2.2, borderaxespad=0.1)
+
+
+def legend_block(fig):
+    regimes = [Patch(fc=st.REGIME_COLORS[r], ec="none", label=st.REGIME_LABELS[r]) for r in st.REGIMES]
+    families = [Line2D([], [], marker=m, ls="none", ms=st.size(m), mfc=st.INK2, mec="white", mew=0.4, label=f)
+                for f, m in st.MARKERS.items()]
+    kw = dict(frameon=False, handletextpad=0.3, columnspacing=1.1, borderaxespad=0, fontsize=6, loc="lower left")
+    for y, title, handles in ((0.07, "Training regime", regimes), (0.0, "Model family", families)):
+        fig.text(0.02, y + 0.022, title, fontsize=6, fontweight="bold", va="center")
+        fig.legend(handles=handles, ncol=len(handles), bbox_to_anchor=(0.16, y), handlelength=1.4, **kw)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(rsa_core.ROOT / "analysis/paper_stats_54/fig4_clusters"),
-                    help="output path without extension")
+    ap.add_argument("--out", default=str(STATS / "fig4_clusters"), help="output path without extension")
     args = ap.parse_args()
     st.setup()
-    summary = pd.read_csv(RESULTS / "grid_summary.csv")
-    tags = {(f, v): t for g, f, v, t in variants.variants("54") if g == "main"}
-    fig = plt.figure(figsize=(5.5, 6.4))
-    matrix(fig.add_axes([0.2, 0.555, 0.74, 0.39]), summary)
-    fig.text(0.02, 0.975, "a", fontsize=8, fontweight="bold")
-    fig.text(0.05, 0.975, "Conditions with a study-wide cluster (of 4), by variant and region", fontsize=6.8, fontweight="bold")
-    gs = fig.add_gridspec(2, 3, left=0.1, right=0.86, top=0.44, bottom=0.07, height_ratios=[1.15, 1], hspace=0.45, wspace=0.3)
-    axes = np.array([[fig.add_subplot(gs[i, j]) for j in range(3)] for i in range(2)])
-    fig.text(0.02, 0.475, "b", fontsize=8, fontweight="bold")
-    fig.text(0.05, 0.475, "Examples: layer x time maps and time courses against random initialization", fontsize=6.8, fontweight="bold")
-    examples = []
-    for f, v in EXAMPLES:
-        sel = summary[(summary.family == f) & (summary.variant == v) & (summary.survives_study == 1)]
-        ot = sel[sel.scope.str.startswith("OccipitoTemporal")]
-        sel = ot if len(ot) else sel
-        if len(sel):
-            examples.append(sel.sort_values("p_study").iloc[0])
-    grids = {}
-    for col, r in enumerate(examples):
-        for variant in (r.variant, "Random"):
-            if (r.family, variant) not in grids:
-                grids[r.family, variant] = rsa_core.variant_grid("54", tags[r.family, variant])
-        rsa, z = grids[r.family, r.variant]
-        rnd, _ = grids[r.family, "Random"]
-        si = [str(s) for s in z["scopes"]].index(r.scope)
-        ei = [str(e) for e in z["emotions"]].index(r.emotion)
-        bounds = np.asarray(z["window_bounds"], float)
-        centres = bounds.mean(1)
-        sig = np.load(RESULTS / f"{r.model}_cluster_masks.npz")["significant_study"][si, :, ei, :]
-        mean = np.nanmean(rsa[:, si, :, ei, :], axis=0)
-        n_layers, n_windows = mean.shape
-        ax = axes[0, col]
-        im = ax.imshow(mean, aspect="auto", origin="lower", cmap=DIVERGING, vmin=-VMAX, vmax=VMAX,
-                       extent=(bounds[0, 0], bounds[-1, 1], 0, 1), interpolation="nearest")
-        labels, count = label(sig, structure=STRUCTURE)
-        y = (np.arange(n_layers) + 0.5) / n_layers
-        for k in range(1, count + 1):
-            ax.contour(centres, y, outer(labels == k).astype(float), levels=[.5], colors=st.INK, linewidths=0.8)
-        best = np.unravel_index(np.nanargmax(np.where(sig, mean, -np.inf)), mean.shape)[0]
-        ax.axhline(y[best], color=st.INK, lw=0.5, ls=(0, (2, 2)))
-        short = "whole scalp" if r.scope == "wholescalp" else f"{REGIONS[r.scope.split('-')[0]]}-{r.scope.split('-')[1]}"
-        ax.set_title(f"{r.family} {r.variant.lower()}\n{short}" + ("" if r.emotion == "all" else f", {r.emotion}"),
-                     fontsize=5.8, pad=2)
-        ax.set_ylabel("relative layer depth" if col == 0 else "")
-        ax.set_xticks([0, 200, 400, 600, 800])
-        ax.set_xticklabels([])
-        ax = axes[1, col]
-        for grid, color, name in ((rnd, st.REGIME_COLORS["Random"], "random"),
-                                  (rsa, st.REGIME_COLORS[st.REGIME_OF[r.variant]], "trained")):
-            trace = grid[:, si, best, ei, :]
-            m = np.nanmean(trace, 0)
-            sem = np.nanstd(trace, 0, ddof=1) / np.sqrt(np.sum(np.isfinite(trace), 0))
-            ax.fill_between(centres, m - sem, m + sem, color=color, alpha=0.25, lw=0)
-            ax.plot(centres, m, color=color, lw=1.1, label=name)
-        m = np.nanmean(rsa[:, si, best, ei, :], 0)
-        top = np.nanmax(m) + 0.02
-        on = sig[best]
-        for start, stop in zip(*[np.flatnonzero(np.diff(np.r_[0, on.astype(int), 0]) == v) for v in (1, -1)]):
-            ax.plot([bounds[start, 0], bounds[stop - 1, 1]], [top, top], color=st.INK, lw=1.6, solid_capstyle="butt")
-        if on.any():
-            peak = int(np.nanargmax(np.where(on, m, -np.inf)))
-            ax.plot(centres[peak], top + 0.012, "v", ms=3.5, color=st.INK)
-            ax.text(centres[peak], top + 0.02, f"{centres[peak]:.0f} ms", ha="center", va="bottom", fontsize=5.6)
-        ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)))
-        ax.set_xlim(bounds[0, 0], bounds[-1, 1])
-        ax.set_xticks([0, 200, 400, 600, 800])
-        ax.set_xlabel("time from onset (ms)", fontsize=5.8)
-        ax.set_ylabel(r"$\rho$ at the marked layer" if col == 0 else "")
-        ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
-        ax.set_ylim(min(-0.05, ax.get_ylim()[0]), top + 0.05)
-    cax = fig.add_axes([0.88, axes[0, -1].get_position().y0, 0.012, axes[0, -1].get_position().height])
-    cbar = fig.colorbar(im, cax=cax)
-    cbar.set_label(r"participant-mean $\rho$", fontsize=5.6)
-    cbar.ax.tick_params(labelsize=5.2, width=0.5, length=2)
-    cbar.outline.set_linewidth(0.5)
-    cbar.ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
-    handles, names = axes[1, 0].get_legend_handles_labels()
-    pos = axes[1, -1].get_position()
-    fig.legend(handles[::-1], names[::-1], loc="upper left", bbox_to_anchor=(pos.x1 + 0.01, pos.y1),
-               handlelength=1.2, borderaxespad=0, fontsize=5.4)
+    fig = plt.figure(figsize=(5.5, 2.2))
+    gs = fig.add_gridspec(1, 3, left=0.1, right=0.99, top=0.88, bottom=0.36, wspace=0.55, width_ratios=[1, 1.2, 1.2])
+    a, b, c = (fig.add_subplot(gs[0, i]) for i in range(3))
+    cluster_panel(a, CLUSTERS)
+    a.set_ylim(bottom=0)
+    size_panel(b, rows(STATS / "rho_max_per_rdm.csv"))
+    c.text(0.5, 0.5, "accuracy x alignment\n(probe running)", ha="center", va="center", transform=c.transAxes,
+           fontsize=6, color=st.MUTED)
+    for ax, letter in ((a, "a"), (b, "b"), (c, "c")):
+        st.panel_label(ax, letter, x=-0.36)
+    legend_block(fig)
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")

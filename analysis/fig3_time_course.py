@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Fig. 3: where and when pretraining raises EEG alignment (54 videos).
+"""Fig. 3: when and where pretraining raises EEG alignment (54 videos).
 
-  a  scalp maps of the pretraining gain (H1 pooled over the six families, corrected for
-     layer-selection bias) in six time bins; each ROI is coloured by its mean gain over the
-     bin's windows and outlined when one of them is significant (maxT over the 11 x 13
-     ROI-window cells)
-  b  the gain over time in each of the 11 ROIs, grouped by region, with its 95% bootstrap
-     interval over participants; dots mark the significant windows
+  a-d  the pretraining gain (H1, pooled over the six families, minus the null mean) over time in
+       each scalp region (mean of the region's ROIs): mean over participants with a 95% bootstrap
+       interval, the same after removing identity, occlusion and low-level structure jointly
+       (dashed), a bar over the windows in which one of the region's ROIs is significant (maxT
+       across the 11 x 13 ROI-window cells) and a triangle at the peak
+  e    the gain over the scalp in three time bins (each electrode takes its ROI's value; P9 and P10,
+       in no ROI, are left out); electrodes of ROIs with a significant window are marked
 
-Reads analysis/paper_stats_54/contrasts_time.csv (contrasts.py) and the ROIs of eeg_rdms/meta.json;
-writes analysis/paper_stats_54/fig3_time_course.{pdf,png}.
+Reads analysis/paper_stats_54/contrasts_participants.csv, contrasts_time.csv,
+contrasts_time_joint.csv and the ROIs of eeg_rdms/meta.json; writes
+analysis/paper_stats_54/fig3_time_course.{pdf,png}.
 """
 import argparse
 import csv
@@ -20,68 +22,94 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.patches import Circle, Polygon
+from matplotlib.lines import Line2D
 
 import figure_style as st
 import rsa_core
 
 STATS = rsa_core.ROOT / "analysis/paper_stats_54"
 ROIS = json.loads((rsa_core.ROOT / "eeg_rdms/meta.json").read_text())["roi_channels"]
+REGIONS = [("OccipitoTemporal", "occipito-temporal"), ("CentroParietal", "centro-parietal"),
+           ("Central", "central"), ("Frontal", "frontal")]
+BINS = [(0, 2), (2, 4), (4, 8)]                       # window indices: 0-125, 125-250, 250-500 ms
 DIVERGING = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
-REGION_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "#008300", "OccipitoTemporal": "#eda100"}
-REGION_NAMES = {"Frontal": "Frontal", "Central": "Central", "CentroParietal": "Centro-par.", "OccipitoTemporal": "Occ.-temp."}
-SIDES = {"L": "left", "M": "midline", "R": "right"}
-BINS = [(0, 2), (2, 4), (4, 6), (6, 8), (8, 10), (10, 13)]          # window indices (62.5 ms each)
-VMAX = .06
+VMAX = .05
+N_BOOT = 10000
+H1 = "H1 pretrained vs random"
+
+
+def rows(path):
+    with path.open() as fh:
+        return list(csv.DictReader(fh))
 
 
 def load():
-    rows = [r for r in csv.DictReader((STATS / "contrasts_time.csv").open()) if r["contrast"] == "pooled"]
-    starts = sorted({float(r["window_start_ms"]) for r in rows})
-    ends = sorted({float(r["window_end_ms"]) for r in rows})
-    data = {}
-    for r in rows:
-        w = starts.index(float(r["window_start_ms"]))
-        data[r["scope"], w] = r
-    return data, np.array(starts), np.array(ends)
+    cells = [r for r in rows(STATS / "contrasts_time.csv") if r["contrast"] == "pooled"]
+    joint = [r for r in rows(STATS / "contrasts_time_joint.csv") if r["contrast"] == "pooled"]
+    starts = sorted({float(r["window_start_ms"]) for r in cells})
+    ends = sorted({float(r["window_end_ms"]) for r in cells})
+    cell = {(r["scope"], starts.index(float(r["window_start_ms"]))): r for r in cells}
+    jcell = {(r["scope"], starts.index(float(r["window_start_ms"]))): r for r in joint}
+    part = {}
+    for r in rows(STATS / "contrasts_participants.csv"):
+        if r["hypothesis"] == "time " + H1:
+            part.setdefault((r["scope"], int(r["window"])), {})[int(r["participant"])] = float(r["difference"])
+    return cell, jcell, part, np.array(starts), np.array(ends)
 
 
-def head_layout():
+BAR, PEAK = .085, .094                                # height of the significance bars and peak marks
+
+
+def region_panel(ax, region, label, cell, jcell, part, starts, ends, rng):
+    rois = [s for s in ROIS if s.startswith(region + "-")]
+    W = len(starts)
+    centres = (starts + ends) / 2
+    n = len(part[rois[0], 0])
+    x = np.array([[np.mean([part[s, w][p] for s in rois]) for w in range(W)] for p in range(n)])   # (S, W)
+    m = x.mean(0)
+    boot = x[rng.integers(0, n, (N_BOOT, n))].mean(1)
+    lo, hi = np.percentile(boot, 2.5, 0), np.percentile(boot, 97.5, 0)
+    color = st.REGIME_COLORS["Generic"]
+    ax.fill_between(centres, lo, hi, color=color, alpha=0.25, lw=0)
+    ax.plot(centres, m, color=color, lw=1.1, label="pretrained − random")
+    ax.plot(centres, [np.mean([float(jcell[s, w]["corrected"]) for s in rois]) for w in range(W)], color=color,
+            lw=0.8, ls=(0, (3, 1.5)), label="after controls")
+    sig = np.array([any(float(cell[s, w]["p_maxT"]) < .05 for s in rois) for w in range(W)])
+    for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
+        ax.plot([starts[a], ends[b - 1]], [BAR, BAR], color=st.INK, lw=1.6, solid_capstyle="butt")
+    if sig.any():
+        peak = int(np.argmax(np.where(sig, m, -np.inf)))
+        ax.plot(centres[peak], PEAK, "v", ms=3.5, color=st.INK)
+        ax.text(centres[peak] + 40, PEAK, f"{centres[peak]:.0f} ms", ha="left", va="center", fontsize=5.6)
+    ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)))
+    ax.set_xlim(0, ends[-1])
+    ax.set_xticks([0, 200, 400, 600, 800], ["0", "", "400", "", "800"])
+    ax.set_ylim(-0.03, 0.105)
+    ax.set_title(label)
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+
+
+def scalp_info():
+    """MNE info of the electrodes that belong to an ROI, with each one's ROI."""
     import mne
-    from mne.channels.layout import _find_topomap_coords
-    montage = mne.channels.make_standard_montage("biosemi64")
-    info = mne.create_info(montage.ch_names, 256.0, "eeg")
-    info.set_montage(montage)
-    xy = np.array(_find_topomap_coords(info, picks=list(range(64))))
-    radius = np.linalg.norm(xy, axis=1).max() * 1.07
     member = {ch: roi for roi, chans in ROIS.items() for ch in chans}
-    n = 220
-    gx, gy = np.meshgrid(np.linspace(-radius, radius, n), np.linspace(-radius, radius, n))
-    nearest = np.argmin((gx[..., None] - xy[:, 0]) ** 2 + (gy[..., None] - xy[:, 1]) ** 2, -1)
-    rois = list(ROIS)
-    label = np.array([rois.index(member[c]) if c in member else -1 for c in montage.ch_names])[nearest]
-    label = np.where(gx ** 2 + gy ** 2 <= radius ** 2, label, -2)
-    return gx, gy, label, radius, rois
+    montage = mne.channels.make_standard_montage("biosemi64")
+    names = [c for c in montage.ch_names if c in member]
+    info = mne.create_info(names, 256.0, "eeg")
+    info.set_montage(montage)
+    return info, [member[c] for c in names]
 
 
-def head(ax, values, significant, layout):
-    gx, gy, label, radius, rois = layout
-    img = np.full(label.shape, np.nan)
-    for i, roi in enumerate(rois):
-        img[label == i] = values[roi]
-    ax.imshow(img, origin="lower", extent=(-radius, radius, -radius, radius), cmap=DIVERGING,
-              vmin=-VMAX, vmax=VMAX, interpolation="nearest")
-    ax.contour(gx, gy, label, levels=np.arange(-1.5, len(rois)), colors="white", linewidths=0.4)
-    for i, roi in enumerate(rois):
-        if significant[roi]:
-            ax.contour(gx, gy, (label == i).astype(float), levels=[.5], colors=st.INK, linewidths=0.9)
-    ax.add_patch(Circle((0, 0), radius, fill=False, lw=0.6, ec=st.INK2))
-    ax.add_patch(Polygon([[-0.12 * radius, 0.99 * radius], [0, 1.13 * radius], [0.12 * radius, 0.99 * radius]],
-                         closed=False, fill=False, lw=0.6, ec=st.INK2))
-    ax.set_xlim(-1.15 * radius, 1.15 * radius)
-    ax.set_ylim(-1.1 * radius, 1.2 * radius)
-    ax.set_aspect("equal")
-    ax.axis("off")
+def head(ax, values, significant, scalp):
+    import mne
+    info, roi_of = scalp
+    data = np.array([values[r] for r in roi_of])
+    mask = np.array([significant[r] for r in roi_of])
+    im, _ = mne.viz.plot_topomap(data, info, axes=ax, show=False, cmap=DIVERGING, vlim=(-VMAX, VMAX), contours=0,
+                                 sensors=False, mask=mask, extrapolate="head",
+                                 mask_params=dict(marker="o", markersize=1.6, markerfacecolor=st.INK,
+                                                  markeredgecolor="none"))
+    return im
 
 
 def main():
@@ -89,59 +117,38 @@ def main():
     ap.add_argument("--out", default=str(STATS / "fig3_time_course"), help="output path without extension")
     args = ap.parse_args()
     st.setup()
-    data, starts, ends = load()
-    centres = (starts + ends) / 2
-    layout = head_layout()
-    fig = plt.figure(figsize=(5.5, 4.4))
-
-    for k, (a, b) in enumerate(BINS):
-        ax = fig.add_axes([0.01 + k * 0.15, 0.72, 0.146, 0.2])
-        values = {roi: np.mean([float(data[roi, w]["corrected"]) for w in range(a, b)]) for roi in ROIS}
-        significant = {roi: any(float(data[roi, w]["p_maxT"]) < .05 for w in range(a, b)) for roi in ROIS}
-        head(ax, values, significant, layout)
-        ax.set_title(f"{starts[a]:.0f}–{ends[b - 1]:.0f} ms", fontsize=6, pad=1)
-    cax = fig.add_axes([0.925, 0.75, 0.01, 0.14])
-    cb = fig.colorbar(plt.cm.ScalarMappable(cmap=DIVERGING, norm=plt.Normalize(-VMAX, VMAX)), cax=cax)
-    cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
-    cb.ax.tick_params(labelsize=5, width=0.4, length=2)
-    cb.outline.set_linewidth(0.4)
-    cb.set_label(r"$\Delta\rho$ − null mean", fontsize=5.5)
-    fig.text(0.02, 0.955, "a", fontsize=8, fontweight="bold")
-    fig.text(0.05, 0.955, "Pretraining gain over the scalp (outlined: significant)", fontsize=6.8, fontweight="bold")
-
-    ax = fig.add_axes([0.17, 0.08, 0.62, 0.55])
-    order = [f"{r}-{s}" for r in REGION_COLORS for s in "LMR" if f"{r}-{s}" in ROIS]
-    step = 0.075
-    gaps = np.cumsum([0] + [0.5 * step if order[i].split("-")[0] != order[i - 1].split("-")[0] else 0
-                            for i in range(1, len(order))])
-    top = (len(order) - 1) * step + gaps[-1]
+    cell, jcell, part, starts, ends = load()
+    rng = np.random.default_rng(0)
+    fig = plt.figure(figsize=(5.5, 3.3))
+    gs = fig.add_gridspec(1, 4, left=0.08, right=0.97, top=0.9, bottom=0.52, wspace=0.2)
+    axes = [fig.add_subplot(gs[0, i]) for i in range(4)]
+    for ax, (region, label) in zip(axes, REGIONS):
+        region_panel(ax, region, label, cell, jcell, part, starts, ends, rng)
+    for ax in axes[1:]:
+        ax.tick_params(labelleft=False)
+    axes[0].set_ylabel(r"$\Delta\rho$ − null mean")
+    fig.text(0.535, 0.43, "time from onset (ms)", ha="center", fontsize=6.5)
     color = st.REGIME_COLORS["Generic"]
-    for k, roi in enumerate(order):
-        base = top - k * step - gaps[k]
-        region, side = roi.split("-")
-        m = np.array([float(data[roi, w]["corrected"]) for w in range(len(starts))])
-        lo = np.array([float(data[roi, w]["low"]) for w in range(len(starts))])
-        hi = np.array([float(data[roi, w]["high"]) for w in range(len(starts))])
-        sig = np.array([float(data[roi, w]["p_maxT"]) < .05 for w in range(len(starts))])
-        ax.axhline(base, color=st.RULE, lw=0.5, zorder=1)
-        ax.fill_between(centres, base + lo, base + hi, color=color, alpha=0.25, lw=0, zorder=2)
-        ax.plot(centres, base + m, color="#c2457a", lw=0.9, zorder=3)
-        ax.plot(centres[sig], base + m[sig], "o", ms=2.6, color=st.INK, zorder=4)
-        ax.text(-15, base + 0.012, f"{REGION_NAMES[region]} {SIDES[side]}", ha="right", va="center", fontsize=5.6)
-        ax.plot(-8, base + 0.012, "o", ms=3, color=REGION_COLORS[region], clip_on=False)
-    for a, _ in BINS[1:]:
-        ax.axvline(starts[a], color=st.RULE, lw=0.4, ls=(0, (2, 2)), zorder=0)
-    ax.set_xlim(0, ends[-1])
-    ax.set_xticks([0, 200, 400, 600, 800])
-    ax.set_xlabel("time from video onset (ms)")
-    ax.set_ylim(-0.03, top + 0.09)
-    ax.set_yticks([])
-    ax.spines["left"].set_visible(False)
-    ax.plot([ends[-1] + 15] * 2, [0, 0.05], color=st.INK, lw=0.8, clip_on=False)
-    ax.text(ends[-1] + 25, 0.025, r"$\Delta\rho$ = .05", fontsize=5.5, va="center", ha="left")
-    fig.text(0.02, 0.665, "b", fontsize=8, fontweight="bold")
-    fig.text(0.05, 0.665, "Pretraining gain in each region (six families, 95% CI; dots: significant)",
-             fontsize=6.8, fontweight="bold")
+    handles = [Line2D([], [], color=color, lw=1.1, label="pretrained − random, 95% CI"),
+               Line2D([], [], color=color, lw=0.8, ls=(0, (3, 1.5)), label="after controls"),
+               Line2D([], [], color=st.INK, lw=1.6, label="significant (maxT)"),
+               Line2D([], [], color=st.INK, marker="v", ls="none", ms=3.5, label="peak")]
+    fig.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.06, 0.05), frameon=False, fontsize=5.6,
+               handlelength=1.8, labelspacing=0.5)
+    scalp = scalp_info()
+    for k, (a, b) in enumerate(BINS):
+        ax = fig.add_axes([0.34 + k * 0.17, 0.02, 0.15, 0.3])
+        values = {s: np.mean([float(cell[s, w]["corrected"]) for w in range(a, b)]) for s in ROIS}
+        significant = {s: any(float(cell[s, w]["p_maxT"]) < .05 for w in range(a, b)) for s in ROIS}
+        im = head(ax, values, significant, scalp)
+        ax.set_title(f"{starts[a]:.0f}–{ends[b - 1]:.0f} ms", fontsize=6, pad=1)
+    cax = fig.add_axes([0.86, 0.07, 0.01, 0.2])
+    cb = fig.colorbar(im, cax=cax)
+    cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
+    cb.ax.tick_params(labelsize=5, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+    cb.set_label(r"$\Delta\rho$ − null mean", fontsize=5.5)
+    st.panel_label(axes[0], "a", x=-0.32)
+    fig.text(0.31, 0.33, "b", fontsize=8, fontweight="bold")
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")
