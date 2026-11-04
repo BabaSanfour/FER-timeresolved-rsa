@@ -9,7 +9,9 @@ Four hypotheses, each pooled over the families it concerns:
   H3 emotion fine-tuning against its starting model (5 fine-tuned models)
   H4 the two pretrained video models (M3DFEL Kinetics-400, Qwen3-VL) against the 8
      pretrained image variants (ImageNet and face, each image family), 16 pairs
-Each family's contrast (each video model's for H4) is reported too.
+Each family's contrast (each video model's for H4) is reported too, and each variant on its
+own (hypothesis "variant": its rho_max at its own peak, mean over its RDMs, against the same
+null), which puts every variant on the scale of the comparisons.
 
 The difference A - B is computed on pairs of single RDMs, so both sides of every
 selection carry the same noise: run r of A with run r of B (a fine-tune starts from
@@ -126,10 +128,17 @@ def contrast(grid, tags, a, b, by_window=False):
                     for x, y in pairs_of(tags[a], tags[b])], axis=0)
 
 
+def own_peak(g):
+    """A grid (participants first, or the participant mean) read at its own participant-mean peak."""
+    return cell_values(g, np.nanmean(g, 0) if g.ndim == 5 else g)
+
+
 def all_contrasts(grid, tags, hyp):
-    """-> {key: value}: every contrast and pooled test per scope, and the H1 time course
-    (keys ('time', label) and ('time', H1))."""
+    """-> {key: value}: every contrast and pooled test per scope, each variant at its own peak
+    (keys ('variant', 'family variant')), and the H1 time course (keys ('time', label) and ('time', H1))."""
     out = {}
+    for key in sorted({x for items in hyp.values() for _, a, b in items for x in (a, b)}):
+        out["variant", " ".join(key)] = np.mean([own_peak(grid(t)) for t in tags[key]], axis=0)
     for h, items in hyp.items():
         vals = [contrast(grid, tags, a, b) for _, a, b in items]
         out[h] = np.mean(vals, axis=0)
@@ -268,11 +277,12 @@ def main():
                                          (int(v[oi, wi]) if k == "n_above" else float(v[oi, wi])) for k, v in r.items()}})
             continue
         h, label = (key, "pooled") if isinstance(key, str) else key
-        if label == "pooled":
+        if label == "pooled" or h == "variant":
             centre = null[key].mean(0)
             for oi, sc in enumerate(scopes):
                 for pi, v in enumerate(value[:, oi] - centre[oi]):
-                    participant_rows.append({"hypothesis": h, "scope": sc, "participant": pi, "difference": round(float(v), 5)})
+                    participant_rows.append({"hypothesis": h if h != "variant" else f"variant {label}", "scope": sc,
+                                             "participant": pi, "difference": round(float(v), 5)})
         for oi, sc in enumerate(scopes):
             rows.append({"hypothesis": h, "contrast": label, "n_pairs": n_pairs[h] if label == "pooled" else "",
                          "scope": sc, "n": len(value),
