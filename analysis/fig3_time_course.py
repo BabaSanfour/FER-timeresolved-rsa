@@ -96,7 +96,7 @@ CURVES = ["OccipitoTemporal-L", "OccipitoTemporal-R", "Central-R"]
 BIN = (2, 4)                                             # windows 125-250 ms
 
 
-def curve(ax, raw, joint, hyp, regime, scope, best, top, bottom):
+def curve(ax, raw, joint, hyp, regime, scope, best, top, bottom, best_joint=None):
     from fig2_training import BEST
     color = st.REGIME_COLORS[regime]
     r, j = raw[hyp, scope], joint[hyp, scope]
@@ -108,6 +108,8 @@ def curve(ax, raw, joint, hyp, regime, scope, best, top, bottom):
     ax.plot(cx, series(j, "corrected"), color=color, lw=1.0, ls=(0, (3, 1.5)))
     if best is not None:
         ax.plot(cx, series(best[hyp, scope], "corrected"), color=st.INK2, lw=0.6, alpha=0.8)
+    if best_joint is not None:
+        ax.plot(cx, series(best_joint[hyp, scope], "corrected"), color=st.INK2, lw=0.6, alpha=0.8, ls=(0, (3, 1.5)))
     for rs, lw, k in ((r, 1.8, 0), (j, 0.9, 1)):                    # significant windows, raw and controls removed
         p, m = series(rs, "p_maxT"), series(rs, "corrected")
         for sign, yb in ((1, top - k * 0.035), (-1, bottom + k * 0.035)):
@@ -134,10 +136,10 @@ def bin_head(ax, table, hyp, scalp):
     return im
 
 
-def load_family():
+def load_family(name=""):
     from fig2_training import BEST
     out = {}
-    with (STATS / "contrasts_time_nc.csv").open() as fh:
+    with (STATS / f"contrasts_time{'_' + name if name else ''}_nc.csv").open() as fh:
         for r in csv.DictReader(fh):
             if r["contrast"] == BEST.get(r["hypothesis"]):
                 out.setdefault((r["hypothesis"], r["scope"]), []).append(r)
@@ -151,7 +153,7 @@ def main():
     ap.add_argument("--out", default=str(STATS / "fig3_time_course"), help="output path without extension")
     args = ap.parse_args()
     st.setup()
-    raw, joint, best = load(""), load("joint"), load_family()
+    raw, joint, best, best_joint = load(""), load("joint"), load_family(), load_family("joint")
     scalp = topo_scalp()
     H = 4.9
     f = lambda inch: 1 - inch / H
@@ -161,12 +163,12 @@ def main():
     hw = 0.15; xh = [0.69, 0.845]                           # heads
     for i, (hyp, name, regime) in enumerate(COMPARISONS):
         y0 = f(top0 + i * (row_h + gap) + row_h); h = row_h / H
-        vals = [v for sc in CURVES for t in (raw, joint, best) for k in ("corrected",) + (("low", "high") if t is raw else ())
+        vals = [v for sc in CURVES for t in (raw, joint, best, best_joint) for k in ("corrected",) + (("low", "high") if t is raw else ())
                 for v in series(t[hyp, sc], k)]
         top, bottom = max(vals) + 0.06, min(vals) - 0.06
         for j, sc in enumerate(CURVES):
             ax = fig.add_axes([xc[j], y0, cw, h])
-            curve(ax, raw, joint, hyp, regime, sc, best, top, bottom)
+            curve(ax, raw, joint, hyp, regime, sc, best, top, bottom, best_joint)
             if j:
                 ax.tick_params(labelleft=False)
             if i < len(COMPARISONS) - 1:
@@ -190,7 +192,8 @@ def main():
     cb.set_label("difference above chance\n(fraction of noise ceiling)", fontsize=6.2, linespacing=1.0)
     handles = [Line2D([], [], color=st.INK2, lw=1.0, label="pooled, raw (95% CI)"),
                Line2D([], [], color=st.INK2, lw=1.0, ls=(0, (3, 1.5)), label="pooled, controls removed"),
-               Line2D([], [], color=st.INK2, lw=0.6, alpha=0.8, label="strongest family (Fig. 2c)"),
+               Line2D([], [], color=st.INK2, lw=0.6, alpha=0.8, label="strongest family (Fig. 2c), raw"),
+               Line2D([], [], color=st.INK2, lw=0.6, alpha=0.8, ls=(0, (3, 1.5)), label="strongest family, controls removed"),
                Line2D([], [], color=st.INK2, lw=1.8, label="p < .05, raw"),
                Line2D([], [], color=st.INK2, lw=0.9, label="p < .05, controls removed")]
     fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.38, f(H - 0.25)), ncol=2, fontsize=6.2, frameon=False,
