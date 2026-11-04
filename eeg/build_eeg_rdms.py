@@ -173,8 +173,14 @@ def build(subject, behaviour):
         x = interpolate(x, channels, bad)
     clean = np.abs(x).max((1, 2)) <= REJECT_UV
     if CORRECT_ONLY["on"]:                         # only trials the participant classified correctly
+        ok = clean & np.array(correct)
+        # a video never classified correctly keeps all its clean trials (logged)
+        fallback = [s for s in STIMULI if not np.any(ok & (labels == s)) and np.any(clean & (labels == s))]
+        for s in fallback:
+            ok |= clean & (labels == s)
         log["trials_incorrect"] = int(np.sum(clean & ~np.array(correct)))
-        clean &= np.array(correct)
+        log["videos_all_trials"] = fallback
+        clean = ok
     counts = {s: int(np.sum(clean & (labels == s))) for s in STIMULI}
     log.update(bad_channels=[channels[i] for i in np.flatnonzero(bad)], trials_rejected=int((~clean).sum()),
                trials_kept=int(clean.sum()), trials_per_video_min=min(counts.values()),
