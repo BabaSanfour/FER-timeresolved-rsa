@@ -309,6 +309,8 @@ def main():
     ap.add_argument("--design", choices=["ckpt", "ids"], default=None,
                     help="a FaceNet learning design instead: checkpoints along training or identity counts")
     ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
+    ap.add_argument("--emotion", choices=["fear", "happy", "neutral"], default=None,
+                    help="one emotion instead of the mean over the three (selection and tests within that emotion)")
     ap.add_argument("--drop-actor", type=int, default=None,
                     help="leave out the k-th actor (0-5) of every emotion: stimulus-level robustness")
     ap.add_argument("--per-rdm", action="store_true",
@@ -318,6 +320,9 @@ def main():
     args = ap.parse_args()
     globals()["N_PERM"] = args.n_perm
     PER_RDM["on"] = args.per_rdm
+    if args.emotion:                               # one emotion: its cell of the grid and its permutations
+        globals()["EMOTION_CELLS"] = (1 + ("fear", "happy", "neutral").index(args.emotion),)
+        globals()["EMOTIONS"] = (args.emotion,)
     if args.drop_actor is not None:                # leave one actor out of every emotion
         names = rsa_core.STIMULI[args.stimuli]
         for e, idx in list(rsa_core.EMOTIONS[args.stimuli].items()):
@@ -393,7 +398,8 @@ def main():
         r["p_holm"] = float(ph)
     suffix = (f"_{args.design}" if args.design else "_sizes" if args.sizes else "") + \
         (f"_{args.partial}" if args.partial else "") + ("_nc" if args.normalize else "") + \
-        (f"_dropactor{args.drop_actor}" if args.drop_actor is not None else "")
+        (f"_dropactor{args.drop_actor}" if args.drop_actor is not None else "") + \
+        (f"_{args.emotion}" if args.emotion else "")
     out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
     out.mkdir(parents=True, exist_ok=True)
     for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows),
