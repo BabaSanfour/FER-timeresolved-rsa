@@ -68,7 +68,7 @@ def main():
                 else:
                     image(f"{arch}_vggface2_r{i:02d}", arch, f"{res}/pretrain/{arch}/{rep}/best_weights.pt", "half")
                     image(f"{arch}_affectnet_r{i:02d}", arch, f"{res}/finetune/{arch}/{rep}/best_weights.pt", "half")
-                if arch == "facenet" and not a.features:
+                if arch == "facenet":                    # size curve and step-matched check (features too, for the probe)
                     for size in SIZES:
                         image(f"facenet_size{size}_r{i:02d}", arch,
                               f"{res}/sizecurve/{rep}/{size}/best_weights.pt", "half")
