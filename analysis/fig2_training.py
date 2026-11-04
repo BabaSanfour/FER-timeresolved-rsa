@@ -105,6 +105,17 @@ def region_of(scope):
     return scope.split("-")[0]
 
 
+SIDES = {"L": "left", "M": "midline", "R": "right"}
+
+
+def full_label(scope, sep="\n"):
+    """'OccipitoTemporal-L' -> 'occipito-temporal<sep>left'."""
+    if scope == "wholescalp":
+        return "whole scalp"
+    region, side = scope.split("-")
+    return f"{REGION_NAMES[region]}{sep}{SIDES[side]}"
+
+
 def scope_label(scope):
     return "whole scalp" if scope == "wholescalp" else f"{SHORT[region_of(scope)]}-{scope.split('-')[1]}"
 
@@ -181,7 +192,7 @@ def paired_panel(ax, scope, raw, joint, ceiling):
                   ha="right", rotation_mode="anchor")
     ax.tick_params(axis="x", length=0, pad=1.5)
     ax.set_xlim(-0.5, len(st.REGIMES) - 0.5)
-    ax.set_title(scope_label(scope), fontsize=7.2, color=REGION_COLORS[region_of(scope)], pad=2, fontweight="bold")
+    ax.set_title(full_label(scope), fontsize=7.2, color=REGION_COLORS[region_of(scope)], pad=2, linespacing=1.0)
     ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
@@ -332,7 +343,7 @@ def family_panel(ax, scopes=("Central-L", "Central-R")):
                             capsize=0, zorder=4)
                 if float(r["p_maxT"]) < .05:
                     ax.text(xx, 0.068 * K, "*", ha="center", va="center", fontsize=7.7, color=st.INK)
-            ticks.append(x); labels.append(scope_label(sc)); x += 1
+            ticks.append(x); labels.append(full_label(sc)); x += 1
         centres.append(((start + x - 1) / 2, title, regime)); x += 0.4
     for cx, title, regime in centres:
         ax.text(cx, 0.1 * K, title, ha="center", va="top", fontsize=6.6, color=st.REGIME_COLORS[regime],
@@ -566,11 +577,10 @@ def main():
         for ax, sc in zip(a, scopes):
             paired_panel(ax, sc, variant(raw), variant(joint), None if args.nc else ceilings(sc, partial, per_raw, per_joint))
         for j, ax in enumerate(a):
-            ax.set_ylim(0, 0.7 if args.nc else 0.3)
+            ax.set_ylim(0, 0.76 if args.nc else 0.3)
             if args.nc:
                 ax.set_yticks([0, 0.2, 0.4, 0.6])
-            sensor_inset(ax, scopes[j], layout, box=(-0.02, 0.86, 0.24, 0.24))   # beside the title
-            ax.title.set_position((0.6, 1.0))
+            sensor_inset(ax, scopes[j], layout, box=(0.0, 0.74, 0.24, 0.26))
             if j:
                 ax.tick_params(labelleft=False)
         a[0].set_ylabel(YLAB())
