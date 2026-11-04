@@ -82,6 +82,7 @@ FINE_TUNED = {"ResNet18": ("AffectNet FT", "VGGFace2"), "ResNet50": ("AffectNet 
 VIDEO = [("M3DFEL", "Kinetics-400"), ("Qwen3-VL", "Pretrained")]
 IMAGE_PRETRAINED = [(f, v) for f in FACE for v in (GENERIC[f], FACE[f])]
 H1 = "H1 pretrained vs random"
+PER_RDM = {"on": False}                                            # --per-rdm
 TIME_HYPOTHESES = (H1, "H2 face vs ImageNet", "H3 fine-tuned vs start", "H4 video vs image",
                    "H5 face vs random")                                             # also resolved in time
 
@@ -167,6 +168,9 @@ def all_contrasts(grid, tags, hyp):
     out = {}
     for key in sorted({x for items in hyp.values() for _, a, b in items for x in (a, b)}):
         out["variant", " ".join(key)] = np.mean([own_peak(grid(t)) for t in tags[key]], axis=0)
+        if PER_RDM["on"]:                                          # each RDM (seed or run) at its own peak
+            for t in tags[key]:
+                out["rdm", t] = own_peak(grid(t))
     for h, items in hyp.items():
         vals = [contrast(grid, tags, a, b) for _, a, b in items]
         out[h] = np.mean(vals, axis=0)
@@ -285,10 +289,13 @@ def main():
     ap.add_argument("--design", choices=["ckpt", "ids"], default=None,
                     help="a FaceNet learning design instead: checkpoints along training or identity counts")
     ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
+    ap.add_argument("--per-rdm", action="store_true",
+                    help="also each RDM (seed or training run) at its own peak against the null (hypothesis 'rdm')")
     ap.add_argument("--normalize", action="store_true",
                     help="divide every cell by its upper noise ceiling before the selection (outputs *_nc)")
     args = ap.parse_args()
     globals()["N_PERM"] = args.n_perm
+    PER_RDM["on"] = args.per_rdm
     s = args.stimuli
     tags = {(f, v if g == "main" else f"{g} {v}"): t for g, f, v, t in variants.variants(s) if g in ("main", "size", "step", "ckpt", "ids")}
     cache, scale = {}, {}
@@ -336,11 +343,11 @@ def main():
                                          (int(v[oi, wi]) if k == "n_above" else float(v[oi, wi])) for k, v in r.items()}})
             continue
         h, label = (key, "pooled") if isinstance(key, str) else key
-        if label == "pooled" or h == "variant":
+        if label == "pooled" or h in ("variant", "rdm"):
             centre = null[key].mean(0)
             for oi, sc in enumerate(scopes):
                 for pi, v in enumerate(value[:, oi] - centre[oi]):
-                    participant_rows.append({"hypothesis": h if h != "variant" else f"variant {label}", "scope": sc,
+                    participant_rows.append({"hypothesis": h if h not in ("variant", "rdm") else f"{h} {label}", "scope": sc,
                                              "participant": pi, "difference": round(float(v), 5)})
         for oi, sc in enumerate(scopes):
             rows.append({"hypothesis": h, "contrast": label, "n_pairs": n_pairs[h] if label == "pooled" else "",
