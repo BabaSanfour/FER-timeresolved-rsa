@@ -3,7 +3,7 @@
 
 rho_max = maximum over (layer x window) of the participant-mean time-locked
 Spearman, taken separately in each scope x emotion cell (rsa_core.cell_maxima).
-Scopes: 6 ROIs, whole scalp, ROI-avg (mean of the six ROI values); emotions:
+Scopes: 11 ROIs, whole scalp, ROI-avg (mean of the 11 ROI values); emotions:
 all, fear, happy, neutral, emo-avg (mean of the three emotion values). The noise
 ceilings are read at the window of each maximum and averaged like the values.
 
