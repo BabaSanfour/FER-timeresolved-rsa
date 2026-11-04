@@ -208,48 +208,93 @@ def load_all(name):
     return out
 
 
+def task_panel(ax, raw, joint, contrasts, scope, top, bottom):
+    """Three comparisons (regime colour) in one ROI: after controls (bold, 95% CI) and raw (faint); bars over
+    windows significant after the controls, above or below the traces by sign."""
+    for k, ((hyp, _, regime), contrast) in enumerate(zip(COMPARISONS, contrasts)):
+        color = st.REGIME_COLORS[regime]
+        r, j = raw[hyp, contrast, scope][:8], joint[hyp, contrast, scope][:8]
+        t0, t1 = series(j, "window_start_ms"), series(j, "window_end_ms")
+        cx = (t0 + t1) / 2
+        sx, lo = smooth(cx, series(j, "low")); _, hi = smooth(cx, series(j, "high"))
+        ax.fill_between(sx, lo, hi, color=color, alpha=0.13, lw=0)
+        ax.plot(*smooth(cx, series(r, "corrected")), color=color, lw=0.8, alpha=0.4)
+        ax.plot(*smooth(cx, series(j, "corrected")), color=color, lw=1.3)
+        p, m = series(j, "p_maxT"), series(j, "corrected")
+        for sign, yb in ((1, top - k * 0.035), (-1, bottom + k * 0.035)):
+            sig = (p < .05) & (np.sign(m) == sign)
+            for a, b in zip(*[np.flatnonzero(np.diff(np.r_[0, sig.astype(int), 0]) == v) for v in (1, -1)]):
+                ax.plot([t0[a], t1[b - 1]], [yb, yb], color=color, lw=1.8, solid_capstyle="butt")
+    ax.axvspan(125, 250, color=st.RULE, alpha=0.35, lw=0, zorder=0)
+    ax.axhline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2)))
+    ax.set_xlim(0, 500); ax.set_xticks([0, 100, 200, 300, 400, 500], ["0", "", "200", "", "400", ""])
+    ax.set_ylim(bottom - 0.03, top + 0.03)
+    ax.tick_params(labelsize=6, length=2, pad=1)
+    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+
+
+def bin_map(ax, joint, hyp, contrast, scalp):
+    import mne
+    info, roi_of = scalp
+    a, b = BIN
+    vals = np.array([np.mean(series(joint[hyp, contrast, r][a:b], "corrected")) for r in roi_of])
+    sig = np.array([bool(np.any(series(joint[hyp, contrast, r][a:b], "p_maxT") < .05)) for r in roi_of])
+    im, _ = mne.viz.plot_topomap(vals, info, axes=ax, show=False, cmap=DIVERGING, vlim=(-VMAX, VMAX), contours=0,
+                                 sensors=False, extrapolate="head", mask=sig,
+                                 mask_params=dict(marker="o", markersize=0.8, markerfacecolor=st.INK,
+                                                  markeredgecolor="none"))
+    return im
+
+
 def main():
-    from fig2_training import BEST
+    from fig2_training import BEST, sensor_inset, sensor_layout
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(STATS / "fig3_time_course"), help="output path without extension")
     args = ap.parse_args()
     st.setup()
     raw, joint = load_all(""), load_all("joint")
-    scalp = topo_scalp()
+    scalp, layout = topo_scalp(), sensor_layout()
     H = 3.55
     fig = plt.figure(figsize=(5.5, H))
-    gs = fig.add_gridspec(2, 3, left=0.12, right=0.99, top=0.9, bottom=0.27, wspace=0.14, hspace=0.25)
-    for j, (hyp, name, regime) in enumerate(COMPARISONS):
-        vals = [v for c in ("pooled", BEST[hyp]) for t in (raw, joint) for sc in ROI_LINES
-                for k in (("corrected", "low", "high") if t is joint else ("corrected",))
-                for v in series(t[hyp, c, sc][:8], k)]
-        top, bottom = max(vals) + 0.06, min(vals) - 0.06
-        for i, contrast in enumerate(("pooled", BEST[hyp])):
+    rows = [("pooled",) * 3, tuple(BEST[h] for h, _, _ in COMPARISONS)]
+    gs = fig.add_gridspec(2, 3, left=0.11, right=0.69, top=0.88, bottom=0.27, wspace=0.12, hspace=0.25)
+    for i, contrasts in enumerate(rows):
+        vals = [v for (h, _, _), c in zip(COMPARISONS, contrasts) for t in (raw, joint) for sc in CURVES
+                for k in (("corrected", "low", "high") if t is joint else ("corrected",)) for v in series(t[h, c, sc][:8], k)]
+        top, bottom = max(vals) + 0.08, min(vals) - 0.08
+        for j, sc in enumerate(CURVES):
             ax = fig.add_subplot(gs[i, j])
-            roi_panel(ax, raw, joint, hyp, contrast, top, bottom)
-            im = inset_map(ax, joint, hyp, contrast, scalp)
+            task_panel(ax, raw, joint, contrasts, sc, top, bottom)
+            if j:
+                ax.tick_params(labelleft=False)
             if i == 0:
-                ax.set_title(name.replace("\n", " "), fontsize=7, color=st.REGIME_COLORS[regime], pad=3)
+                ax.set_title(full_label(sc), fontsize=6.6, pad=3, linespacing=1.0, color=REGION_COLORS[region_of(sc)])
                 ax.tick_params(labelbottom=False)
-            if i == 1:
-                ax.text(0.03, 0.04, BEST[hyp].split()[0], transform=ax.transAxes, fontsize=6.6, color=st.INK2,
-                        va="bottom")
-    fig.text(0.02, 0.76, "all models\n(pooled)", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
-    fig.text(0.02, 0.45, "strongest\nfamily", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
-    fig.text(0.555, 0.19, "time from onset (ms)", ha="center", fontsize=6.8)
-    fig.text(0.06, 0.6, "difference above chance\n(fraction of noise ceiling)", rotation=90, ha="center",
+            sensor_inset(ax, sc, layout)
+        # maps of this row, one per comparison
+        y0 = gs[i, 0].get_position(fig).y0; h = gs[i, 0].get_position(fig).height
+        hw = 0.09; hh = hw * 5.5 / H
+        for k, ((hyp, name, regime), contrast) in enumerate(zip(COMPARISONS, contrasts)):
+            axm = fig.add_axes([0.705 + k * 0.096, y0 + (h - hh) / 2, hw, hh])
+            im = bin_map(axm, joint, hyp, contrast, scalp)
+            label = name.replace("\n", " ").split(" vs ")[0] if i == 0 else contrast.split()[0]
+            axm.set_title(label, fontsize=5.6, pad=1, color=st.REGIME_COLORS[regime])
+    fig.text(0.02, 0.73, "all models\n(pooled)", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
+    fig.text(0.02, 0.42, "strongest\nfamily", rotation=90, ha="center", va="center", fontsize=6.8, linespacing=1.0)
+    fig.text(0.06, 0.575, "difference above chance\n(fraction of noise ceiling)", rotation=90, ha="center",
              va="center", fontsize=6.2, color=st.INK2, linespacing=1.0)
-    handles = [Line2D([], [], color=c, lw=1.3, label=full_label(sc).replace("\n", " ")) for sc, c in ROI_LINES.items()]
+    fig.text(0.4, 0.19, "time from onset (ms)", ha="center", fontsize=6.8)
+    fig.text(0.857, 0.93, "125–250 ms, controls removed", ha="center", fontsize=6.4, color=st.INK2)
+    handles = [Line2D([], [], color=st.REGIME_COLORS[r], lw=1.3, label=n.replace("\n", " ")) for _, n, r in COMPARISONS]
     handles += [Line2D([], [], color=st.INK2, lw=1.3, label="controls removed (95% CI)"),
                 Line2D([], [], color=st.INK2, lw=0.8, alpha=0.4, label="raw"),
                 Line2D([], [], color=st.INK2, lw=1.8, label="p < .05, controls removed")]
-    fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.42, 0.08), ncol=3, fontsize=6.2, frameon=False,
+    fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.4, 0.075), ncol=2, fontsize=6.2, frameon=False,
                handlelength=1.6, columnspacing=1.0)
-    cax = fig.add_axes([0.8, 0.105, 0.17, 0.018])
+    cax = fig.add_axes([0.73, 0.1, 0.25, 0.018])
     cb = fig.colorbar(im, cax=cax, orientation="horizontal")
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=5.6, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-    cb.set_label("maps: 125–250 ms,\ncontrols removed", fontsize=6, linespacing=1.0)
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")
