@@ -23,6 +23,10 @@ participant's difference is averaged over the three emotions, then over the pair
 (pooled tests) over the contrasts. The time course of H1 uses the same procedure with
 the layer selected in each window.
 
+With --normalize, every cell (scope, emotion, window) of every grid, observed and permuted, is
+divided by the upper noise ceiling of the EEG in that cell before the selection (the EEG after the
+controls with --partial), so values are fractions of the ceiling (Abdelhedi et al., 2026).
+
 Selecting the best of many cells favours the model whose cells differ more from one
 another, so a difference is not centred on zero when neither model relates to the EEG.
 Each difference is therefore tested against its own null: the stimulus labels are
@@ -174,22 +178,34 @@ def all_contrasts(grid, tags, hyp):
     return out
 
 
-def permutation_nulls(s, tags, hyp, W, partial):
-    """{key: (N_PERM, O[, W])} of all_contrasts under within-emotion label permutation."""
+def upper_ceiling(z):
+    """Participants' unit-norm (ranked, centred, residualised) EEG vectors (S, ..., P) -> the upper
+    noise ceiling (...): each participant's correlation with the mean of all, averaged (Nili et al., 2014)."""
+    total = np.nansum(z, 0)
+    unit = total / np.clip(np.linalg.norm(total, axis=-1, keepdims=True), 1e-12, None)
+    return np.nanmean(np.sum(z * unit[None], -1), 0)
+
+
+def permutation_nulls(s, tags, hyp, W, partial, normalize=False):
+    """{key: (N_PERM, O[, W])} of all_contrasts under within-emotion label permutation, and the
+    upper noise ceilings (O, 3, W) of the EEG (after the controls with --partial). With normalize,
+    every cell is divided by its ceiling before the selection, as for the observed grids."""
     eeg, _, _ = rsa_core.load_eeg(s)
     O = eeg.shape[1]
     rng = np.random.default_rng(SEED)
     members = control_sets(s)[partial] if partial else []
     controls = {c: rsa_core.load_model_rdm(s, f"control_{c}")[0, :W] for c in members}
-    eeg_mean, perms, bases = {}, {}, {}
+    eeg_mean, perms, bases, ceiling = {}, {}, {}, {}
     for e in EMOTIONS:
         idx = rsa_core.EMOTIONS[s][e]
         if partial:
             bases[e] = [nuisance_basis([upper(controls[c][k][idx][:, idx]) for c in members]) for k in range(W)]
             ev = ranked_centered(upper(eeg[..., idx, :][..., idx]))[:, :, :W]            # (S, O, W, P)
-            eeg_mean[e] = np.stack([residual_normalise(ev[:, :, k], bases[e][k])[0].mean(0) for k in range(W)], 1)
+            z = np.stack([residual_normalise(ev[:, :, k], bases[e][k])[0] for k in range(W)], 2)
         else:
-            eeg_mean[e] = rank_normalise(upper(eeg[..., idx, :][..., idx]))[0].mean(0)[:, :W]
+            z = rank_normalise(upper(eeg[..., idx, :][..., idx]))[0][:, :, :W]            # (S, O, W, P)
+        eeg_mean[e] = z.mean(0)
+        ceiling[e] = upper_ceiling(z)                                                    # (O, W)
         perms[e] = [pair_permutation(rng.permutation(len(idx))) for _ in range(N_PERM)]
     del eeg
     needed = sorted({t for items in hyp.values() for _, a, b in items for t in tags[a] + tags[b]})
@@ -215,7 +231,7 @@ def permutation_nulls(s, tags, hyp, W, partial):
                     flat = np.linalg.norm(mv, axis=-1) < 1e-12
                     x = np.einsum("owp,lwp->olw", eeg_mean[e], mv, optimize=True)
                     x[:, flat] = np.nan
-                g.append(x)
+                g.append(x / ceiling[e][:, None, :] if normalize else x)
             grids[tag] = np.stack(g, 2)                                                # (O, L, 3, W)
         vals = all_contrasts(grids.get, tags, hyp)
         if null is None:
@@ -224,7 +240,7 @@ def permutation_nulls(s, tags, hyp, W, partial):
             null[key][k] = v
         if (k + 1) % 100 == 0:
             print(f"  [null] {k + 1}/{N_PERM} permutations", flush=True)
-    return null
+    return null, np.stack([ceiling[e] for e in EMOTIONS], 1)                              # (O, 3, W)
 
 
 def holm(p):
@@ -259,23 +275,28 @@ def main():
     ap.add_argument("--design", choices=["ckpt", "ids"], default=None,
                     help="a FaceNet learning design instead: checkpoints along training or identity counts")
     ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
+    ap.add_argument("--normalize", action="store_true",
+                    help="divide every cell by its upper noise ceiling before the selection (outputs *_nc)")
     args = ap.parse_args()
     globals()["N_PERM"] = args.n_perm
     s = args.stimuli
     tags = {(f, v if g == "main" else f"{g} {v}"): t for g, f, v, t in variants.variants(s) if g in ("main", "size", "step", "ckpt", "ids")}
-    cache = {}
+    cache, scale = {}, {}
 
     def grid(tag):
         if tag not in cache:
-            cache[tag] = np.load(rsa_core.grid_path(s, tag, args.partial))["rsa"].astype(np.float64)[:, :, :, EMOTION_CELLS, :]
+            g = np.load(rsa_core.grid_path(s, tag, args.partial))["rsa"].astype(np.float64)[:, :, :, EMOTION_CELLS, :]
+            cache[tag] = g / scale["ceiling"][None, :, None, :, :g.shape[-1]] if "ceiling" in scale else g
         return cache[tag]
 
     hyp = design_hypotheses(args.design) if args.design else size_hypotheses() if args.sizes else hypotheses()
     W = grid(tags["ResNet18", "Random"][0]).shape[-1]
     scopes = rsa_core.scopes()
     bounds = rsa_core.window_bounds()[:W]
+    null, ceiling = permutation_nulls(s, tags, hyp, W, args.partial, args.normalize)
+    if args.normalize:
+        scale["ceiling"] = ceiling; cache.clear()
     obs = all_contrasts(grid, tags, hyp)
-    null = permutation_nulls(s, tags, hyp, W, args.partial)
     # region means (the mean over a region's ROIs), tested against the same permutations
     regions = list(dict.fromkeys(sc.split("-")[0] for sc in scopes[:rsa_core.N_ROI]))
     members = [[i for i, sc in enumerate(scopes[:rsa_core.N_ROI]) if sc.startswith(rg + "-")] for rg in regions]
@@ -319,7 +340,7 @@ def main():
     for r, ph in zip(whole, holm([r["p"] for r in whole])):     # sizes: Holm across all size contrasts
         r["p_holm"] = float(ph)
     suffix = (f"_{args.design}" if args.design else "_sizes" if args.sizes else "") + \
-        (f"_{args.partial}" if args.partial else "")
+        (f"_{args.partial}" if args.partial else "") + ("_nc" if args.normalize else "")
     out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
     out.mkdir(parents=True, exist_ok=True)
     for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows),
