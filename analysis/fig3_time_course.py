@@ -103,7 +103,7 @@ def main():
     layout, scalp = sensor_layout(), topo_scalp()
     rows = [("all models (pooled)", ["pooled"] * len(COMPARISONS)),
             ("best model", [BEST[h] for h, _, _ in COMPARISONS])]
-    H = 5.85
+    H = 5.92
     f = lambda inch: 1 - inch / H
     fig = plt.figure(figsize=(5.5, H))
     tops = (0.5, 2.15)
@@ -136,7 +136,7 @@ def main():
     n = len(COMPARISONS)
     hw_in = 0.6; hw = hw_in / 5.5; hh = hw_in / H; x0 = 0.11; step = (0.92 - x0) / n
     for i, (rname, contrasts) in enumerate(rows):
-        y = f(5.02 + i * 0.7)
+        y = f(5.1 + i * 0.7)
         for k, ((hyp, name, _), contrast) in enumerate(zip(COMPARISONS, contrasts)):
             axm = fig.add_axes([x0 + k * step + (step - hw) / 2, y, hw, hh])
             im = window_map(axm, t, hyp, contrast, scalp)
@@ -147,13 +147,13 @@ def main():
                          va="center", fontsize=5.8, color=st.INK2)
         fig.text(0.035, y + hh / 2, rname.replace(" (", "\n("), rotation=90, ha="center", va="center", fontsize=6.8,
                  linespacing=1.0)
-    cax = fig.add_axes([0.94, f(5.7), 0.012, 1.25 / H])
+    cax = fig.add_axes([0.94, f(5.78), 0.012, 1.25 / H])
     cb = fig.colorbar(im, cax=cax)
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=5.6, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-    for letter, y in (("a", 0.05), ("b", 1.95), ("c", 4.08)):
+    for letter, y in (("a", 0.05), ("b", 1.95), ("c", 3.98)):
         fig.text(0.01, f(y), letter, fontsize=9, fontweight="bold", va="top")
-    fig.text(0.04, f(4.1), "187–250 ms", fontsize=6.8, va="top", color=st.INK2)
+    fig.text(0.515, f(4.12), "187–250 ms", fontsize=7, ha="center", va="top")   # below the letter, above the maps
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")
