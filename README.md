@@ -85,16 +85,18 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 
 | Step | Script | Notes |
 |---|---|---|
-| 18-stimulus per-ROI RDMs, `(6, 16, 18, 18)` per participant | `eeg/compute_windowed_eeg_rdms_16win.py` | Reads per-participant condition-averaged epochs `eeg_data/Unmasked_avg/*_avg.pkl` (not distributed); writes `eeg_data/Unmasked_avg_windowed_rdms_16win_full/` |
-| 18-stimulus whole-scalp RDMs, 54-stimulus per-ROI and whole-scalp RDMs | none | Distributed as data (`eeg_data/Unmasked_avg_wholescalp_16win/`, `eeg_rdms_complete/`) |
+| Trial labels, artefact handling, video averages, RDMs `(12, 13, 54, 54)` per participant | `eeg/build_eeg_rdms.py [--subjects ...]` | Reads `$FER_ROOT/eeg_raw/` (Brain Vision Analyzer segment exports and `behavior_RT_perf_identity_occlusion.csv`); writes `eeg_rdms/<subject>.npy` and `eeg_rdms/meta.json` |
 
-The 18-stimulus folders contain 26 participants, and every 18-stimulus analysis uses all 26.
-The 54-stimulus folders contain 25:
-participant CEG has no 54-stimulus data. The pooled 54-stimulus EEG files (`*_all_rdms.npy`)
-are ordered happy, fear, neutral; `analysis/rsa_core.py` reorders them to the model order (fear, happy,
-neutral) by stimulus name. Eleven participants (LC LJ LMB MD MDR MH NW RG RP TA YN) have no EEG
-response to one video (neutral, glasses, actor 07), so that video is excluded for everyone: the
-54-stimulus analyses use 53 videos (17 neutral) and all 25 participants (`rsa_core.STIMULI`).
+Each trial's video comes from the behaviour file; its sequence is checked against the block's trigger
+codes (which name groups of videos), allowing only trials missing at either end of a recording. Per
+participant: baseline -200 to 0 ms; channels above ±100 µV in more than 20% of trials are interpolated
+(spherical splines); trials above ±150 µV are rejected; the rest are averaged per video. RDMs are
+correlation distances between video averages over the channels of a scope × the samples of a window:
+11 ROIs (`eeg/roi_definitions.json`) and the whole scalp; 13 windows of 64 samples (62.5 ms) from
+onset, the last holding the 51 samples to 800 ms. Participants with fewer than half of the 972 trials
+are excluded (CEG, one block). AA has no Markers file: its blocks are labelled by order, and block 6
+(126 of 162 segments) is dropped. Both stimulus sets use the same 25 participants; the 18 stimuli are
+the unoccluded videos (`rsa_core.EEG_ROWS`).
 
 ### 2. Stimuli
 
@@ -166,12 +168,12 @@ stimuli).
 
 | | Script | Output |
 |---|---|---|
-| 18 stimuli, 26 participants | `analysis/rsa_grid.py --stimuli 18 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid/` |
+| 18 stimuli, 25 participants | `analysis/rsa_grid.py --stimuli 18 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid/` |
 | 54 stimuli, 25 participants | `analysis/rsa_grid.py --stimuli 54 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid_54/` |
 
 Models: every RDM listed in `analysis/variants.py` (21 variants; random seeds 42, 0–8 and training
 runs r01–r10 have ten RDMs each), read from `rdms/set18|set54/<name>/<name>.npy`; each RDM's stimulus
-order is checked against the EEG's. Each grid file holds the participant × scalp analysis (6 ROIs + whole scalp) × layer × condition
+order is checked against the EEG's. Each grid file holds the participant × scalp analysis (11 ROIs + whole scalp) × layer × condition
 (all, fear, happy, neutral) × EEG window array of Spearman ρ. Statistics, controls and tables are
 in [Which script gives which result](#which-script-gives-which-result).
 
@@ -182,7 +184,8 @@ Folder: **`<DRIVE_LINK>`** (to be published with the revision; planned layout be
 
 | Folder | Content |
 |---|---|
-| `eeg_data/`, `eeg_rdms_complete/` | EEG RDMs: 18 stimuli per ROI and whole scalp (26 participants); 54 stimuli per ROI and whole scalp (25) |
+| `eeg_raw/` | Segmented EEG recordings (Brain Vision Analyzer exports) and the trial-level behaviour file |
+| `eeg_rdms/` | EEG RDMs of the 25 participants and `meta.json` (`eeg/build_eeg_rdms.py`) |
 | `rdms/set18/`, `rdms/set54/` | Model RDMs, one folder per RDM (`analysis/variants.py`), with `.layers.json` (layers, weights, preprocessing, stimulus order) |
 | `results/{pretrain,sizecurve,stepmatched,finetune}/` | The retrained models (`best_weights.pt`), with training logs, metrics and `test_metrics.json` |
 | `random_weights/` | The saved random-initialization weights the random variants load |
@@ -197,15 +200,11 @@ revision `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`. Stimulus videos and frames 
 
 These steps were done by hand or with code that no longer exists. Their outputs are on Drive.
 
-- **EEG preprocessing** in Brain Vision Analyzer 2.1 (re-referencing, 0.1–30 Hz filter, ICA, artifact
-  review, epoching, baseline correction), the export to Python, and the trial averaging that wrote
-  `*_avg.pkl`. The raw recordings and the `*_avg.pkl` files are not distributed.
-- **Behavioral data and analysis** behind the per-stimulus accuracy and reaction-time table and the
+- **EEG preprocessing up to segmentation** in Brain Vision Analyzer 2.1 (re-referencing, filtering,
+  ICA ocular correction, segmentation from -200 to +800 ms); `eeg/build_eeg_rdms.py` starts from its
+  exports. The recordings are not distributed.
+- **Behavioral analysis** behind the per-stimulus accuracy and reaction-time table and the
   accuracy figures quoted in Section 3.1.
-- **The channel selection** for the ROIs (the electrode lists are in `eeg/roi_definitions.json`), the
-  **18-stimulus whole-scalp RDMs** and **all 54-stimulus EEG RDMs**.
-  The 18-stimulus whole-scalp RDMs and the unoccluded part of the 54-stimulus RDMs agree exactly,
-  and the per-ROI RDMs to within 5e-7, so all of them come from the same averaged data.
 - **The AffectNet three-class subset** (the Kaggle archive was already reduced).
 - **Two ImageNet checkpoints from the authors' earlier study** (MFRS): FaceNet and ResNet50
   (`resnet50_None_imagenet`); the ResNet18 and VGG16 ImageNet weights are torchvision's.

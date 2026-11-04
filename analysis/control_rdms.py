@@ -21,7 +21,7 @@ treat it as any model:
                  correlation distance (static)
 
 A static control is the same RDM at every frame. Stimuli are in the model order,
-all MODEL_STIMULI; the analyses drop the excluded one (rsa_core.select_stimuli).
+all MODEL_STIMULI.
 """
 import argparse
 import json

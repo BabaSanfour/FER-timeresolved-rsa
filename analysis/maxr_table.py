@@ -81,8 +81,8 @@ def main():
                     "sd": r5(v.std(ddof=1)) if len(v) > 1 else "",
                     "min": r5(v.min()), "max": r5(v.max()),
                     "max_layer": single[3] if single else -1, "max_window": ki,
-                    "win_start_ms": int(wb[ki][0]) if ki >= 0 else -1,
-                    "win_end_ms": int(wb[ki][1]) if ki >= 0 else -1,
+                    "win_start_ms": round(float(wb[ki][0]), 1) if ki >= 0 else -1,
+                    "win_end_ms": round(float(wb[ki][1]), 1) if ki >= 0 else -1,
                     "nc_lower": r5(ncl), "nc_upper": r5(ncu),
                     "within_nc": "undefined" if np.isnan(m) else "" if np.isnan(ncl) else
                                  "ABOVE" if m > ncu else ("below" if m < ncl else "within"),
