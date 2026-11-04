@@ -46,6 +46,9 @@ columns (the full-pool rows repeat H1 FaceNet).
 Output: analysis/paper_stats[_54]/contrasts[_<set>].csv, contrasts_time[_<set>].csv and
 contrasts_participants[_<set>].csv (each participant's pooled difference per scope, minus the null mean)
 (--sizes: contrasts_sizes[_<set>].csv)
+
+--design ckpt | ids: the FaceNet learning designs (variants.CHECKPOINTS, IDENTITY_COUNTS), each
+model against the random FaceNet and the full pool -> contrasts_ckpt[...].csv, contrasts_ids[...].csv
 """
 import argparse
 import csv
@@ -91,6 +94,19 @@ def size_hypotheses():
             a = ("FaceNet", f"{group} {size}")
             out[f"{group} {size} vs random"] = [("FaceNet", a, ("FaceNet", "Random"))]
             out[f"{group} {size} vs full pool"] = [("FaceNet", a, ("FaceNet", "VGGFace2"))]
+    return out
+
+
+def design_hypotheses(group):
+    """{hypothesis: [(label, A, B)]} of a FaceNet learning design (checkpoints along training,
+    group ckpt; identity counts, group ids): each model against the random FaceNet and against
+    the full pool."""
+    levels = variants.CHECKPOINT_STEPS if group == "ckpt" else variants.IDENTITIES
+    out = {}
+    for level in levels:
+        a = ("FaceNet", f"{group} {level}")
+        out[f"{group} {level} vs random"] = [("FaceNet", a, ("FaceNet", "Random"))]
+        out[f"{group} {level} vs full pool"] = [("FaceNet", a, ("FaceNet", "VGGFace2"))]
     return out
 
 
@@ -238,11 +254,13 @@ def main():
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
     ap.add_argument("--partial", default=None, help="a control set of partial_rsa.py (e.g. joint)")
     ap.add_argument("--sizes", action="store_true", help="the FaceNet size curve instead of H1-H4")
+    ap.add_argument("--design", choices=["ckpt", "ids"], default=None,
+                    help="a FaceNet learning design instead: checkpoints along training or identity counts")
     ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
     args = ap.parse_args()
     globals()["N_PERM"] = args.n_perm
     s = args.stimuli
-    tags = {(f, v if g == "main" else f"{g} {v}"): t for g, f, v, t in variants.variants(s) if g in ("main", "size", "step")}
+    tags = {(f, v if g == "main" else f"{g} {v}"): t for g, f, v, t in variants.variants(s) if g in ("main", "size", "step", "ckpt", "ids")}
     cache = {}
 
     def grid(tag):
@@ -250,7 +268,7 @@ def main():
             cache[tag] = np.load(rsa_core.grid_path(s, tag, args.partial))["rsa"].astype(np.float64)[:, :, :, EMOTION_CELLS, :]
         return cache[tag]
 
-    hyp = size_hypotheses() if args.sizes else hypotheses()
+    hyp = design_hypotheses(args.design) if args.design else size_hypotheses() if args.sizes else hypotheses()
     W = grid(tags["ResNet18", "Random"][0]).shape[-1]
     scopes = rsa_core.scopes()
     bounds = rsa_core.window_bounds()[:W]
@@ -291,7 +309,8 @@ def main():
     whole = [r for r in rows if r["contrast"] == "pooled" and r["scope"] == "wholescalp"]
     for r, ph in zip(whole, holm([r["p"] for r in whole])):     # sizes: Holm across all size contrasts
         r["p_holm"] = float(ph)
-    suffix = ("_sizes" if args.sizes else "") + (f"_{args.partial}" if args.partial else "")
+    suffix = (f"_{args.design}" if args.design else "_sizes" if args.sizes else "") + \
+        (f"_{args.partial}" if args.partial else "")
     out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
     out.mkdir(parents=True, exist_ok=True)
     for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows),
