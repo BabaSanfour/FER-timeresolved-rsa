@@ -14,12 +14,10 @@ import csv
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import mne
-import numpy as np
 
 import figure_style as st
 import rsa_core
-from fig2_training import COMPARISONS, DIVERGING, SHORT_NAMES, topo_scalp
+from fig2_training import COMPARISONS, SHORT_NAMES, scalp_map, topo_scalp
 
 STATS18 = rsa_core.ROOT / "analysis/paper_stats"
 VMAX = 0.2
@@ -45,12 +43,8 @@ def main():
         y = 0.42 + i * 0.72
         for k, (hyp, _, _) in enumerate(COMPARISONS):
             ax = fig.add_axes([x0 + k * step + (step - hw) / 2, f(y + hw_in), hw, hh])
-            vals = np.array([float(t[hyp, r]["corrected"]) for r in roi_of])
-            sig = np.array([float(t[hyp, r]["p_maxT"]) < .05 for r in roi_of])
-            im = mne.viz.plot_topomap(vals, info, axes=ax, show=False, cmap=DIVERGING, vlim=(-VMAX, VMAX), contours=0,
-                                      sensors=False, extrapolate="head", mask=sig,
-                                      mask_params=dict(marker="o", markersize=1.3, markerfacecolor=st.INK,
-                                                       markeredgecolor="none"))[0]
+            im = scalp_map(ax, [float(t[hyp, r]["corrected"]) for r in roi_of],
+                           [float(t[hyp, r]["p_maxT"]) < .05 for r in roi_of], info, VMAX)
             if i == 0:
                 ax.set_title(SHORT_NAMES[hyp], fontsize=6, pad=2, linespacing=1.0)
         fig.text(x0 - 0.02, f(y + hw_in / 2), label, ha="right", va="center", fontsize=6.6, linespacing=1.0)

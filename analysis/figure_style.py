@@ -47,14 +47,8 @@ def point_format(x):
     return s.replace("0.", ".", 1) if s.startswith(("0.", "-0.")) else s
 
 
-def stars(p):
-    return "***" if p < .001 else "**" if p < .01 else "*" if p < .05 else "n.s."
 
 
-def blend(color, t):
-    """color mixed with white (t = share of the colour kept)."""
-    from matplotlib.colors import to_rgb
-    return tuple(t * c + (1 - t) for c in to_rgb(color))
 
 
 def black_text(fig):
@@ -62,3 +56,8 @@ def black_text(fig):
     from matplotlib.text import Text
     for t in fig.findobj(Text):
         t.set_color(INK)
+
+
+def point_ticks(ax, axis="y"):
+    """Tick labels without the leading zero (.2, -.1), as everywhere in the paper."""
+    getattr(ax, f"{axis}axis").set_major_formatter(lambda v, _: point_format(round(v, 3)))

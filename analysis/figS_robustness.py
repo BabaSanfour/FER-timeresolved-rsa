@@ -20,17 +20,17 @@ import csv
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import mne
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 
 import figure_style as st
 import rsa_core
-from fig2_training import COMPARISONS, DIVERGING, SHORT_NAMES, STATS, topo_scalp
+from fig2_training import COMPARISONS, SHORT_NAMES, STATS, scalp_map, topo_scalp
+from fig3_time_course import COLORS
 
 WIN = "187.5"; VMAX = 0.2
-COL = {"H1": "#e87ba4", "H5": "#2a78d6", "H2": "#d3891a", "H4": "#5a3d9a", "H3": "#008300"}
+COL = {h[:2]: c for h, c in COLORS.items()}             # the comparison colours of Fig. 3
 EMK = {"fear": "^", "happy": "o", "neutral": "s"}; ENAME = {"fear": "fear", "happy": "happiness", "neutral": "neutral"}
 ECOL = {"neutral": "#7a7975", "happy": "#1baf7a", "fear": "#eb6834"}
 KEYS = [("", "H1", "OccipitoTemporal-R", None, "generic vs random, OT-R"),
@@ -63,9 +63,6 @@ def main():
                     help="recognition frames per participant and video")
     args = ap.parse_args()
     info, roi_of = topo_scalp()
-    def head(ax, vals, sig, vmin=-VMAX, vmax=VMAX):
-        return mne.viz.plot_topomap(np.array(vals), info, axes=ax, show=False, cmap=DIVERGING, vlim=(vmin, vmax), contours=0, sensors=False,
-                                    extrapolate="head", mask=np.array(sig), mask_params=dict(marker="o", markersize=1.3, markerfacecolor=st.INK, markeredgecolor="none"))[0]
     st.setup()
     H = 4.75; f = lambda inch: 1 - inch / H
     fig = plt.figure(figsize=(5.5, H))
@@ -82,7 +79,7 @@ def main():
             ax.plot(r[0], y + (1 - k) * 0.24, EMK[e], ms=2.8, mfc=st.INK if r[3] < .05 else "white", mec=st.INK, mew=0.5, zorder=3)
     ax.axvline(0, color=st.MUTED, lw=0.5, ls=(0, (3, 2))); ax.axhline(n - 3.5, color=st.RULE, lw=0.6)
     ax.set_ylim(-0.7, n - 0.3); ax.set_xlim(-0.42, 0.42); ax.set_xticks([-0.4, -0.2, 0, 0.2, 0.4])
-    ax.xaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    st.point_ticks(ax, "x")
     ax.set_yticks(ys, [k[4] for k in KEYS], fontsize=6); ax.tick_params(axis="y", length=0)
     ax.set_xlabel("difference above chance\n(fraction of noise ceiling)", fontsize=6.2, linespacing=1.0)
     for yc, lab in ((n - 2, "peak, raw"), (2.5, "187–250 ms,\ncontrols removed")):
@@ -115,11 +112,11 @@ def main():
 
     # c: robustness maps (v2 b) and correct trials
     x0 = 0.16; step = (0.9 - x0) / len(COMPARISONS); hw_in = 0.6; hw = hw_in / 5.5; hh = hw_in / H
-    def row(y_in, label, vals_of, sig_of, vmin=-VMAX, vmax=VMAX, titles=False):
+    def row(y_in, label, vals_of, sig_of, vmax=VMAX, titles=False):
         im = None
         for k, (hyp, _, _) in enumerate(COMPARISONS):
             axm = fig.add_axes([x0 + k * step + (step - hw) / 2, f(y_in + hw_in), hw, hh])
-            im = head(axm, vals_of(hyp), sig_of(hyp), vmin, vmax)
+            im = scalp_map(axm, vals_of(hyp), sig_of(hyp), info, vmax)
             if titles: axm.set_title(SHORT_NAMES[hyp], fontsize=6, pad=2, linespacing=1.0)
         fig.text(x0 - 0.02, f(y_in + hw_in / 2), label, ha="right", va="center", fontsize=6.6, linespacing=1.0)
         return im
@@ -131,7 +128,7 @@ def main():
             out.append(s_ * sum(1 for t in folds if float(t[h, r]["p_maxT"]) < .05 and np.sign(float(t[h, r]["corrected"])) == s_) / 6)
         return out
     yc = 3.38
-    im = row(yc, "actor folds\nreproducing", stab, lambda h: [False] * len(roi_of), vmin=-1, vmax=1, titles=True)
+    im = row(yc, "actor folds\nreproducing", stab, lambda h: [False] * len(roi_of), vmax=1, titles=True)
     cax = fig.add_axes([0.89, f(yc + 0.6), 0.012, 0.6 / H]); cb = fig.colorbar(im, cax=cax)
     cb.set_ticks([-1, 0, 1], labels=["6/6 −", "0", "6/6 +"]); cb.ax.tick_params(labelsize=5.2, length=2)
     cb.set_label("folds with\nthe same effect", fontsize=5.4, labelpad=2, linespacing=1.0)

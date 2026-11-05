@@ -25,8 +25,8 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 import figure_style as st
-from fig2_training import (BEST, COMPARISONS, DIVERGING, REGION_COLORS, SHORT_NAMES, STATS, full_label,
-                           region_of, sensor_inset, sensor_layout, topo_scalp)
+from fig2_training import (BEST, COMPARISONS, SHORT_NAMES, STATS, full_label, scalp_map, sensor_inset, sensor_layout,
+                           topo_scalp)
 
 SCOPES = ["OccipitoTemporal-L", "OccipitoTemporal-R", "Central-L", "Central-R"]
 # one colour per comparison (validated as a set, all pairs, light surface); line style as a second cue
@@ -79,19 +79,13 @@ def time_panel(ax, t, scope, contrasts, top, bottom):
     ax.set_xlim(0, 500); ax.set_xticks([0, 100, 200, 300, 400, 500], ["0", "", "200", "", "400", ""])
     ax.set_ylim(bottom, top + (top - bottom) * 0.04)
     ax.tick_params(labelsize=6, length=2, pad=1)
-    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    st.point_ticks(ax)
 
 
 def window_map(ax, t, hyp, contrast, scalp):
-    import mne
     info, roi_of = scalp
-    vals = np.array([float(t[hyp, contrast, r][WINDOW]["corrected"]) for r in roi_of])
-    sig = np.array([float(t[hyp, contrast, r][WINDOW]["p_maxT"]) < .05 for r in roi_of])
-    im, _ = mne.viz.plot_topomap(vals, info, axes=ax, show=False, cmap=DIVERGING, vlim=(-VMAX, VMAX), contours=0,
-                                 sensors=False, extrapolate="head", mask=sig,
-                                 mask_params=dict(marker="o", markersize=1.0, markerfacecolor=st.INK,
-                                                  markeredgecolor="none"))
-    return im
+    return scalp_map(ax, [float(t[hyp, contrast, r][WINDOW]["corrected"]) for r in roi_of],
+                     [float(t[hyp, contrast, r][WINDOW]["p_maxT"]) < .05 for r in roi_of], info, VMAX, dot=1.0)
 
 
 def main():

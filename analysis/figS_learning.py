@@ -22,14 +22,13 @@ import csv
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import mne
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
 
 import figure_style as st
 import rsa_core
-from fig2_training import DIVERGING, STATS, topo_scalp
+from fig2_training import STATS, scalp_map, topo_scalp
 
 SC = "OccipitoTemporal-L"
 FACE = st.REGIME_COLORS["Face"]
@@ -41,18 +40,14 @@ def main():
     args = ap.parse_args()
     L = str(STATS); A = str(rsa_core.ROOT / "analysis")
     info, roi_of = topo_scalp()
-    def head(ax, vals, sig, v):
-        return mne.viz.plot_topomap(np.array(vals), info, axes=ax, show=False, cmap=DIVERGING, vlim=(-v, v), contours=0, sensors=False, extrapolate="head",
-                                    mask=np.array(sig), mask_params=dict(marker="o", markersize=1.3, markerfacecolor=st.INK, markeredgecolor="none"))[0]
     st.setup()
     H = 5.15; f = lambda inch: 1 - inch / H
     fig = plt.figure(figsize=(5.5, H))
-    fmt = lambda ax: ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    fmt = st.point_ticks
     top, bot = 0.45, 2.3
 
     # a: emotion probe accuracy vs alignment (every network), within-variant slope; maps of the slope per ROI
     pr = {r["rdm"]: (r["family"], r["variant"], 100 * float(r["accuracy"])) for r in csv.DictReader(open(f"{L}/probe_per_rdm.csv")) if r["group"] == "main"}
-    REG = {"Random": "Random", "ImageNet": "Generic", "Kinetics-400": "Generic", "Pretrained": "Generic", "VGGFace2": "Face", "VGG-Face": "Face", "AffectNet FT": "Emotion", "DFEW FT": "Emotion"}
     def frame(name):
         rows = [dict(sc=r["scope"], fam=pr[r["contrast"]][0], vn=pr[r["contrast"]][1], acc=pr[r["contrast"]][2], al=float(r["corrected"]))
                 for r in csv.DictReader(open(f"{L}/contrasts{name}_nc.csv")) if r["hypothesis"] == "rdm" and r["contrast"] in pr]
@@ -64,7 +59,7 @@ def main():
     raw = frame(""); d = raw[raw.sc == SC]
     ax = fig.add_axes([0.085, f(bot), 0.32, (bot - top) / H])
     for (fam, vn), g in d.groupby(["fam", "vn"]):
-        c = st.REGIME_COLORS[REG[vn]]; mk = st.MARKERS[fam]
+        c = st.REGIME_COLORS[st.REGIME_OF[vn]]; mk = st.MARKERS[fam]
         ax.plot(g.acc, g.al, mk, ms=1.8, mfc=c, mec="none", alpha=0.35)
         ax.plot(g.acc.mean(), g.al.mean(), mk, ms=st.size(mk) - 1, mfc=c, mec="white", mew=0.4)
     b, p = slope(d)
@@ -78,7 +73,7 @@ def main():
     for i, (name, lab) in enumerate((("", "raw"), ("_joint", "controls removed"))):
         bt = {sc: slope(g) for sc, g in frame(name).groupby("sc")}
         axm = fig.add_axes([0.07 + i * 0.19, f(bot + 2.45 - 0.55), hw, hh])
-        imb = head(axm, [bt[r][0] for r in roi_of], [bt[r][1] * len(roi_of) < .05 for r in roi_of], 0.3)
+        imb = scalp_map(axm, [bt[r][0] for r in roi_of], [bt[r][1] * len(roi_of) < .05 for r in roi_of], info, 0.3)
         axm.set_title(lab, fontsize=6.2, pad=2)
     cax = fig.add_axes([0.105, f(bot + 2.45 - 0.25), 0.28, 0.06 / H]); cb = fig.colorbar(imb, cax=cax, orientation="horizontal")
     cb.set_ticks([-0.3, 0, 0.3], labels=["-.3", "0", ".3"]); cb.ax.tick_params(labelsize=5.6, length=2, pad=1)

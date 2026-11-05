@@ -82,7 +82,7 @@ def full_label(scope):
 
 
 def fmt(ax):
-    ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
+    st.point_ticks(ax)
 
 
 # ---------------------------------------------------------------- a: regimes, raw and after controls
@@ -157,12 +157,22 @@ def topo_scalp():
     return info, [member[c] for c in names]
 
 
+def scalp_map(ax, values, significant, info, vmax=VMAX, dot=1.3):
+    """One scalp map of per-ROI values (topo_scalp's order) on the diverging scale -vmax..vmax; dots mark the
+    significant ROIs. The scalp maps of every figure."""
+    import mne
+    return mne.viz.plot_topomap(np.asarray(values), info, axes=ax, show=False, cmap=DIVERGING, vlim=(-vmax, vmax),
+                                contours=0, sensors=False, extrapolate="head", mask=np.asarray(significant),
+                                mask_params=dict(marker="o", markersize=dot, markerfacecolor=st.INK,
+                                                 markeredgecolor="none"))[0]
+
+
 BEST = {"H1 pretrained vs random": "Qwen3-VL", "H4 video vs image": "Qwen3-VL Pretrained",
         "H2 face vs ImageNet": "ResNet50", "H3 fine-tuned vs start": "VGG16",
         "H5 face vs random": "ResNet18"}            # most ROIs with p < .05 after the controls, chosen after the results
 
 
-def pooled_and_best(fig, box, scalp, tables, colorbar=True):
+def pooled_and_best(fig, box, scalp, tables):
     """b and c side by side, each 2 rows (raw, controls removed) x 4 columns (the comparisons); b = all
     models pooled, c = the best model of each comparison (named in the column title)."""
     import mne
@@ -182,11 +192,8 @@ def pooled_and_best(fig, box, scalp, tables, colorbar=True):
             for xx, (hyp, _, _) in zip(xs, COMPARISONS):
                 t = {r["scope"]: r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == pick(hyp)}
                 ax = fig.add_axes([xx + 0.03 * hw, yy, hw * 0.94, rh * 0.94])
-                im, _ = mne.viz.plot_topomap(
-                    np.array([float(t[r]["corrected"]) for r in roi_of]), info, axes=ax, show=False, cmap=DIVERGING,
-                    vlim=(-VMAX, VMAX), contours=0, sensors=False, extrapolate="head",
-                    mask=np.array([float(t[r]["p_maxT"]) < .05 for r in roi_of]),
-                    mask_params=dict(marker="o", markersize=0.9, markerfacecolor=st.INK, markeredgecolor="none"))
+                im = scalp_map(ax, [float(t[r]["corrected"]) for r in roi_of],
+                               [float(t[r]["p_maxT"]) < .05 for r in roi_of], info, dot=0.9)
     H = fig.get_figheight()
     top = y0 + h - 0.12 * rh + 0.07 / H                             # above the heads, with a small gap
     bottom = y0 + h - 2 * rh
@@ -198,58 +205,12 @@ def pooled_and_best(fig, box, scalp, tables, colorbar=True):
                 fig.text(xx + hw / 2, bottom - 0.06 / H, BEST[hyp].split()[0], ha="center", va="top", fontsize=5.8,
                          color=st.INK2)
         fig.text((xs[0] + xs[-1] + hw) / 2, top + 0.24 / H, group, ha="center", va="bottom", fontsize=7.2)
-    if colorbar:
-        cax = fig.add_axes([xb[0] + hw, bottom - 0.25 / H, xc[-1] - xb[0] - hw, 0.05 / H])
-        cb = fig.colorbar(im, cax=cax, orientation="horizontal")
-        cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
-        cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-        cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
     return xb, xc, hw
 
 
 # ---------------------------------------------------------------- c: what each control removes
 
 D_SCOPES = ["OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "Central-L", "Central-R", "wholescalp"]
-SIDE_STYLE = {"L": (0.9, None), "M": (0.4, None), "R": (0.9, "//////")}      # alpha, hatch
-
-
-def scope_style(scope):
-    """Bar colour = region (Fig. 1), fill = side: left solid, midline light, right hatched; whole scalp grey."""
-    if scope == "wholescalp":
-        return st.MUTED, 0.9, None
-    alpha, hatch = SIDE_STYLE[scope.split("-")[1]]
-    return REGION_COLORS[region_of(scope)], alpha, hatch
-
-
-def bar_panel(ax, hyp, contrast, tables, labels=False):
-    """One comparison (pooled, or one family): rows = control sets (raw, each alone, all); horizontal bars =
-    the three occipito-temporal ROIs, the two central ROIs and the whole scalp (no averaging), difference
-    above chance with 95% CI; * p < .05 (maxT across the 11 ROIs; whole scalp alone)."""
-    n, nb = len(CONTROL_SETS), len(D_SCOPES)
-    step = 0.86 / nb
-    for k, (name, _) in enumerate(CONTROL_SETS):
-        for j, scope in enumerate(D_SCOPES):
-            r = next(r for r in tables[name] if r["hypothesis"] == hyp and r["contrast"] == contrast
-                     and r["scope"] == scope)
-            m, lo, hi = float(r["corrected"]), float(r["low"]), float(r["high"])
-            y = (n - 1 - k) + 0.43 - (j + 0.5) * step
-            color, alpha, hatch = scope_style(scope)
-            ax.barh(y, m, height=step * 0.92, fc="white" if hatch else color, ec=color, lw=0.4, hatch=hatch,
-                    alpha=1 if hatch else alpha, zorder=2)
-            ax.plot([lo, hi], [y, y], color=st.INK2, lw=0.4, zorder=3)
-            if float(r["p_maxT"]) < .05:
-                ax.text(hi + 0.01 if m >= 0 else lo - 0.01, y, "*", ha="left" if m >= 0 else "right",
-                        va="center", fontsize=5.5, color=st.INK, zorder=4)
-    ax.axvline(0, color=st.INK2, lw=0.6, zorder=1)
-    ax.axhspan(-0.5, 0.5, color=st.RULE, alpha=0.35, lw=0, zorder=0)             # all removed
-    for k in range(1, n):
-        ax.axhline(k - 0.5, color=st.RULE, lw=0.4, zorder=0)
-    ax.set_yticks(range(n), [lab for _, lab in CONTROL_SETS][::-1] if labels else [""] * n, fontsize=6.4)
-    ax.tick_params(axis="y", length=0, pad=1.5)
-    ax.tick_params(axis="x", labelsize=5.8, length=2, pad=1)
-    ax.set_ylim(-0.5, n - 0.5)
-    ax.spines["left"].set_visible(False)
-    ax.xaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))
 
 
 def grid_panel(ax, hyp, contrast, tables, labels=False):
@@ -304,7 +265,7 @@ def legend_block(fig, height):
 
 def layout_best(args, tables, variant):
     """a; b (pooled) and c (best model) side by side; d what each control removes."""
-    H = 8.25 if args.de == "bars" else 6.4
+    H = 6.4
     f = lambda inch: 1 - inch / H                                  # inches from the top -> figure fraction
     fig = plt.figure(figsize=(5.5, H))
     gs = fig.add_gridspec(1, 4, left=0.1, right=0.99, top=f(0.45), bottom=f(1.7), wspace=0.1)
@@ -316,44 +277,24 @@ def layout_best(args, tables, variant):
         if j:
             ax.tick_params(labelleft=False)
     a[0].set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)")
-    grid = args.de == "grid"
-    xb, xc, hw = pooled_and_best(fig, (0.02, f(3.92), 0.875 if grid else 0.97, 1.0 / H), topo_scalp(), tables,
-                                 colorbar=not grid)
-    top_d, bot_d = (f(5.1), f(6.87)) if not grid else (f(4.38), f(5.61))
+    xb, xc, hw = pooled_and_best(fig, (0.02, f(3.92), 0.875, 1.0 / H), topo_scalp(), tables)
+    top_d, bot_d = f(4.38), f(5.61)
     for xs, group, pick in ((xb, "all models (pooled)", lambda h: "pooled"), (xc, "best model", lambda h: BEST[h])):
-        axes = []
         for j, (xx, (hyp, label, regime)) in enumerate(zip(xs, COMPARISONS)):
             ax = fig.add_axes([xx + 0.12 * hw, bot_d, hw * 0.8, top_d - bot_d])
-            (grid_panel if args.de == "grid" else bar_panel)(ax, hyp, pick(hyp), tables, labels=xs is xb and j == 0)
+            grid_panel(ax, hyp, pick(hyp), tables, labels=xs is xb and j == 0)
             if xs is xc:                                            # the family shown, as under c's maps
                 ax.set_title(BEST[hyp].split()[0], fontsize=5.8, color=st.INK2, pad=2)
-            axes.append(ax)
-        if args.de == "bars":
-            lo = min(ax.get_xlim()[0] for ax in axes); hi = max(ax.get_xlim()[1] for ax in axes)
-            for ax in axes:
-                ax.set_xlim(lo, hi + 0.03)
         fig.text((xs[0] + xs[-1] + hw) / 2, top_d + 0.2 / H, group, ha="center", va="bottom", fontsize=7.2)
-    if args.de == "bars":
-        fig.text((xb[0] + xc[-1] + hw) / 2, f(7.12), "difference above chance (fraction of noise ceiling)", ha="center",
-                 va="center", fontsize=7)
-    handles = []
-    for scope in D_SCOPES:
-        color, alpha, hatch = scope_style(scope)
-        handles.append(Patch(fc="white" if hatch else color, ec=color, hatch=hatch, alpha=1 if hatch else alpha,
-                             lw=0.4, label=full_label(scope).replace("\n", " ")))
-    if args.de == "bars":
-        fig.legend(handles=handles, loc="center", bbox_to_anchor=(0.55, f(7.4)), ncol=3, fontsize=6.6,
-                   handletextpad=0.4, columnspacing=1.0, frameon=False)
-    else:
-        cax = fig.add_axes([0.905, bot_d, 0.012, f(2.6) - bot_d])          # one vertical colorbar for b-e
-        cb = fig.colorbar(plt.cm.ScalarMappable(cmap=DIVERGING, norm=plt.Normalize(-VMAX, VMAX)), cax=cax)
-        cb.set_ticks([-VMAX, -VMAX / 2, 0, VMAX / 2, VMAX],
-                     labels=[st.point_format(v) for v in (-VMAX, -VMAX / 2)] + ["0"] +
-                            [st.point_format(v) for v in (VMAX / 2, VMAX)])
-        cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
-        cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
-    for letter, x, y in (("a", 0.01, 0.04), ("b", 0.01, 2.34), ("c", xc[0] - 0.02, 2.34), ("d", 0.01, 4.68 if not grid else 3.96),
-                         ("e", xc[0] - 0.02, 4.68 if not grid else 3.96)):
+    cax = fig.add_axes([0.905, bot_d, 0.012, f(2.6) - bot_d])          # one vertical colorbar for b-e
+    cb = fig.colorbar(plt.cm.ScalarMappable(cmap=DIVERGING, norm=plt.Normalize(-VMAX, VMAX)), cax=cax)
+    cb.set_ticks([-VMAX, -VMAX / 2, 0, VMAX / 2, VMAX],
+                 labels=[st.point_format(v) for v in (-VMAX, -VMAX / 2)] + ["0"] +
+                        [st.point_format(v) for v in (VMAX / 2, VMAX)])
+    cb.ax.tick_params(labelsize=6.2, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+    cb.set_label("difference above chance (fraction of noise ceiling)", fontsize=6.6)
+    for letter, x, y in (("a", 0.01, 0.04), ("b", 0.01, 2.34), ("c", xc[0] - 0.02, 2.34), ("d", 0.01, 3.96),
+                         ("e", xc[0] - 0.02, 3.96)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
     legend_block(fig, H)
     st.black_text(fig)
@@ -365,7 +306,6 @@ def layout_best(args, tables, variant):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(STATS / "fig2_training"), help="output path without extension")
-    ap.add_argument("--de", choices=["bars", "grid"], default="grid", help="panels d-e as bars or as grids")
     args = ap.parse_args()
     st.setup()
     tables = {name: rows(name) for name, _ in CONTROL_SETS}
