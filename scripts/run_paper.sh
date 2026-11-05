@@ -1,5 +1,5 @@
 #!/bin/bash
-# Every statistic, figure and table of the paper from the Drive data (CPU), from the repository root.
+# Every statistic, figure and table of the paper from the RDMs under FER_ROOT (CPU), from the repository root.
 # Stages: STAGES="grids stats clusters probe figures" (default: all). JOBS sets the probe's processes.
 set -euo pipefail
 export FER_ROOT=${FER_ROOT:-.} MPLBACKEND=Agg PYTHONWARNINGS=ignore
