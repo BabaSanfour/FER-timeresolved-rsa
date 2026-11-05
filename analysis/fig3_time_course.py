@@ -103,7 +103,7 @@ def main():
     layout, scalp = sensor_layout(), topo_scalp()
     rows = [("all models (pooled)", ["pooled"] * len(COMPARISONS)),
             ("best model", [BEST[h] for h, _, _ in COMPARISONS])]
-    H = 5.92
+    H = 6.02
     f = lambda inch: 1 - inch / H
     fig = plt.figure(figsize=(5.5, H))
     tops = (0.5, 2.15)
@@ -142,15 +142,16 @@ def main():
             im = window_map(axm, t, hyp, contrast, scalp)
             if i == 0:
                 axm.set_title(SHORT_NAMES[hyp], fontsize=6, pad=2, linespacing=1.0)
-            else:
-                axm.text(1.02, 0.5, contrast.split()[0], transform=axm.transAxes, rotation=90, ha="left",
-                         va="center", fontsize=5.8, color=st.INK2)
+            else:                                                   # model name under its map
+                axm.text(0.5, -0.04, contrast.split()[0], transform=axm.transAxes, ha="center", va="top",
+                         fontsize=5.8)
         fig.text(0.035, y + hh / 2, rname.replace(" (", "\n("), rotation=90, ha="center", va="center", fontsize=6.8,
                  linespacing=1.0)
-    cax = fig.add_axes([0.94, f(5.78), 0.012, 1.25 / H])
+    cax = fig.add_axes([0.9, f(5.78), 0.012, 1.25 / H])
     cb = fig.colorbar(im, cax=cax)
     cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(-VMAX), "0", st.point_format(VMAX)])
     cb.ax.tick_params(labelsize=5.6, width=0.4, length=2); cb.outline.set_linewidth(0.4)
+    cb.set_label("difference above chance\n(fraction of noise ceiling)", fontsize=5.8, labelpad=2, linespacing=1.0)
     for letter, y in (("a", 0.05), ("b", 1.95), ("c", 3.98)):
         fig.text(0.01, f(y), letter, fontsize=9, fontweight="bold", va="top")
     fig.text(0.515, f(4.12), "187–250 ms", fontsize=7, ha="center", va="top")   # below the letter, above the maps
