@@ -1,5 +1,5 @@
 [project]
-name = "fer-timeresolved-rsa"
+name = "fer-rsa"
 version = "1.0.0"
 description = "Time-resolved RSA between EEG and vision models for dynamic facial expressions (NeurIPS 2026)"
 readme = "README.md"
@@ -39,5 +39,8 @@ dfew = ["seaborn>=0.13.2"]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = []                 # a collection of scripts: install the dependencies only
+[tool.setuptools.packages.find]
+include = ["fer_rsa*"]
+
+[tool.setuptools.package-data]
+"fer_rsa.eeg" = ["roi_definitions.json"]
