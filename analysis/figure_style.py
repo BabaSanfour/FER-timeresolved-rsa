@@ -13,7 +13,8 @@ REGIMES = ["Random", "Generic", "Face", "Emotion"]
 REGIME_COLORS = {"Random": MUTED, "Generic": "#e87ba4", "Face": "#2a78d6", "Emotion": "#008300"}
 REGIME_OF = {"Random": "Random", "ImageNet": "Generic", "Kinetics-400": "Generic", "Pretrained": "Generic",
              "VGGFace2": "Face", "VGG-Face": "Face", "AffectNet FT": "Emotion", "DFEW FT": "Emotion"}
-REGIME_LABELS = {"Random": "random", "Generic": "generic", "Face": "face", "Emotion": "emotion"}
+REGIME_LABELS = {"Random": "random", "Generic": "generic pretraining", "Face": "face recognition",
+                 "Emotion": "emotion recognition"}
 MARKERS = {"ResNet18": "o", "ResNet50": "s", "FaceNet": "^", "VGG16": "D", "M3DFEL": "p", "Qwen3-VL": "*"}
 MARKER_SIZE = {"*": 7.5, "p": 5.5, "D": 4.2}
 
@@ -21,8 +22,8 @@ MARKER_SIZE = {"*": 7.5, "p": 5.5, "D": 4.2}
 def setup():
     mpl.rcParams.update({
         "font.family": "sans-serif", "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
-        "font.size": 6.5, "axes.labelsize": 6.5, "axes.titlesize": 6.5, "xtick.labelsize": 6,
-        "ytick.labelsize": 6, "legend.fontsize": 6, "axes.linewidth": 0.6, "axes.edgecolor": INK,
+        "font.size": 7.5, "axes.labelsize": 7.5, "axes.titlesize": 7.5, "xtick.labelsize": 7,
+        "ytick.labelsize": 7, "legend.fontsize": 7, "axes.linewidth": 0.6, "axes.edgecolor": INK,
         "axes.labelcolor": INK, "xtick.color": INK, "ytick.color": INK, "text.color": INK,
         "xtick.major.width": 0.6, "ytick.major.width": 0.6, "xtick.major.size": 2.5, "ytick.major.size": 2.5,
         "axes.spines.top": False, "axes.spines.right": False, "legend.frameon": False,
@@ -35,9 +36,9 @@ def size(marker):
 
 
 def panel_label(ax, letter, title=None, x=-0.22, y=1.06):
-    ax.text(x, y, letter, transform=ax.transAxes, fontsize=8, fontweight="bold", va="bottom", ha="left")
+    ax.text(x, y, letter, transform=ax.transAxes, fontsize=9, fontweight="bold", va="bottom", ha="left")
     if title:
-        ax.text(x + 0.09, y, title, transform=ax.transAxes, fontsize=6.5, va="bottom", ha="left")
+        ax.text(x + 0.09, y, title, transform=ax.transAxes, fontsize=7.7, va="bottom", ha="left")
 
 
 def point_format(x):
@@ -46,5 +47,17 @@ def point_format(x):
     return s.replace("0.", ".", 1) if s.startswith(("0.", "-0.")) else s
 
 
-def stars(p):
-    return "***" if p < .001 else "**" if p < .01 else "*" if p < .05 else "n.s."
+
+
+
+
+def black_text(fig):
+    """Every text of the figure (titles, labels, ticks, legends, annotations) in black ink."""
+    from matplotlib.text import Text
+    for t in fig.findobj(Text):
+        t.set_color(INK)
+
+
+def point_ticks(ax, axis="y"):
+    """Tick labels without the leading zero (.2, -.1), as everywhere in the paper."""
+    getattr(ax, f"{axis}axis").set_major_formatter(lambda v, _: point_format(round(v, 3)))
