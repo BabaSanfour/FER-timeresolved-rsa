@@ -4,8 +4,8 @@
 Panels
   a  stimuli: real frames of one actor (fear / happiness / neutral) across the 1-s clip,
      plus the sunglasses and mask versions used in the 54-video set
-  b  EEG: Biosemi-64 layout with the six scalp ROIs (eeg/roi_definitions.json) and the
-     16 analysis windows of 62.5 ms
+  b  EEG: Biosemi-64 layout with the 11 scalp ROIs (eeg/roi_definitions.json) and the
+     13 analysis windows of 62.5 ms from onset (the last ends at 800 ms)
   c  model families x training regimes actually analysed, cells naming the training data
   d  EEG RDMs, e  model RDMs, f  layer x time RSA map with its maximum (rho_max)
      -- d, e, f are schematic: synthetic matrices generated here, not data
@@ -32,7 +32,11 @@ REPO = Path(__file__).resolve().parents[2]
 
 # Validated categorical slots (dataviz reference palette, light mode, --pairs all).
 EMOTION_COLORS = {"fear": "#eb6834", "happy": "#1baf7a", "neutral": "#2a78d6"}
-ROI_COLORS = {"Ant": "#6250d6", "Temp": "#e87ba4", "Post": "#008300"}
+# ROI regions (dataviz slots violet, magenta, green, yellow; validated --pairs all, labelled)
+ROI_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "#008300", "OccipitoTemporal": "#eda100"}
+ROI_LABELS = {"Frontal": "Frontal", "Central": "Central", "CentroParietal": "Centro-parietal",
+              "OccipitoTemporal": "Occipito-temporal"}
+WINDOW_MS, N_WINDOWS, END_MS = 62.5, 13, 800
 INK, INK2, MUTED, RULE = "#0b0b0b", "#52514e", "#8a8984", "#d6d5d0"
 BLUE_RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 SEQ = LinearSegmentedColormap.from_list("seq_blue", BLUE_RAMP)
@@ -102,9 +106,9 @@ def draw_stack(ax, rdms, label_blocks):
 def draw_head(ax):
     """Biosemi ActiveTwo 64-channel layout (10-10 labels), standard azimuthal projection (MNE).
 
-    The six ROI electrode sets (eeg/roi_definitions.json) are coloured by region; the 22
-    channels outside the ROIs (midline and central sites, used only by the whole-scalp
-    analysis) are small grey dots.
+    The 11 ROIs (eeg/roi_definitions.json) are coloured by region; left and right ROIs are filled
+    dots, midline ROIs open dots; channels outside the ROIs (P9, P10: whole scalp only) are small
+    grey dots.
     """
     from mne.channels.layout import _find_topomap_coords
     roi = json.loads((REPO / "eeg/roi_definitions.json").read_text())
@@ -122,21 +126,19 @@ def draw_head(ax):
         name = member.get(ch)
         if name is None:
             ax.plot(*p, "o", ms=1.5, mfc="#b9b8b2", mec="none")
-        else:
-            ax.plot(*p, "o", ms=2.6, mfc=ROI_COLORS[name.split("-")[0]], mec="white", mew=0.3)
-    for name, chans in roi.items():
-        if name.startswith("_"):
             continue
-        c = np.mean([xy[ch] for ch in chans], 0)
         region, side = name.split("-")
-        lab = f"{region}-{side[0]}"
-        left = side == "Left"
-        if region == "Temp":            # beside the head, clear of the outline
-            t, ha = (centre[0] + (-1.12 if left else 1.12) * radius, c[1]), ("right" if left else "left")
-        else:                           # above (anterior) or below (posterior)
-            t, ha = (c[0] + (-0.25 if left else 0.25) * radius,
-                     centre[1] + (1.18 if region == "Ant" else -1.2) * radius), "center"
-        ax.text(*t, lab, fontsize=5.5, color=INK, ha=ha, va="center")
+        color = ROI_COLORS[region]
+        if side == "M":
+            ax.plot(*p, "o", ms=2.4, mfc="white", mec=color, mew=0.8)
+        else:
+            ax.plot(*p, "o", ms=2.6, mfc=color, mec="white", mew=0.3)
+    from matplotlib.lines import Line2D
+    handles = [Line2D([], [], marker="o", ls="none", ms=2.6, mfc=ROI_COLORS[r], mec="white", mew=0.3, label=lab)
+               for r, lab in ROI_LABELS.items()]
+    handles.append(Line2D([], [], marker="o", ls="none", ms=2.4, mfc="white", mec=INK2, mew=0.8, label="midline"))
+    ax.legend(handles=handles, ncol=3, loc="upper center", bbox_to_anchor=(0.5, 0.1), frameon=False,
+              fontsize=5, handletextpad=0.1, columnspacing=0.6, borderaxespad=0, labelspacing=0.3)
     ax.set_xlim(centre[0] - radius * 1.6, centre[0] + radius * 1.6)
     ax.set_ylim(centre[1] - radius * 1.45, centre[1] + radius * 1.3)
     ax.set_aspect("equal")
@@ -144,19 +146,20 @@ def draw_head(ax):
 
 
 def draw_windows(ax):
-    for k in range(16):
-        ax.add_patch(Rectangle((k * 62.5 + 3, 0), 56.5, 1, color=BLUE_RAMP[1] if k % 2 else BLUE_RAMP[2], lw=0))
-    ax.set_xlim(0, 1000)
+    for k in range(N_WINDOWS):
+        start, stop = k * WINDOW_MS, min((k + 1) * WINDOW_MS, END_MS)
+        ax.add_patch(Rectangle((start + 3, 0), stop - start - 6, 1, color=BLUE_RAMP[1] if k % 2 else BLUE_RAMP[2], lw=0))
+    ax.set_xlim(0, END_MS)
     ax.set_ylim(0, 1)
     ax.set_yticks([])
-    ax.set_xticks([0, 500, 1000])
-    ax.set_xticklabels(["0", "500", "1000 ms"])
+    ax.set_xticks([0, 400, 800])
+    ax.set_xticklabels(["0", "400", "800 ms"])
     ax.tick_params(axis="x", labelsize=5.5, length=2, width=0.5, colors=INK, pad=1)
     for s in ("top", "right", "left"):
         ax.spines[s].set_visible(False)
     ax.spines["bottom"].set_linewidth(0.5)
     ax.spines["bottom"].set_color(INK2)
-    ax.set_title("16 windows × 62.5 ms", fontsize=5.5, color=INK, pad=2)
+    ax.set_xlabel("13 windows × 62.5 ms from onset", fontsize=5.5, color=INK, labelpad=1)
 
 
 def draw_models(ax):
@@ -164,7 +167,7 @@ def draw_models(ax):
     families = ["ResNet18", "ResNet50", "FaceNet", "VGG16", "M3DFEL", "Qwen3-VL"]
     regimes = ["Random", "Generic", "Face", "Emotion"]
     img = ["*", "ImageNet", "VGGFace2", "AffectNet"]
-    cells = {"ResNet18": img, "ResNet50": img, "FaceNet": img, "VGG16": img,
+    cells = {"ResNet18": img, "ResNet50": img, "FaceNet": img, "VGG16": img[:2] + ["VGG-Face"] + img[3:],
              "M3DFEL": ["*", "Kinetics", "", "DFEW"], "Qwen3-VL": ["*", "Released", "", ""]}
     n_r = len(families)
     xs = [0.25, 0.415, 0.635, 0.855]         # column centres, axes fraction
@@ -190,20 +193,20 @@ def draw_models(ax):
 
 def draw_rsa_map(ax, rng):
     """Tall layer x time map: layers on y, EEG window / model frame on x."""
-    L, W = 40, 16
+    L, W = 40, N_WINDOWS
     li, wi = np.meshgrid(np.linspace(0, 1, L), np.arange(W), indexing="ij")
-    peak = 0.16 * np.exp(-((li - 0.72) ** 2) / 0.05 - ((wi - 7.5) ** 2) / 10)
-    early = 0.05 * np.exp(-((li - 0.25) ** 2) / 0.04 - ((wi - 3) ** 2) / 4)
+    peak = 0.16 * np.exp(-((li - 0.72) ** 2) / 0.05 - ((wi - 3) ** 2) / 6)
+    early = 0.05 * np.exp(-((li - 0.25) ** 2) / 0.04 - ((wi - 1.5) ** 2) / 3)
     grid = peak + early + rng.normal(0, 0.012, (L, W))
     ax.imshow(grid, cmap=DIV, vmin=-0.2, vmax=0.2, origin="lower", aspect="auto",
-              extent=(0, 1000, 0, 1), interpolation="nearest")
+              extent=(0, W * WINDOW_MS, 0, 1), interpolation="nearest")
     l, w = np.unravel_index(np.argmax(grid), grid.shape)
-    xy = ((w + 0.5) * 62.5, (l + 0.5) / L)
+    xy = ((w + 0.5) * WINDOW_MS, (l + 0.5) / L)
     ax.plot(*xy, marker="o", ms=5, mfc="none", mec=INK, mew=0.8)
-    ax.annotate(r"$\rho_{\max}$", xy=xy, xytext=(500, 1.07), textcoords="data", fontsize=6.5, color=INK,
+    ax.annotate(r"$\rho_{\max}$", xy=xy, xytext=(W * WINDOW_MS / 2, 1.07), textcoords="data", fontsize=6.5, color=INK,
                 ha="center", va="bottom", annotation_clip=False,
                 arrowprops=dict(arrowstyle="-", lw=0.5, color=INK))
-    ax.set_xticks([0, 1000])
+    ax.set_xticks([0, END_MS])
     ax.set_yticks([0, 1])
     ax.set_yticklabels(["first", "last"])
     ax.tick_params(labelsize=5.5, length=2, width=0.5, colors=INK, pad=1)
@@ -285,8 +288,8 @@ def main():
     # ---- b: EEG (top) / c: models (bottom) ------------------------------------------
     panel_label(fig, B0, TOP, "b", "Electroencephalography")
     rule(fig, B0, B1, TOP - 0.007)
-    draw_head(fig.add_axes([B0 + 0.03, 0.600, B1 - B0 - 0.06, 0.315]))
-    draw_windows(fig.add_axes([B0 + 0.012, 0.545, B1 - B0 - 0.024, 0.028]))
+    draw_head(fig.add_axes([B0 + 0.03, 0.640, B1 - B0 - 0.06, 0.285]))
+    draw_windows(fig.add_axes([B0 + 0.012, 0.590, B1 - B0 - 0.024, 0.026]))
 
     panel_label(fig, B0, MID, "c", "Models")
     rule(fig, B0, B1, MID - 0.007)
@@ -317,6 +320,9 @@ def main():
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    from matplotlib.text import Text
+    for t in fig.findobj(Text):                                  # every text in black ink
+        t.set_color(INK)
     fig.savefig(out.with_suffix(".pdf"))
     fig.savefig(out.with_suffix(".png"), dpi=300)
     print(f"[ok] {out.with_suffix('.pdf')}")

@@ -33,6 +33,8 @@ DIVERGING = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e3
 VMAX = .1
 
 
+TICKS = [0, 200, 400, 600, 800]                  # ms from onset (windows end at 800 ms)
+
 def outer(mask):
     """Cluster filled in, so only its outer boundary is drawn."""
     padded = np.pad(mask, 1)
@@ -84,7 +86,7 @@ def main():
                      ("" if r.emotion == "all" else f" · {r.emotion}") +
                      rf"  ($p$ = {st.point_format(round(r.p_study, 3))}, study-wide)", fontsize=6.5)
         ax.set_ylabel("relative layer depth" if col == 0 else "")
-        ax.set_xticks([0, 250, 500, 750, 1000])
+        ax.set_xticks(TICKS)
         ax.set_xticklabels([])
         st.panel_label(ax, "ab"[col] if ncol == 2 else chr(97 + col), x=-0.2 if col == 0 else -0.14)
 
@@ -106,7 +108,7 @@ def main():
         ax.text(centres[peak], top + 0.02, f"{centres[peak]:.0f} ms", ha="center", va="bottom", fontsize=5.8)
         ax.axhline(0, color=st.MUTED, lw=0.6, ls=(0, (3, 2)))
         ax.set_xlim(bounds[0, 0], bounds[-1, 1])
-        ax.set_xticks([0, 250, 500, 750, 1000])
+        ax.set_xticks(TICKS)
         ax.set_xlabel("time from video onset (ms)")
         ax.set_ylabel(r"$\rho$ at the marked layer" if col == 0 else "")
         ax.yaxis.set_major_formatter(lambda v, _: st.point_format(round(v, 3)))

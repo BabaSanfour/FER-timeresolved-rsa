@@ -6,7 +6,7 @@ their rho_max values have different chance levels and cannot be compared directl
 For each RDM, the stimulus labels are permuted within each emotion (fear, happy,
 neutral; the same permutations for every RDM) and the Table 1 statistic is
 recomputed: the maximum over layer x window of the participant-mean Spearman in
-each ROI x emotion cell, averaged over the 6 ROIs x 3 emotions. A variant's value
+each ROI x emotion cell, averaged over the 11 ROIs x 3 emotions. A variant's value
 is the mean over its RDMs, per permutation. Reported: the observed value, the null
 mean and 95th percentile, the permutation p, and the excess over chance
 (observed - null mean), which puts models and controls on the same footing.
@@ -42,7 +42,7 @@ def pair_permutation(perm):
 
 
 def roi_cell_maxima(eeg_mean, model_z, model_flat, pairs=None):
-    """eeg_mean (O, W, P), model_z (L, W, P) -> (6,) max over layer x window per ROI."""
+    """eeg_mean (O, W, P), model_z (L, W, P) -> (11,) max over layer x window per ROI."""
     mz = model_z if pairs is None else model_z[..., pairs]
     g = np.einsum("owp,lwp->olw", eeg_mean[:rsa_core.N_ROI], mz, optimize=True)
     g[:, model_flat] = np.nan
