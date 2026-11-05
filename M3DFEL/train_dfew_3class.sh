@@ -9,7 +9,7 @@
 #SBATCH --time=6:00:00
 #SBATCH --output=./M3DFEL/logs/%x-%A_%a.out
 #SBATCH --error=./M3DFEL/logs/%x-%A_%a.out
-ROOT=$(realpath "${FER_ROOT:-.}")   # data/repo root; submit from the repository root or set FER_ROOT
+ROOT=$(realpath "${FER_ROOT:-.}")   # submit from the repository root or set FER_ROOT
 set -euo pipefail
 
 PROJECT=$ROOT/M3DFEL

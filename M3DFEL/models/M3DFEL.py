@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torchvision.models.video import r3d_18, R3D_18_Weights
+from torchvision.models.video import r3d_18
 from einops import rearrange
 
 from utils import *
@@ -93,6 +93,6 @@ class M3DFEL(nn.Module):
         x = self.pwconv(x).squeeze(1)
         # [batch, 1024]
         out = self.fc(x)
-        # [batch, 7]
+        # [batch, num_classes]
 
         return out
