@@ -1,23 +1,4 @@
 #!/usr/bin/env python3
-"""Linear probe of the emotion label on each model's final-layer features (--stimuli 18 | 54).
-
-Features: features/set<stimuli>/<name>/<name>.features.npy (n_stim, 16, d), written by
-the extractors with --features: the input to the output layer for the CNNs, the
-last backbone layer for M3DFEL, the last decoder block for Qwen3-VL. For each RDM,
-a logistic regression (L2, C = 1, features standardised on the training set) is
-trained on the frames of all videos except one actor's and predicts the held-out
-actor's videos by averaging its class probabilities over their 16 frames (leave
-one actor out, 6 folds). Accuracy is over all videos; a variant's value is the
-mean +/- SD over its RDMs. Its p comes from 200 permutations of the emotion
-labels within each actor (the same for every RDM of a variant), which keep every
-training fold balanced, so the null is centred on chance (1/3); a permutation over
-all videos would unbalance the folds and push the null below chance.
-
-The relation of probe accuracy to alignment (a linear mixed model within variants) is fitted in
-figS_learning.py.
-
-Outputs: analysis/paper_stats[_54]/probe.csv (per variant) and probe_per_rdm.csv (per RDM)
-"""
 import argparse
 import csv
 from concurrent.futures import ProcessPoolExecutor
@@ -35,7 +16,7 @@ SEED = 42
 
 
 def accuracy(features, emotion, actor):
-    """features (n, T, d) -> leave-one-actor-out accuracy over the n videos."""
+    """(n, T, d) features -> leave-one-actor-out accuracy over the n videos."""
     n, T, d = features.shape
     correct = np.zeros(n, bool)
     for a in np.unique(actor):
@@ -57,6 +38,7 @@ def rdm_accuracies(job):
 
 
 def within_actor_permutations(actor, rng, n):
+    """n permutations of the videos within each actor (balanced folds, null at chance)."""
     perms = []
     for _ in range(n):
         p = np.arange(len(actor))
@@ -73,11 +55,11 @@ def main():
     ap.add_argument("--jobs", type=int, default=1, help="parallel processes")
     args = ap.parse_args()
     s = args.stimuli
-    names = rsa_core.MODEL_STIMULI[s]                       # all videos: the probe uses no EEG
+    names = rsa_core.MODEL_STIMULI[s]
     emotion = np.array([nm.split("_")[0] for nm in names])
     actor = np.array([nm.rsplit("_Actor", 1)[1] for nm in names])
     folder = rsa_core.ROOT / f"features/set{s}"
-    out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
+    out = rsa_core.STATS_DIRS[s]
     out.mkdir(parents=True, exist_ok=True)
 
     perms = within_actor_permutations(actor, np.random.default_rng(SEED), N_NULL)

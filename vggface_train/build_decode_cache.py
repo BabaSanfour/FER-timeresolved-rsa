@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""Decode every listed image once, exactly as train.py does (128px), into one uint8 array.
-
-train.py --cache-dir then skips JPEG decoding; the augmentation is unchanged.
-726,502 images -> ~36 GB.
-"""
 import argparse
 import os
 import random

@@ -1,22 +1,4 @@
 #!/usr/bin/env python3
-"""Grid-wide cluster permutation tests over layer × time RSA grids (--study 18 | 54).
-
-One test per variant (analysis/variants.py, main group) on its participant-level
-grid averaged over its ten seeds or training runs (rsa_core.variant_grid; a
-released model has one RDM), for each scope x condition (12 x 4 = 48 grids).
-Within a grid: one-sided sign-flip test of the cluster mass (sum of t over
-4-neighbour clusters of cells with t above the one-sided .05 threshold), FWER
-from the maximum cluster mass. Across all grids of all variants: maximum statistic
-(p_study). Every grid uses the same sign flips, so for each flip the largest
-cluster mass of each grid, standardised by that grid's null mean and SD, gives a
-study-wide maximum; a cluster's study-wide p is the share of flips whose maximum
-reaches its standardised mass. Standardising puts grids of 15 to 245 layers on
-one scale, and the p does not shrink with the number of grids tested.
-
-Every participant enters every grid (the EEG has no missing values, rsa_core.py).
-A cell is NaN only where a model RDM is constant (no correlation), and then for
-every participant; such cells are left out of the clustering.
-"""
 import csv
 import json
 import argparse
@@ -28,27 +10,22 @@ from scipy.stats import t as tdist
 import rsa_core
 import variants
 
-ROOT = rsa_core.ROOT
 N_PERM = 20000
 SEED = 42
 ALPHA = .05
 STRUCTURE = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], dtype=int)
 
 
-def t_values(x, signed_sum=None):
-    n = x.shape[0]
-    ss = np.sum(x * x, axis=0)
-    total = np.sum(x, axis=0) if signed_sum is None else signed_sum
+def t_map(total, ss, n):
+    """One-sample t from the sum and sum of squares over n (0 where the variance is 0)."""
     mean = total / n
     var = np.maximum((ss - n * mean * mean) / (n - 1), 0)
-    return np.divide(mean, np.sqrt(var / n), out=np.zeros_like(mean),
-                     where=var > 0)
+    return np.divide(mean, np.sqrt(var / n), out=np.zeros_like(mean), where=var > 0)
 
 
-def clusters(tmap, threshold, valid=None):
-    hit = tmap > threshold
-    if valid is not None:
-        hit &= valid
+def clusters(tmap, threshold, valid):
+    """-> [(mask, mass)] of the 4-neighbour clusters of valid cells above threshold."""
+    hit = (tmap > threshold) & valid
     labels, count = label(hit, structure=STRUCTURE)
     result = []
     for cluster_id in range(1, count + 1):
@@ -57,17 +34,14 @@ def clusters(tmap, threshold, valid=None):
     return result
 
 
-def max_cluster_null(x, signs, threshold, valid=None):
+def max_cluster_null(x, signs, threshold, valid):
+    """(n, L, W) grid -> largest cluster mass under each sign flip."""
     n, layers, windows = x.shape
     flat = x.reshape(n, -1)
     ss = np.sum(flat * flat, axis=0)
     null = np.zeros(len(signs), dtype=np.float32)
     for start in range(0, len(signs), 100):
-        totals = signs[start:start + 100] @ flat
-        means = totals / n
-        var = np.maximum((ss[None, :] - n * means * means) / (n - 1), 0)
-        tmaps = np.divide(means, np.sqrt(var / n),
-                          out=np.zeros_like(means), where=var > 0)
+        tmaps = t_map(signs[start:start + 100] @ flat, ss[None, :], n)
         for j, tflat in enumerate(tmaps):
             found = clusters(tflat.reshape(layers, windows), threshold, valid)
             null[start + j] = max((mass for _, mass in found), default=0)
@@ -75,9 +49,7 @@ def max_cluster_null(x, signs, threshold, valid=None):
 
 
 def signs_for(n, cache={}):
-    """Sign matrix for a realised n. Seeded per n, so a grid's test is
-    reproducible and a complete grid gives exactly the result it gave when the
-    matrix was built once for the full sample."""
+    """(N_PERM, n) sign flips, the same for every grid."""
     if n not in cache:
         rng = np.random.default_rng(SEED)
         cache[n] = rng.choice(np.array([-1., 1.], np.float32), size=(N_PERM, n))
@@ -94,19 +66,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--study", choices=["18", "54"], required=True)
     parser.add_argument("--partial", default=None,
-                        help="test the partial-RSA grids of this control set (partial_rsa.py)")
+                        help="a control set of partial_rsa.py (e.g. joint)")
     args = parser.parse_args()
-    global OUT
-    OUT = ROOT / (f"analysis/cluster_permutation_{args.study}"
-                  + (f"_partial_{args.partial}" if args.partial else ""))
+    out = rsa_core.ROOT / (f"analysis/cluster_permutation_{args.study}"
+                           + (f"_partial_{args.partial}" if args.partial else ""))
     tested = [(fam, var, tags) for g, fam, var, tags in variants.variants(args.study) if g == "main"]
     missing = [t for *_, tags in tested for t in tags
                if not rsa_core.grid_path(args.study, t, args.partial).exists()]
     if missing:
         raise SystemExit(f"ABORT: {len(missing)} grids missing, e.g. {missing[:3]}")
-    OUT.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
     grid_rows, cluster_rows = [], []
-    grid_nulls = []                      # (mean, sd, null) of each grid's maximum cluster mass, in grid_rows order
+    grid_nulls = []                      # (mean, sd, null) of each grid's maximum cluster mass
 
     for pi, (family, variant, tags) in enumerate(tested, 1):
         tag = rsa_core.slug(family, variant)
@@ -123,11 +94,10 @@ def main():
                     raise SystemExit(f"ABORT {tag} {scope} {emotion}: NaN for some participants only")
                 base = {"model": tag, "family": family, "variant": variant, "n_rdms": len(tags),
                         "scope": scope, "emotion": emotion, "n": n}
-                # invalid cells are excluded from clustering; zero-filling touches no valid cell
                 x = np.where(valid, raw, 0.).astype(np.float32)
                 threshold = threshold_for(n)
                 signs = signs_for(n)
-                observed_t = np.where(valid, t_values(x), 0.)
+                observed_t = np.where(valid, t_map(x.sum(0), (x * x).sum(0), n), 0.)
                 observed_clusters = clusters(observed_t, threshold, valid)
                 null = max_cluster_null(x, signs, threshold, valid)
                 grid_nulls.append((float(null.mean()), float(null.std()) or 1.0, null))
@@ -162,7 +132,7 @@ def main():
         print(f"[{pi}/{len(tested)}] {tag} ({len(tags)} RDMs): "
               f"{sum(r['survives_grid_fwer'] for r in model_rows)} grid-FWER", flush=True)
 
-    # study-wide: maximum over all grids of the standardised maximum cluster mass, per sign flip
+    # study-wide: per sign flip, the maximum over grids of the standardised maximum cluster mass
     study_max = np.max([(null - mu) / sd for mu, sd, null in grid_nulls], axis=0)
     for row in cluster_rows:
         mu, sd, _ = grid_nulls[row["grid"]]
@@ -170,10 +140,10 @@ def main():
     for gi, row in enumerate(grid_rows):
         row["p_study"] = min((c["p_study"] for c in cluster_rows if c["grid"] == gi), default=1.0)
         row["survives_study"] = int(row["p_study"] < ALPHA)
-    with (OUT / "grid_summary.csv").open("w", newline="") as f:
+    with (out / "grid_summary.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=grid_rows[0].keys())
         writer.writeheader(); writer.writerows(grid_rows)
-    with (OUT / "clusters.csv").open("w", newline="") as f:
+    with (out / "clusters.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=cluster_rows[0].keys())
         writer.writeheader(); writer.writerows(cluster_rows)
 
@@ -188,10 +158,10 @@ def main():
             "best_cluster_p": min(r["min_cluster_p"] for r in rows),
             "best_study_p": min(r["p_study"] for r in rows),
         })
-    with (OUT / "model_survivors.csv").open("w", newline="") as f:
+    with (out / "model_survivors.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=survivors[0].keys())
         writer.writeheader(); writer.writerows(survivors)
-    (OUT / "method.json").write_text(json.dumps({
+    (out / "method.json").write_text(json.dumps({
         "test": "one-sample one-sided sign-flip",
         "grid": "full model-layer x EEG-window",
         "adjacency": "4-neighbour",
@@ -204,7 +174,7 @@ def main():
                                   "each grid's maximum cluster mass standardised by its null mean and SD",
         "missing_data": "none: every participant in every grid; cells of a constant model RDM are excluded",
     }, indent=2))
-    print(f"[ok] -> {OUT}")
+    print(f"[ok] -> {out}")
 
 
 if __name__ == "__main__":

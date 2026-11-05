@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
-"""Task lists for the retraining on Trillium: one tab-separated line per run
-(output dir, pattern that marks it done in train.log, command).
-
-40 epochs for every VGGFace2-HQ model; size curve 10k-500k plus the full pool;
-step-matched 10k-300k at the full pool's step count; AffectNet fine-tunes from our
-pretraining (VGG16 from VGG-Face) with the epoch chosen on validation; ten seeds
-(1000 + repeat). run_tasks.sh fills in {W} (loader workers), {H} (hours left)
-and {C} (cache path).
-"""
 import argparse
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "analysis"))
-from variants import CHECKPOINT_STEPS, IDENTITIES, N_DESIGN_REPEATS, N_RUNS, SIZES  # noqa: E402  (one definition)
+from variants import CHECKPOINT_STEPS, IDENTITIES, N_DESIGN_REPEATS, N_RUNS, SIZES  # noqa: E402
 
-FULL_POOL_STEPS = 1398 * 40  # 715,810 // 512 x 40 epochs
+STEPS_PER_EPOCH = 1398  # 715,810 // 512
+FULL_POOL_STEPS = STEPS_PER_EPOCH * 40
 assert CHECKPOINT_STEPS[-1] == FULL_POOL_STEPS
 
 
@@ -39,20 +31,19 @@ def main():
               "identities": []}
     for r in range(1, N_DESIGN_REPEATS + 1):
         rep = f"repeat_{r:02d}"
-        # the full pool with the seed of pretraining run r, keeping the weights along training
+        # full pool, seed of pretraining run r, weights kept along training
         groups["checkpoints"].append(pretrain(
             f"{res}/checkpoints/{rep}", "facenet", f"{repo}/vggface_train/index", 1000 + r,
             f"--epochs 40 --save-at-steps {','.join(map(str, CHECKPOINT_STEPS))}"))
-        # fewer identities at 100 images each, every model trained for the full pool's steps
+        # 100 images per identity, full pool's step count
         for ids in IDENTITIES:
             groups["identities"].append(pretrain(
                 f"{res}/identities/{rep}/{ids}", "facenet",
                 f"{repo}/vggface_train/indexes_identities/{rep}/{ids}", 1000 + r,
-                f"--steps {FULL_POOL_STEPS} --eval-every-steps 1398"))
+                f"--steps {FULL_POOL_STEPS} --eval-every-steps {STEPS_PER_EPOCH}"))
     for r in range(1, N_RUNS + 1):
         rep = f"repeat_{r:02d}"
-        archs = ["facenet", "resnet18", "resnet50"]
-        for arch in archs:
+        for arch in ["facenet", "resnet18", "resnet50"]:
             groups["pretrain"].append(pretrain(f"{res}/pretrain/{arch}/{rep}", arch,
                                                f"{repo}/vggface_train/index", 1000 + r, "--epochs 40"))
         for size in SIZES:
@@ -63,7 +54,7 @@ def main():
             groups["stepmatched"].append(pretrain(
                 f"{res}/stepmatched/{rep}/{size}", "facenet",
                 f"{repo}/vggface_train/indexes_repeated/{rep}/{size}", 1000 + r,
-                f"--steps {FULL_POOL_STEPS} --eval-every-steps 1398"))
+                f"--steps {FULL_POOL_STEPS} --eval-every-steps {STEPS_PER_EPOCH}"))
         for arch in ["facenet", "resnet18", "resnet50", "vgg16_vggface"]:
             start = (f"{data}/net_weights/vgg_face_dag.pth" if arch == "vgg16_vggface"
                      else f"{res}/pretrain/{arch}/{rep}/best_weights.pt")

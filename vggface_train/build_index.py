@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""Build a train/val index for VGGFace2 once, on Lustre, so training jobs never walk the tree.
-
-Emits, next to the dataset:
-  classes.txt          one identity per line, sorted; line number == label id
-  train.txt / val.txt  "<relpath-from-root>\t<label>" per line
-
-Paths are relative to the dataset root, so the same index works on Lustre and on
-$SLURM_TMPDIR after the zips are unpacked node-locally.
-"""
 import argparse
 import os
 import random
@@ -35,8 +26,8 @@ for label, cls in enumerate(classes):
         skipped.append(cls)
         continue
     rng.shuffle(imgs)
-    # Never starve training: hold out at most half an identity's images.
-    k = min(args.val_per_class, max(0, len(imgs) - 1), len(imgs) // 2)
+    # hold out at most half of an identity's images
+    k = min(args.val_per_class, len(imgs) // 2)
     for name in imgs[:k]:
         val.append((f"{cls}/{name}", label))
     for name in imgs[k:]:

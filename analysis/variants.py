@@ -1,18 +1,3 @@
-"""Every model variant of the paper and the RDMs behind it.
-
-A variant has one RDM (a released model: ImageNet, VGG-Face, Kinetics-400, DFEW,
-Qwen3-VL) or ten: random initialisation seeds 42, 0-8 (saved weights), or training
-runs r01-r10 (training seeds 1001-1010). rho_max is computed for each RDM and then
-averaged, mean +/- SD over the ten; the cluster tests and the layer x time maps
-use the variant's grid averaged over its RDMs (rsa_core.variant_grid).
-
-RDMs: $FER_ROOT/rdms/set{18,54}/<name>/<name>.npy (trillium/extract_tasks.py).
-The FaceNet learning designs (size curve, step-matched check, checkpoints along training, identity
-counts) exist for the 54 stimuli only. Their constants are defined here once; trillium/make_tasks.py and
-extract_tasks.py import them.
-The nuisance controls (analysis/control_rdms.py) are one-layer RDMs in the same
-place, group "control"; occlusion exists for 54 stimuli only.
-"""
 SEEDS = (42, 0, 1, 2, 3, 4, 5, 6, 7, 8)     # random initialisations (saved weights)
 N_RUNS = 10                                  # training runs r01-r10 (seeds 1001-1010)
 SIZES = ("10k", "50k", "100k", "200k", "300k", "500k")
@@ -41,14 +26,11 @@ MAIN = {
                ("DFEW FT", ["m3dfel_dfew"])],
     "Qwen3-VL": [("Random", seeds("qwen")), ("Pretrained", ["qwen_released"])],
 }
-# FaceNet trained on nested VGGFace2-HQ subsets for 40 epochs (size curve) or for the
-# full pool's step count (step-matched check); the full pool closes the size curve.
+# FaceNet on nested VGGFace2-HQ subsets: 40 epochs (size curve) or the full pool's steps (step-matched)
 SIZE_CURVE = [(size, runs(f"facenet_size{size}")) for size in SIZES] + [
     (FULL_POOL, runs("facenet_vggface2"))]
 STEP_MATCHED = [(size, runs(f"facenet_step{size}")) for size in SIZES[:-1]]
-# FaceNet learning designs (trillium/make_tasks.py, three runs each): the weights at nine steps
-# of full-pool training (seeds of runs r01-r03), and 50 to 3,500 identities at 100 images each,
-# every model trained for the full pool's steps and so able to learn its task.
+# checkpoints along full-pool training (seeds of r01-r03) and identity subsets of 100 images each
 CHECKPOINT_STEPS = (0, 30, 100, 300, 1000, 3000, 10000, 30000, 55920)    # 55,920 = the full pool's steps
 IDENTITIES = ("50ids", "300ids", "1500ids", "3500ids")
 N_DESIGN_REPEATS = 3
@@ -60,7 +42,7 @@ CONTROLS = [("Identity", "identity"), ("Occlusion", "occlusion"), ("Pixel", "pix
 
 
 def controls(stimuli):
-    """-> [(label, control name)] for this stimulus set."""
+    """-> [(label, control name)]; occlusion for 54 stimuli only."""
     return [(label, name) for label, name in CONTROLS if stimuli == "54" or name != "occlusion"]
 
 
@@ -77,5 +59,5 @@ def variants(stimuli):
 
 
 def all_rdms(stimuli):
-    """Every RDM once (the full-pool FaceNet runs are in the main table and the size curve)."""
+    """Every RDM once (the full-pool FaceNets are in both main and size)."""
     return list(dict.fromkeys(tag for *_, tags in variants(stimuli) for tag in tags))

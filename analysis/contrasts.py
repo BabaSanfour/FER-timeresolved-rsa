@@ -1,57 +1,4 @@
 #!/usr/bin/env python3
-"""Planned tests of the comparisons between training regimes, in every scalp ROI and on the
-whole scalp (--stimuli 18 | 54; --partial <control set> for the partial-RSA grids).
-
-Five hypotheses, each pooled over the families it concerns:
-  H1 pretraining raises alignment over random initialisation: generic-pretrained
-     minus random (6 families)
-  H2 face pretraining against ImageNet pretraining (4 image families)
-  H3 emotion fine-tuning against its starting model (5 fine-tuned models)
-  H4 the two pretrained video models (M3DFEL Kinetics-400, Qwen3-VL) against the 8
-     pretrained image variants (ImageNet and face, each image family), 16 pairs
-  H5 face-identity training against random initialisation (4 image families); the face
-     models are trained from scratch, so face identity is an alternative to generic pretraining
-Each family's contrast (each video model's for H4) is reported too, and each variant on its
-own (hypothesis "variant": its rho_max at its own peak, mean over its RDMs, against the same
-null), which puts every variant on the scale of the comparisons.
-
-The difference A - B is computed on pairs of single RDMs, so both sides of every
-selection carry the same noise: run r of A with run r of B (a fine-tune starts from
-pretraining run r), a released model with each of the ten RDMs of the other variant, or
-two released models. In each scope x emotion cell (fear, happiness, neutral) of a pair,
-layer and window are selected on the participant mean of (A + B) / 2 when A and B share
-a layer axis (same family); across families each model is read at its own peak. Each
-participant's difference is averaged over the three emotions, then over the pairs, then
-(pooled tests) over the contrasts. The time courses of H1-H5 use the same procedure with
-the layer selected in each window.
-
-With --normalize, every cell (scope, emotion, window) of every grid, observed and permuted, is
-divided by the upper noise ceiling of the EEG in that cell before the selection (the EEG after the
-controls with --partial), so values are fractions of the ceiling (Abdelhedi et al., 2026).
-
-Selecting the best of many cells favours the model whose cells differ more from one
-another, so a difference is not centred on zero when neither model relates to the EEG.
-Each difference is therefore tested against its own null: the stimulus labels are
-permuted within each emotion (1,000 times, the same permutations for every RDM) and the
-whole computation, selection included, is repeated on the participant-mean grids
-(linear in the participants' EEG). With --partial, the permuted model vectors are
-residualised on the control set of each window, as in partial_rsa.py.
-
-The scopes are the 11 ROIs and the whole scalp.
-Reported per hypothesis, contrast and scope: the observed difference, the null mean, the
-corrected difference (observed - null mean) with a 95% bootstrap CI over participants
-shifted by the null mean, the two-sided permutation p, and p corrected across the 11 ROIs
-by the maximum statistic over ROIs in the same permutations (Westfall-Young maxT). The
-whole-scalp test of each pooled hypothesis is Holm-corrected across the five hypotheses.
-Each time course (H1-H5) is corrected across the 11 x 13 ROI-window cells (whole scalp: across
-its 13 windows).
-
---design sizes | ckpt | ids: a FaceNet learning design instead of H1-H5, each model against the
-random FaceNet and against the full pool, same procedure and output columns: training-set sizes
-(40 epochs) and step-matched subsets (sizes), checkpoints along training (ckpt), identity counts (ids).
-
-Output: analysis/paper_stats[_54]/contrasts[_<design>][_<set>].csv and contrasts_time[...].csv
-"""
 import argparse
 import csv
 
@@ -59,10 +6,10 @@ import numpy as np
 
 import rsa_core
 import variants
-from partial_rsa import control_sets, nuisance_basis, ranked_centered, residual_normalise
-from rho_max_null import EMOTIONS, pair_permutation
-from rsa_core import rank_normalise, upper
+from partial_rsa import control_sets, residual_normalise, window_bases
+from rsa_core import pair_permutation, rank_normalise, ranked_centered, upper
 
+EMOTIONS = rsa_core.MODEL_EMOTION_ORDER        # --emotion keeps one
 N_PERM = 1000
 N_BOOT = 10000
 SEED = 42
@@ -75,28 +22,25 @@ FINE_TUNED = {"ResNet18": ("AffectNet FT", "VGGFace2"), "ResNet50": ("AffectNet 
               "M3DFEL": ("DFEW FT", "Kinetics-400")}
 VIDEO = [("M3DFEL", "Kinetics-400"), ("Qwen3-VL", "Pretrained")]
 IMAGE_PRETRAINED = [(f, v) for f in FACE for v in (GENERIC[f], FACE[f])]
-H1 = "H1 pretrained vs random"
 PER_RDM = {"on": False}                                            # --per-rdm
-TIME_HYPOTHESES = (H1, "H2 face vs ImageNet", "H3 fine-tuned vs start", "H4 video vs image",
-                   "H5 face vs random")                                             # also resolved in time
 
 
 def hypotheses():
     """{hypothesis: [(label, A, B)]}: the contrasts each pooled test averages."""
     return {
-        H1: [(f, (f, v), (f, "Random")) for f, v in GENERIC.items()],
+        "H1 pretrained vs random": [(f, (f, v), (f, "Random")) for f, v in GENERIC.items()],
         "H2 face vs ImageNet": [(f, (f, v), (f, "ImageNet")) for f, v in FACE.items()],
         "H3 fine-tuned vs start": [(f, (f, ft), (f, start)) for f, (ft, start) in FINE_TUNED.items()],
         "H4 video vs image": [(f"{' '.join(v)} - {' '.join(i)}", v, i) for v in VIDEO for i in IMAGE_PRETRAINED],
-        # face-identity training is from scratch (VGGFace2 runs; VGG-Face): an alternative to generic pretraining
         "H5 face vs random": [(f, (f, v), (f, "Random")) for f, v in FACE.items()],
     }
 
 
+TIME_HYPOTHESES = tuple(hypotheses())          # also resolved in time
+
+
 def design_hypotheses(design):
-    """{hypothesis: [(label, A, B)]} of a FaceNet learning design: each model against the random
-    FaceNet and against the full pool. sizes: training-set sizes (size) and step-matched subsets
-    (step); ckpt: checkpoints along training; ids: identity counts."""
+    """{hypothesis: [(label, A, B)]}: each design model against the random FaceNet and the full pool."""
     if design == "sizes":
         levels = [("size", z) for z in variants.SIZES] + [("step", z) for z in variants.SIZES[:-1]]
     else:
@@ -114,8 +58,7 @@ def pairs_of(ta, tb):
 
 
 def cell_values(grid, select, by_window=False):
-    """grid (..., O, L, 3, W), select (O, L, 3, W) -> the grid at the selected cells, mean over
-    the 3 emotions: (..., O), or (..., O, W) with the layer selected in each window."""
+    """grid (..., O, L, 3, W) at the peaks of select (O, L, 3, W), mean over emotions -> (..., O) or (..., O, W)."""
     O, L, E, W = select.shape
     filled = np.where(np.isnan(select), -np.inf, select)
     if by_window:
@@ -129,7 +72,7 @@ def cell_values(grid, select, by_window=False):
 
 
 def pair_difference(ga, gb, same_family, by_window=False):
-    """Grids (..., O, L, 3, W) of A and B (participants first, or participant means) -> A - B."""
+    """Grids ([S,] O, L, 3, W) of A and B -> A - B, selected on (A + B) / 2 within a family."""
     mean = (lambda g: np.nanmean(g, 0)) if ga.ndim == 5 else (lambda g: g)
     if same_family:
         sel = mean((ga + gb) / 2)
@@ -138,23 +81,22 @@ def pair_difference(ga, gb, same_family, by_window=False):
 
 
 def contrast(grid, tags, a, b, by_window=False):
-    """grid(tag) -> the difference A - B, mean over pairs."""
+    """grid(tag) -> A - B, mean over pairs of RDMs."""
     return np.mean([pair_difference(grid(x), grid(y), a[0] == b[0], by_window)
                     for x, y in pairs_of(tags[a], tags[b])], axis=0)
 
 
 def own_peak(g):
-    """A grid (participants first, or the participant mean) read at its own participant-mean peak."""
+    """Grid read at its own participant-mean peak."""
     return cell_values(g, np.nanmean(g, 0) if g.ndim == 5 else g)
 
 
 def all_contrasts(grid, tags, hyp):
-    """-> {key: value}: every contrast and pooled test per scope, each variant at its own peak
-    (keys ('variant', 'family variant')), and the H1-H5 time courses (keys ('time', hypothesis, label))."""
+    """-> {key: value} of pooled tests, contrasts, variants at their own peak and time courses."""
     out = {}
     for key in sorted({x for items in hyp.values() for _, a, b in items for x in (a, b)}):
         out["variant", " ".join(key)] = np.mean([own_peak(grid(t)) for t in tags[key]], axis=0)
-        if PER_RDM["on"]:                                          # each RDM (seed or run) at its own peak
+        if PER_RDM["on"]:
             for t in tags[key]:
                 out["rdm", t] = own_peak(grid(t))
     for h, items in hyp.items():
@@ -169,7 +111,7 @@ def all_contrasts(grid, tags, hyp):
     for h in (x for x in TIME_HYPOTHESES if x in hyp):
         time = [contrast(grid, tags, a, b, by_window=True) for _, a, b in hyp[h]]
         out["time", h, "pooled"] = np.mean(time, axis=0)
-        if h.startswith("H4"):                                      # each video model against the image models
+        if h.startswith("H4"):
             for v in VIDEO:
                 out["time", h, " ".join(v)] = np.mean([x for x, (_, a, _) in zip(time, hyp[h]) if a == v], axis=0)
         else:
@@ -179,17 +121,13 @@ def all_contrasts(grid, tags, hyp):
 
 
 def upper_ceiling(z):
-    """Participants' unit-norm (ranked, centred, residualised) EEG vectors (S, ..., P) -> the upper
-    noise ceiling (...): each participant's correlation with the mean of all, averaged (Nili et al., 2014)."""
-    total = np.nansum(z, 0)
-    unit = total / np.clip(np.linalg.norm(total, axis=-1, keepdims=True), 1e-12, None)
+    """(S, ..., P) unit-norm EEG vectors -> upper noise ceiling (...) (Nili et al., 2014)."""
+    unit = rsa_core.unit(np.nansum(z, 0))[0]
     return np.nanmean(np.sum(z * unit[None], -1), 0)
 
 
 def permutation_nulls(s, tags, hyp, W, partial, normalize=False, observed=None):
-    """{key: (N_PERM, O[, W])} of all_contrasts under within-emotion label permutation, and the
-    upper noise ceilings (O, 3, W) of the EEG (after the controls with --partial). With normalize,
-    every cell is divided by its ceiling before the selection, as for the observed grids."""
+    """-> ({key: (N_PERM, O[, W])} under within-emotion label permutation, EEG ceilings (O, 3, W))."""
     eeg, _, _ = rsa_core.load_eeg(s)
     O = eeg.shape[1]
     rng = np.random.default_rng(SEED)
@@ -199,7 +137,7 @@ def permutation_nulls(s, tags, hyp, W, partial, normalize=False, observed=None):
     for e in EMOTIONS:
         idx = rsa_core.EMOTIONS[s][e]
         if partial:
-            bases[e] = [nuisance_basis([upper(controls[c][k][idx][:, idx]) for c in members]) for k in range(W)]
+            bases[e] = window_bases(controls, members, idx, W)
             ev = ranked_centered(upper(eeg[..., idx, :][..., idx]))[:, :, :W]            # (S, O, W, P)
             z = np.stack([residual_normalise(ev[:, :, k], bases[e][k])[0] for k in range(W)], 2)
         else:
@@ -216,7 +154,7 @@ def permutation_nulls(s, tags, hyp, W, partial, normalize=False, observed=None):
         m = rsa_core.load_model_rdm(s, tag)[:, :W]
         model[tag] = [(ranked_centered if partial else lambda v: rank_normalise(v)[0])(
             upper(m[..., rsa_core.EMOTIONS[s][e], :][..., rsa_core.EMOTIONS[s][e]])) for e in EMOTIONS]
-    if observed is not None:                       # participant grids on the stimulus subset (--drop-actor)
+    if observed is not None:                       # participant grids recomputed (--drop-actor, --eeg-dir)
         for tag in needed:
             g = []
             for ei, e in enumerate(EMOTIONS):
@@ -271,8 +209,7 @@ def holm(p):
 
 
 def tests(obs, null, rng):
-    """obs (S, *shape), null (N, *shape) -> per-cell dict of arrays; maxT over the ROI cells
-    (the first N_ROI scopes), and separately over the whole-scalp cells."""
+    """obs (S, O, ...), null (N, O, ...) -> per-cell stats; maxT over the ROI cells and the whole-scalp cells."""
     centre, spread = null.mean(0), null.std(0)
     z = (obs.mean(0) - centre) / spread
     zn = np.abs((null - centre) / spread)
@@ -292,26 +229,19 @@ def main():
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
     ap.add_argument("--partial", default=None, help="a control set of partial_rsa.py (e.g. joint)")
     ap.add_argument("--design", choices=["sizes", "ckpt", "ids"], default=None,
-                    help="a FaceNet learning design instead of H1-H5: training-set sizes, checkpoints, identity counts")
-    ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
-    ap.add_argument("--eeg-dir", default=None,
-                    help="EEG RDMs from another build (e.g. eeg_rdms_correct): participant grids recomputed from them")
-    ap.add_argument("--emotion", choices=["fear", "happy", "neutral"], default=None,
-                    help="one emotion instead of the mean over the three (selection and tests within that emotion)")
-    ap.add_argument("--drop-actor", type=int, default=None,
-                    help="leave out the k-th actor (0-5) of every emotion: stimulus-level robustness")
-    ap.add_argument("--per-rdm", action="store_true",
-                    help="also each RDM (seed or training run) at its own peak against the null (hypothesis 'rdm')")
-    ap.add_argument("--normalize", action="store_true",
-                    help="divide every cell by its upper noise ceiling before the selection (outputs *_nc)")
+                    help="a FaceNet learning design instead of H1-H5")
+    ap.add_argument("--eeg-dir", default=None, help="EEG RDMs of another build (e.g. eeg_rdms_correct)")
+    ap.add_argument("--emotion", choices=list(EMOTIONS), default=None, help="one emotion instead of the mean")
+    ap.add_argument("--drop-actor", type=int, default=None, help="leave out the k-th actor (0-5) of every emotion")
+    ap.add_argument("--per-rdm", action="store_true", help="also each RDM at its own peak (hypothesis 'rdm')")
+    ap.add_argument("--normalize", action="store_true", help="divide every cell by its upper noise ceiling (*_nc)")
     args = ap.parse_args()
-    globals()["N_PERM"] = args.n_perm
     PER_RDM["on"] = args.per_rdm
-    if args.emotion:                               # one emotion: its cell of the grid and its permutations
-        globals()["EMOTION_CELLS"] = (1 + ("fear", "happy", "neutral").index(args.emotion),)
+    if args.emotion:
+        globals()["EMOTION_CELLS"] = (1 + EMOTIONS.index(args.emotion),)
         globals()["EMOTIONS"] = (args.emotion,)
-    if args.drop_actor is not None:                # leave one actor out of every emotion
-        names = rsa_core.STIMULI[args.stimuli]
+    if args.drop_actor is not None:
+        names = rsa_core.MODEL_STIMULI[args.stimuli]
         for e, idx in list(rsa_core.EMOTIONS[args.stimuli].items()):
             if e == "all":
                 continue
@@ -363,13 +293,13 @@ def main():
                          **{k: round(float(v[oi]), 5) if k not in ("p", "p_maxT", "n_above") else
                             (int(v[oi]) if k == "n_above" else float(v[oi])) for k, v in r.items()}})
     whole = [r for r in rows if r["contrast"] == "pooled" and r["scope"] == "wholescalp"]
-    for r, ph in zip(whole, holm([r["p"] for r in whole])):     # sizes: Holm across all size contrasts
+    for r, ph in zip(whole, holm([r["p"] for r in whole])):     # Holm across the whole-scalp contrasts
         r["p_holm"] = float(ph)
     suffix = (f"_{args.design}" if args.design else "") + \
         (f"_{args.partial}" if args.partial else "") + ("_nc" if args.normalize else "") + \
         (f"_dropactor{args.drop_actor}" if args.drop_actor is not None else "") + \
         (f"_{args.emotion}" if args.emotion else "") + (f"_{args.eeg_dir}" if args.eeg_dir else "")
-    out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
+    out = rsa_core.STATS_DIRS[s]
     out.mkdir(parents=True, exist_ok=True)
     for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows)):
         if not table:

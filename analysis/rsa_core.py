@@ -1,16 +1,3 @@
-"""Shared pieces of the RSA analyses: EEG loading for both stimulus sets, the
-rank-correlation helpers, the noise ceilings, and the rho_max summary of a grid.
-
-EEG, model and control RDMs are returned as (..., n, n) over the analysed
-stimuli `STIMULI[stimuli]`, in the model order: emotion (fear, happy, neutral),
-then for 54 stimuli occlusion (original, glasses, masked), then actor (01 02 04
-07 08 11). `EMOTIONS[stimuli][emotion]` indexes all of them.
-
-EEG RDMs come from eeg/build_eeg_rdms.py: one file per participant over the 54
-videos (12 scopes: 11 ROIs + whole scalp; 13 windows from stimulus onset). The 18
-stimuli are the 18 unoccluded videos of the same recordings, so both sets use the
-same 25 participants.
-"""
 import json
 import os
 from pathlib import Path
@@ -28,54 +15,43 @@ MODEL_STIMULI = {
     "54": [f"{e}_{c}_Actor{a}" for e in MODEL_EMOTION_ORDER
            for c in ("original", "glasses", "masked") for a in ACTORS],
 }
-STIMULI = MODEL_STIMULI
 # rows of the 54-video EEG RDM that form each stimulus set
 EEG_ROWS = {"54": np.arange(54),
             "18": np.array([MODEL_STIMULI["54"].index(n.replace("_Actor", "_original_Actor")) for n in MODEL_STIMULI["18"]])}
 EMOTIONS = {s: {"all": np.arange(len(names)),
                 **{e: np.array([i for i, n in enumerate(names) if n.startswith(e + "_")])
                    for e in MODEL_EMOTION_ORDER}}
-            for s, names in STIMULI.items()}
+            for s, names in MODEL_STIMULI.items()}
 RDM_DIRS = {s: ROOT / f"rdms/set{s}" for s in ("18", "54")}       # <name>/<name>.npy
 GRID_DIRS = {"18": ROOT / "analysis/rsa_grid", "54": ROOT / "analysis/rsa_grid_54"}
-# partial-RSA grids (partial_rsa.py), one folder per control set
-PARTIAL_DIRS = {"18": ROOT / "analysis/partial_rsa", "54": ROOT / "analysis/partial_rsa_54"}
+PARTIAL_DIRS = {"18": ROOT / "analysis/partial_rsa", "54": ROOT / "analysis/partial_rsa_54"}   # <control set>/
+STATS_DIRS = {"18": ROOT / "analysis/paper_stats", "54": ROOT / "analysis/paper_stats_54"}
 N_ROI = 11                   # scopes 0-10 are ROIs, 11 is the whole scalp
-EMO_SPECIFIC = (1, 2, 3)     # emotions are ordered all, fear, happy, neutral
-ROI_AVG, EMO_AVG = "ROI-avg", "emo-avg"
 
 
 def eeg_meta():
     return json.loads((EEG_DIR / "meta.json").read_text())
 
 
-def subjects(stimuli=None):
-    return eeg_meta()["subjects"]
-
-
-def scopes(stimuli=None):
+def scopes():
     return eeg_meta()["scopes"]
 
 
-def window_bounds(stimuli=None):
+def window_bounds():
     """(13, 2) window bounds in ms from stimulus onset."""
     return np.asarray(eeg_meta()["window_bounds_ms"])
 
 
-def load_eeg(stimuli, emotion="all", subs=None):
-    """-> (eeg (S, 12, W, n, n) over STIMULI, subject ids, scope names)."""
+def load_eeg(stimuli):
+    """-> (eeg (S, 12, W, n, n), subject ids, scope names)."""
     meta = eeg_meta()
     if meta["stimuli"] != MODEL_STIMULI["54"] or len(meta["scopes"]) != N_ROI + 1:
         raise SystemExit("ABORT: eeg_rdms/meta.json does not match rsa_core (stimuli or scopes)")
-    subs = meta["subjects"] if subs is None else subs
     rows = EEG_ROWS[stimuli]
-    eeg = np.stack([np.load(EEG_DIR / f"{s}.npy") for s in subs])[..., rows, :][..., rows]
+    eeg = np.stack([np.load(EEG_DIR / f"{s}.npy") for s in meta["subjects"]])[..., rows, :][..., rows]
     if not np.isfinite(eeg).all():
         raise SystemExit(f"ABORT: missing EEG values in the {stimuli}-stimulus RDMs")
-    idx = EMOTIONS[stimuli][emotion]
-    if len(idx) != eeg.shape[-1]:
-        eeg = eeg[..., idx, :][..., idx]
-    return eeg, subs, scopes(stimuli)
+    return eeg, meta["subjects"], meta["scopes"]
 
 
 def upper(r):
@@ -84,57 +60,30 @@ def upper(r):
     return r[..., iu[0], iu[1]]
 
 
+def ranked_centered(x):
+    """Rank and centre along the last axis."""
+    ranks = rankdata(x, axis=-1)
+    return ranks - ranks.mean(axis=-1, keepdims=True)
+
+
+def unit(v):
+    """Unit-normalise along the last axis -> (vectors, where the norm vanishes)."""
+    n = np.linalg.norm(v, axis=-1, keepdims=True)
+    return np.divide(v, np.clip(n, 1e-12, None)), n[..., 0] < 1e-12
+
+
 def rank_normalise(v):
-    """Rank -> mean-centre -> unit norm along the last axis, so a dot product IS
-    Spearman's rho. Also returns where the vector is constant (rho undefined)."""
-    r = np.apply_along_axis(rankdata, -1, v)
-    rc = r - r.mean(-1, keepdims=True)
-    n = np.linalg.norm(rc, axis=-1, keepdims=True)
-    return np.divide(rc, np.clip(n, 1e-12, None)), (n[..., 0] < 1e-12)
-
-
-def row_spearman(x, y):
-    """Row-wise Spearman of two (rows, pairs) arrays."""
-    rx, ry = rankdata(x, axis=1), rankdata(y, axis=1)
-    rx -= rx.mean(1, keepdims=True); ry -= ry.mean(1, keepdims=True)
-    denom = np.linalg.norm(rx, axis=1) * np.linalg.norm(ry, axis=1)
-    return np.divide(np.sum(rx * ry, axis=1), denom,
-                     out=np.full(len(x), np.nan), where=denom > 0)
-
-
-def noise_ceilings(eeg, stimuli):
-    """eeg (S, O, W, n, n) -> lower, upper, each (O, emotions, W).
-
-    Rank-based ceilings for Spearman RSA (Nili et al., 2014): each participant's
-    RDM is rank-transformed, then per scope, emotion and window the mean over
-    participants of
-      upper: Spearman(participant, mean rank RDM including the participant)
-      lower: Spearman(participant, leave-one-out mean rank RDM).
-    """
-    emotions = EMOTIONS[stimuli]
-    S, O, W = eeg.shape[:3]
-    lower = np.full((O, len(emotions), W), np.nan)
-    upper_nc = np.full((O, len(emotions), W), np.nan)
-    for ei, idx in enumerate(emotions.values()):
-        ranked = rankdata(upper(eeg[..., idx, :][..., idx]), axis=-1)   # (S, O, W, P)
-        total = ranked.sum(0)                                            # (O, W, P), exact
-        for oi in range(O):
-            for wi in range(W):
-                x = ranked[:, oi, wi]
-                upper_nc[oi, ei, wi] = np.nanmean(row_spearman(x, np.broadcast_to(total[oi, wi] / S, x.shape)))
-                lower[oi, ei, wi] = np.nanmean(row_spearman(x, (total[oi, wi][None] - x) / (S - 1)))
-    return lower, upper_nc
+    """Rank, centre and unit-normalise along the last axis (a dot product is Spearman's rho)."""
+    return unit(ranked_centered(v))
 
 
 def grid_path(stimuli, tag, partial=None):
-    """Grid of an RDM; partial = a control set of partial_rsa.py."""
     folder = GRID_DIRS[stimuli] if partial is None else PARTIAL_DIRS[stimuli] / partial
     return folder / f"{tag}_rsa_grid.npz"
 
 
 def variant_grid(stimuli, tags, partial=None):
-    """Participant-level grid of a variant: the mean over its RDMs' grids (its ten
-    seeds or training runs; a released model has one) -> (rsa, npz of the first)."""
+    """Mean of the RDMs' participant grids -> (rsa, npz of the first)."""
     first = np.load(grid_path(stimuli, tags[0], partial), allow_pickle=True)
     rsa = np.mean([np.load(grid_path(stimuli, t, partial))["rsa"] for t in tags], axis=0)
     return rsa.astype(np.float32), first
@@ -145,52 +94,20 @@ def slug(family, variant):
 
 
 def load_model_rdm(stimuli, tag, rdm_dir=None):
-    """(L, frames, n, n) model RDM over STIMULI; checks its stimulus order first."""
+    """(L, frames, n, n) model RDM; checks its stimulus order first."""
     folder = Path(rdm_dir or RDM_DIRS[stimuli]) / tag
     meta = json.loads((folder / f"{tag}.layers.json").read_text())
-    stimuli_order = meta.get("stimuli") or meta.get("stim_order")
+    stimuli_order = meta.get("stimuli") or meta.get("stim_order")      # stim_order: M3DFEL and Qwen3-VL extractors
     if stimuli_order != MODEL_STIMULI[stimuli]:
         raise SystemExit(f"ABORT {tag}: stimulus order differs from the EEG's")
     return np.load(folder / f"{tag}.npy")
 
 
-def cell_maxima(rsa, nc_lower=None, nc_upper=None):
-    """rsa (S, O, L, E, W) -> {(scope, emotion): (rho_max, nc_lower, nc_upper, layer, window)}.
-
-    The grid is averaged over participants first; the maximum over layer x window
-    is then taken separately in each scope x emotion cell (never after averaging
-    cells), and the ceilings (O, E, W) are read at that cell's window. A cell with
-    no defined value (a constant RDM, e.g. identity within one emotion of the 18
-    stimuli) is NaN with layer and window -1.
-    """
-    gm = np.nanmean(rsa, axis=0)                                   # (O, L, E, W)
-    cells = {}
-    for oi in range(gm.shape[0]):
-        for ei in range(gm.shape[2]):
-            block = gm[oi, :, ei, :]
-            if np.all(np.isnan(block)):
-                cells[oi, ei] = (np.nan, np.nan, np.nan, -1, -1)
-                continue
-            li, wi = np.unravel_index(np.nanargmax(block), block.shape)
-            cells[oi, ei] = (float(block[li, wi]),
-                             np.nan if nc_lower is None else float(nc_lower[oi, ei, wi]),
-                             np.nan if nc_upper is None else float(nc_upper[oi, ei, wi]),
-                             int(li), int(wi))
-    return cells
-
-
-def averaged_cells(cells):
-    """Add the averaged scope (index N_ROI + 1, ROI-avg: the 11 ROIs) and emotion (index 4,
-    emo-avg: fear, happy, neutral); ROI-avg x emo-avg averages the ROI x emotion cells.
-    Values and ceilings are averaged (NaN if a cell is undefined); layer and window become -1."""
-    out = {}
-    for oi in range(N_ROI + 2):
-        for ei in range(len(EMO_SPECIFIC) + 2):
-            if oi <= N_ROI and ei <= len(EMO_SPECIFIC):
-                out[oi, ei] = cells[oi, ei]
-                continue
-            rois = range(N_ROI) if oi == N_ROI + 1 else [oi]
-            emos = EMO_SPECIFIC if ei == len(EMO_SPECIFIC) + 1 else [ei]
-            group = [cells[r, e] for r in rois for e in emos]
-            out[oi, ei] = tuple(float(np.mean([c[j] for c in group])) for j in range(3)) + (-1, -1)
-    return out
+def pair_permutation(perm):
+    """Stimulus permutation -> index into the upper-triangle pairs of the permuted RDM."""
+    n = len(perm)
+    iu = np.triu_indices(n, 1)
+    pos = np.full((n, n), -1)
+    pos[iu] = np.arange(len(iu[0]))
+    pos = np.maximum(pos, pos.T)
+    return pos[perm[iu[0]], perm[iu[1]]]

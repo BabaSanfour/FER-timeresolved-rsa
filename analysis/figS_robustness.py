@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""Supplementary figure: robustness of the results (54 videos).
-
-  a  the nine results of Figs. 2-3 (three raw peak comparisons; six comparisons at 187-250 ms after all
-     nuisance RDMs), with all videos (diamond, 95% CI) and within each emotion (markers; filled, p < .05)
-  b  the time into the video at which participants reported each expression as perceptible, by emotion and
-     occlusion (bar: interquartile range; tick: median; frame 1 at 0 ms, 33.3 ms per frame)
-  c  at 187-250 ms after the controls: the number of the six leave-one-actor-out folds that reproduce each
-     ROI's pooled effect with the same sign and p < .05, and the pooled comparisons on EEG RDMs built from
-     correctly classified trials only
-
-Reads analysis/paper_stats_54/contrasts{,_time}{,_joint}_nc{,_fear,_happy,_neutral,_dropactor0-5,
-_eeg_rdms_correct}.csv (contrasts.py --normalize with --emotion, --drop-actor, --eeg-dir eeg_rdms_correct) and
-the recognition frames (CSV with columns Participant code, Emotion [Joie/Neutre/Peur], Occlusion
-[Aucune/Lunettes/Masque], Actor, Frame value; no names); writes <out>.pdf and <out>.png.
-"""
 import argparse
 import csv
 
@@ -26,10 +11,10 @@ from matplotlib.lines import Line2D
 
 import figure_style as st
 import rsa_core
-from fig2_training import COMPARISONS, SHORT_NAMES, STATS, scalp_map, topo_scalp
+from fig2_training import COMPARISONS, SHORT_NAMES, STATS, VMAX, scalp_map, topo_scalp
 from fig3_time_course import COLORS
 
-WIN = "187.5"; VMAX = 0.2
+WIN = "187.5"                                           # 187.5-250 ms
 COL = {h[:2]: c for h, c in COLORS.items()}             # the comparison colours of Fig. 3
 EMK = {"fear": "^", "happy": "o", "neutral": "s"}; ENAME = {"fear": "fear", "happy": "happiness", "neutral": "neutral"}
 ECOL = {"neutral": "#7a7975", "happy": "#1baf7a", "fear": "#eb6834"}
@@ -43,17 +28,17 @@ KEYS = [("", "H1", "OccipitoTemporal-R", None, "generic vs random, OT-R"),
         ("_joint", "H4", "OccipitoTemporal-L", WIN, "video vs image, OT-L"),
         ("_joint", "H3", "OccipitoTemporal-L", WIN, "emotion vs base, OT-L")]
 
+
 def get(tag, hyp, sc, win, suffix=""):
     f = STATS / f"contrasts{'_time' if win else ''}{tag}_nc{suffix}.csv"
     for r in csv.DictReader(f.open()):
         if r["hypothesis"].startswith(hyp) and r["contrast"] == "pooled" and r["scope"] == sc and (win is None or r["window_start_ms"] == win):
-            p = float(r["p_holm"] or 1) if (sc == "wholescalp" and not win) else float(r["p_maxT"])
-            return float(r["corrected"]), float(r["low"]), float(r["high"]), p
+            return float(r["corrected"]), float(r["low"]), float(r["high"]), float(r["p_maxT"])
+
 
 def table(name):
     f = STATS / f"contrasts_time_joint_nc{name}.csv"
     return {(r["hypothesis"], r["scope"]): r for r in csv.DictReader(f.open()) if r["contrast"] == "pooled" and r["window_start_ms"] == WIN}
-
 
 
 def main():
@@ -70,8 +55,8 @@ def main():
     # a: key results within each emotion
     n = len(KEYS); ys = np.arange(n)[::-1]
     ax = fig.add_axes([0.34, f(2.55), 0.3, 2.2 / H])
-    for y, (tag, h, sc, win, lab) in zip(ys, KEYS):
-        m_, lo, hi, p = get(tag, h, sc, win)
+    for y, (tag, h, sc, win, _) in zip(ys, KEYS):
+        m_, lo, hi, _ = get(tag, h, sc, win)
         ax.plot([lo, hi], [y, y], color=COL[h], lw=1.4, alpha=0.45, solid_capstyle="butt")
         ax.plot(m_, y, "D", ms=3.8, color=COL[h], mec="white", mew=0.3, zorder=4)
         for k, e in enumerate(EMK):
@@ -90,7 +75,7 @@ def main():
     ax.text(1.0, 0.01, "filled: p < .05", transform=ax.transAxes, ha="right", va="bottom", fontsize=5.4, color=st.INK2)
     ax.set_title("each emotion", fontsize=7, pad=12)
 
-    # b: recognition time (v2 colours: emotion hue, occlusion lightness)
+    # b: recognition time (emotion hue, occlusion lightness)
     rec = pd.read_csv(args.recognition); rec["ms"] = (rec["Frame value"] - 1) * 1000 / 30
     ax = fig.add_axes([0.8, f(2.55), 0.18, 2.2 / H])
     yy = 0; ticks, labs = [], []
@@ -110,11 +95,10 @@ def main():
     ax.set_xlabel("expression recognised\n(ms into video)", fontsize=6.2, linespacing=1.0)
     ax.set_title("recognition time", fontsize=7, pad=12)
 
-    # c: robustness maps (v2 b) and correct trials
+    # c: actor folds and correct trials
     x0 = 0.16; step = (0.9 - x0) / len(COMPARISONS); hw_in = 0.6; hw = hw_in / 5.5; hh = hw_in / H
     def row(y_in, label, vals_of, sig_of, vmax=VMAX, titles=False):
-        im = None
-        for k, (hyp, _, _) in enumerate(COMPARISONS):
+        for k, (hyp, _) in enumerate(COMPARISONS):
             axm = fig.add_axes([x0 + k * step + (step - hw) / 2, f(y_in + hw_in), hw, hh])
             im = scalp_map(axm, vals_of(hyp), sig_of(hyp), info, vmax)
             if titles: axm.set_title(SHORT_NAMES[hyp], fontsize=6, pad=2, linespacing=1.0)
@@ -135,15 +119,13 @@ def main():
     im = row(yc + 0.72, "correct\ntrials only", lambda h: [float(ct[h, r]["corrected"]) for r in roi_of],
              lambda h: [float(ct[h, r]["p_maxT"]) < .05 for r in roi_of])
     cax = fig.add_axes([0.89, f(yc + 1.32), 0.012, 0.6 / H]); cb = fig.colorbar(im, cax=cax)
-    cb.set_ticks([-VMAX, 0, VMAX], labels=["-.2", "0", ".2"]); cb.ax.tick_params(labelsize=5.2, length=2)
+    cb.set_ticks([-VMAX, 0, VMAX], labels=[st.point_format(v) for v in (-VMAX, 0, VMAX)]); cb.ax.tick_params(labelsize=5.2, length=2)
     cb.set_label("above chance\n(fraction of ceiling)", fontsize=5.4, labelpad=2, linespacing=1.0)
     fig.text(0.53, f(3.02), "187–250 ms, controls removed", ha="center", va="top", fontsize=7)
 
     for letter, x, y_ in (("a", 0.01, 0.05), ("b", 0.64, 0.05), ("c", 0.01, 2.95)):
         fig.text(x, f(y_), letter, fontsize=9, fontweight="bold", va="top")
-    st.black_text(fig)
-    for ext in ("pdf", "png"):
-        fig.savefig(f"{args.out}.{ext}")
+    st.save(fig, args.out)
     print(f"[ok] -> {args.out}.{{pdf,png}}")
 
 

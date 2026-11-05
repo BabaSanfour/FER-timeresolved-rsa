@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""Appendix tables (54 videos unless stated).
-
-  table_variants{,_joint}_nc.tex   rho_max of every variant in the 11 ROIs and on the whole scalp, as a fraction
-                                   of the upper noise ceiling (emotion-averaged), raw and after all nuisance RDMs;
-                                   mean +/- SD over seeds or runs; * above its chance level, p < .05 (maxT across
-                                   ROIs; whole scalp uncorrected)
-  table_clusters.tex               per variant: grids (of 48) with a cluster surviving study-wide correction and the
-                                   smallest study-wide p, 54 videos raw and after the controls, and 18 videos
-
-Reads analysis/paper_stats_54/contrasts{,_joint}_nc.csv (contrasts.py --normalize [--partial joint]; hypotheses
-"variant" and "rdm") and analysis/cluster_permutation_{54,54_partial_joint,18}/model_survivors.csv
-(cluster_permutation.py); writes the .tex rows into --out (the paper's tables/ folder).
-"""
 import argparse
 import collections
 import csv
@@ -22,7 +9,7 @@ import numpy as np
 import rsa_core
 import variants
 
-STATS = rsa_core.ROOT / "analysis/paper_stats_54"
+STATS = rsa_core.STATS_DIRS["54"]
 CLUSTERS = rsa_core.ROOT / "analysis"
 SCOPES = ["Frontal-L", "Frontal-M", "Frontal-R", "Central-L", "Central-R", "CentroParietal-L", "CentroParietal-M",
           "CentroParietal-R", "OccipitoTemporal-L", "OccipitoTemporal-M", "OccipitoTemporal-R", "wholescalp"]
@@ -32,7 +19,7 @@ RDM_OF = {tag: (family, variant) for family, rows in variants.MAIN.items() for v
 
 
 def point(v):
-    """.25 / $-$.25 (no leading zero)."""
+    """.25 or $-$.25."""
     s = f"{abs(v):.2f}".replace("0.", ".", 1)
     return s if v >= 0 else "$-$" + s
 

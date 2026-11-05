@@ -1,8 +1,5 @@
 #!/bin/bash
-# VGGFace2-HQ training archives 01-06 (5,346 identities, 726,502 images), the
-# face-pretraining data. Needs `pip install "huggingface_hub[hf_xet]"`, `hf auth login`
-# and the terms accepted at https://huggingface.co/datasets/ProgramComputer/VGGFace2-HQ.
-# Run on a data-transfer node (login nodes cap CPU time). Safe to re-run.
+# VGGFace2-HQ training zips 01-06 (needs `hf auth login` and the dataset terms accepted); safe to re-run.
 set -uo pipefail
 REPO=ProgramComputer/VGGFace2-HQ
 DEST=${DEST:-${FER_ROOT:-.}/data/vggface_dataset}
@@ -30,7 +27,7 @@ for z in "${!SIZE[@]}"; do
   [ "$have" = "${SIZE[$z]}" ] || { echo "FATAL: zip$z has $have bytes, re-run to resume"; exit 1; }
 done
 
-mkdir -p "$DEST/VGGface2_None_norm_512_true_bygfpgan"  # pre-created: parallel unzips race on it
+mkdir -p "$DEST/VGGface2_None_norm_512_true_bygfpgan"  # parallel unzips race on it
 for z in "${!SIZE[@]}"; do unzip -q -n "$DEST/zips/train/VGGFac$z.zip" -d "$DEST" & done
 wait
 python "$(dirname "$0")/../models/check_vggface2_layout.py" \

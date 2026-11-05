@@ -1,8 +1,5 @@
 #!/bin/bash
-# AffectNet for the 3-class fine-tuning, as $DEST/affectnet_3class/{Train,Test}/{fear,happy,neutral}.
-# Kaggle sofiajch07/affectnet v1 (96x96 images): the first models' copy
-# (mstjebashazida/affectnet) is gone; this one has the same per-class counts.
-# AffectNet's academic terms apply. Needs a Kaggle token in ~/.kaggle.
+# 3-class AffectNet from Kaggle sofiajch07/affectnet v1 (needs a Kaggle token in ~/.kaggle).
 set -euo pipefail
 
 DEST=${DEST:-${FER_ROOT:-.}/data/affectnet_kaggle}

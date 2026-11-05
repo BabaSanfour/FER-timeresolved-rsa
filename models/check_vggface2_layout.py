@@ -1,7 +1,3 @@
-"""Check an extracted VGGFace2-HQ copy: identity folders, image count, a sample of images.
-
-    python models/check_vggface2_layout.py <root>
-"""
 import argparse
 import collections
 import sys

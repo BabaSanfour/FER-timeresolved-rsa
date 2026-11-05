@@ -1,18 +1,16 @@
 #!/bin/bash
-#SBATCH --account=rrg-kjerbi
+#SBATCH --account=YOUR_ALLOCATION
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=24
 #SBATCH --output=logs/%x-%A_%a.out
-# One array element = one H100: runs CHUNK lines of a task list, PER_GPU at a time.
-# Finished runs are skipped and unfinished ones resume, so resubmitting completes a group.
-# Called by submit_all.sh.
+# One H100 per array element: CHUNK task lines, PER_GPU at a time; finished runs are skipped.
 set -uo pipefail
 : "${TASKS:?}" "${PER_GPU:=1}" "${CHUNK:=1}" "${WALL_H:?set WALL_H to the --time in hours}" "${LOG:=train.log}"
 R=$SCRATCH/fer_revision
 module load StdEnv/2023 python/3.12
 source "$R/trainenv/bin/activate"
 export PYTHONUNBUFFERED=1 OMP_NUM_THREADS=2
-# home is read-only on compute nodes: compiler and library caches go to scratch
+# home is read-only on compute nodes
 export TRITON_CACHE_DIR=$R/.cache/triton TORCHINDUCTOR_CACHE_DIR=$R/.cache/inductor XDG_CACHE_HOME=$R/.cache
 export HF_HOME=$R/data/.hf HF_HUB_OFFLINE=1   # compute nodes have no internet
 

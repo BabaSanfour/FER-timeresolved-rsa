@@ -1,14 +1,8 @@
-"""Shared look of the paper's result figures: colour = training regime, marker = model family.
-
-Regime colours follow the precursor paper (face training blue, generic training magenta,
-random grey) plus green for emotion fine-tuning; validated as a set (dataviz validator,
-light surface, all pairs). Families are told apart by marker shape, so colour never
-carries identity alone.
-"""
 import matplotlib as mpl
+from matplotlib.colors import LinearSegmentedColormap
 
 INK, INK2, MUTED, RULE = "#0b0b0b", "#52514e", "#8a8984", "#d6d5d0"
-PARTICIPANT = "#c9c8c3"
+# colour = training regime, marker = model family
 REGIMES = ["Random", "Generic", "Face", "Emotion"]
 REGIME_COLORS = {"Random": MUTED, "Generic": "#e87ba4", "Face": "#2a78d6", "Emotion": "#008300"}
 REGIME_OF = {"Random": "Random", "ImageNet": "Generic", "Kinetics-400": "Generic", "Pretrained": "Generic",
@@ -17,6 +11,9 @@ REGIME_LABELS = {"Random": "random", "Generic": "generic pretraining", "Face": "
                  "Emotion": "emotion recognition"}
 MARKERS = {"ResNet18": "o", "ResNet50": "s", "FaceNet": "^", "VGG16": "D", "M3DFEL": "p", "Qwen3-VL": "*"}
 MARKER_SIZE = {"*": 7.5, "p": 5.5, "D": 4.2}
+REGION_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "#008300",
+                 "OccipitoTemporal": "#eda100", "wholescalp": INK}
+DIVERGING = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
 
 
 def setup():
@@ -35,29 +32,26 @@ def size(marker):
     return MARKER_SIZE.get(marker, 4.5)
 
 
-def panel_label(ax, letter, title=None, x=-0.22, y=1.06):
-    ax.text(x, y, letter, transform=ax.transAxes, fontsize=9, fontweight="bold", va="bottom", ha="left")
-    if title:
-        ax.text(x + 0.09, y, title, transform=ax.transAxes, fontsize=7.7, va="bottom", ha="left")
-
-
 def point_format(x):
-    """.05 rather than 0.05, as in the paper."""
+    """.05 rather than 0.05."""
     s = f"{x:g}"
     return s.replace("0.", ".", 1) if s.startswith(("0.", "-0.")) else s
 
 
-
-
+def point_ticks(ax, axis="y"):
+    """Tick labels without the leading zero."""
+    getattr(ax, f"{axis}axis").set_major_formatter(lambda v, _: point_format(round(v, 3)))
 
 
 def black_text(fig):
-    """Every text of the figure (titles, labels, ticks, legends, annotations) in black ink."""
+    """Every text of the figure in black."""
     from matplotlib.text import Text
     for t in fig.findobj(Text):
         t.set_color(INK)
 
 
-def point_ticks(ax, axis="y"):
-    """Tick labels without the leading zero (.2, -.1), as everywhere in the paper."""
-    getattr(ax, f"{axis}axis").set_major_formatter(lambda v, _: point_format(round(v, 3)))
+def save(fig, out):
+    """All text in black; writes <out>.pdf and <out>.png."""
+    black_text(fig)
+    for ext in ("pdf", "png"):
+        fig.savefig(f"{out}.{ext}")

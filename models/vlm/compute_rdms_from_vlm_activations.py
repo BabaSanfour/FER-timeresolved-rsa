@@ -1,27 +1,18 @@
 #!/usr/bin/env python3
-"""RDMs from Qwen3-VL video-mode activations.
-
-Stacks the stimuli in stimulus-manifest order and writes <out-name>.npy (64, 16, n_stim, n_stim):
-vision blocks 1..27, embedding output, decoder blocks 1..36; correlation distance per layer and
-time point, as in extract_model_rdms.py. With --features also <out-name>.features.npy
-(n_stim, 16, hidden): the last decoder block, the linear probe's final-layer features.
-"""
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
 
-def corr_distance_rdm(X):
-    Xc = X - X.mean(1, keepdims=True)
-    n = np.linalg.norm(Xc, axis=1, keepdims=True)
-    rdm = 1.0 - (Xc @ Xc.T) / np.maximum(n * n.T, 1e-12)
-    np.fill_diagonal(rdm, 0.0)
-    return rdm.astype(np.float32)
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from extract_model_rdms import corr_distance_rdm, stimulus_names  # noqa: E402
 
 
 def layer_rdms(acts):
-    """(n_stim, T, L, H) activations -> (L, T, n_stim, n_stim) correlation-distance RDMs."""
+    """(n_stim, T, L, H) -> (L, T, n_stim, n_stim)."""
     n_stim, T, L, _ = acts.shape
     rdms = np.zeros((L, T, n_stim, n_stim), dtype=np.float32)
     for l in range(L):
@@ -40,21 +31,20 @@ def load_stack(act_dir, names, suffix=""):
     shapes = {x.shape for x in acts}
     if len(shapes) != 1:
         raise SystemExit(f"ABORT: activation shapes differ across stimuli: {shapes}")
-    return np.stack(acts, 0)                              # (18, T, L, H)
+    return np.stack(acts, 0)                              # (n_stim, T, L, H)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True, help="output_dir used by the extractor")
+    ap.add_argument("--run-dir", required=True, help="--output_dir of vlm_extract_video_mode.py")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--out-name", required=True)
-    ap.add_argument("--manifest", required=True,
-                    help="stimulus_manifest.json; activations are named by its 'stimulus' field")
-    ap.add_argument("--features", action="store_true", help="also save the last decoder block per stimulus")
+    ap.add_argument("--manifest", required=True, help="stimulus_manifest.json")
+    ap.add_argument("--features", action="store_true", help="also save the last decoder block")
     args = ap.parse_args()
 
     act_dir = Path(args.run_dir) / "activations"
-    stims = [r["stimulus"] for r in json.loads(Path(args.manifest).read_text())]
+    stims = stimulus_names(args.manifest)
     A = load_stack(act_dir, stims)
     V = load_stack(act_dir, stims, "_vision")
     n_stim, T, L_dec, H = A.shape

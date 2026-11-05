@@ -1,31 +1,6 @@
 #!/usr/bin/env python3
-"""Nuisance-control RDMs, built from the frames every model saw (--stimuli 18 | 54).
-
-Reads $FER_ROOT/data/stim_frames/set<stimuli>/ (models/build_stimuli_h5_16frames.py:
-Slide1..16.h5, 224 x 224 RGB, and stimulus_manifest.json) and writes each control
-like a one-layer model RDM, so rsa_grid.py, maxr_table.py and the noise ceilings
-treat it as any model:
-
-    rdms/set<stimuli>/control_<name>/control_<name>.npy   (1, 16, n, n) float32
-                                     control_<name>.layers.json
-
-  identity       0 for the same actor, 1 otherwise (static)
-  occlusion      0 for the same occlusion (original, sunglasses, mask), 1 otherwise;
-                 54 stimuli only (static)
-  pixel          correlation distance between the RGB pixels of frame k (one RDM per frame)
-  optical_flow   dense Lucas-Kanade flow between consecutive frames (grey, 128 x 128),
-                 magnitude (16 bins) and direction (8 bins) histograms per transition,
-                 concatenated; correlation distance (static)
-  motion_energy  energy of 48 spatio-temporal Gabor filters (3 spatial x 4 temporal
-                 frequencies x 4 orientations) over the grey clip, log(1 + mean);
-                 correlation distance (static)
-
-A static control is the same RDM at every frame. Stimuli are in the model order,
-all MODEL_STIMULI.
-"""
 import argparse
 import json
-from pathlib import Path
 
 import h5py
 import numpy as np
@@ -34,6 +9,7 @@ from scipy.ndimage import gaussian_filter, uniform_filter
 from scipy.signal import fftconvolve
 
 import rsa_core
+import variants
 
 N_FRAMES = 16
 GREY_SIZE = 128
@@ -46,12 +22,8 @@ DESCRIPTIONS = {
 }
 
 
-def controls_for(stimuli):
-    return ["identity"] + (["occlusion"] if stimuli == "54" else []) + ["pixel", "optical_flow", "motion_energy"]
-
-
 def corr_distance_rdm(features):
-    """(n, d) -> (n, n) correlation-distance RDM, as for the model RDMs."""
+    """(n, d) features -> (n, n) correlation-distance RDM."""
     x = features.astype(np.float64)
     x = x - x.mean(1, keepdims=True)
     norms = np.linalg.norm(x, axis=1, keepdims=True)
@@ -61,7 +33,7 @@ def corr_distance_rdm(features):
 
 
 def load_frames(frames_dir):
-    """-> (n, 16, 224, 224, 3) uint8 and the stimulus names of the manifest."""
+    """-> ((n, 16, 224, 224, 3) uint8 frames, stimulus names)."""
     names = [row["stimulus"] for row in json.loads((frames_dir / "stimulus_manifest.json").read_text())]
     frames = []
     for k in range(1, N_FRAMES + 1):
@@ -71,7 +43,7 @@ def load_frames(frames_dir):
 
 
 def grey(frames):
-    """(n, T, H, W, 3) uint8 -> (n, T, 128, 128) float32 in [0, 1]: ITU-R 601 luminance."""
+    """(n, T, H, W, 3) uint8 -> (n, T, 128, 128) ITU-R 601 luminance in [0, 1]."""
     lum = frames[..., 0] * 0.299 + frames[..., 1] * 0.587 + frames[..., 2] * 0.114
     out = np.empty(frames.shape[:2] + (GREY_SIZE, GREY_SIZE), np.float32)
     for i in range(frames.shape[0]):
@@ -86,7 +58,7 @@ MAG_BINS, DIR_BINS, WINDOW_PX, SIGMA_PRE = 16, 8, 7, 1.0
 
 
 def lucas_kanade_flow(I1, I2):
-    """Dense Lucas-Kanade flow between two grey frames -> (u, v)."""
+    """Two grey frames -> dense Lucas-Kanade flow (u, v)."""
     I1s, I2s = gaussian_filter(I1, SIGMA_PRE), gaussian_filter(I2, SIGMA_PRE)
     Ix = 0.5 * (np.roll(I1s, -1, axis=1) - np.roll(I1s, 1, axis=1))
     Iy = 0.5 * (np.roll(I1s, -1, axis=0) - np.roll(I1s, 1, axis=0))
@@ -100,7 +72,7 @@ def lucas_kanade_flow(I1, I2):
 
 
 def flow_histograms(u, v):
-    """Magnitude and direction histograms of the flow (24 values)."""
+    """Flow -> magnitude and direction histograms (24 values)."""
     mag, ang = np.sqrt(u ** 2 + v ** 2), np.arctan2(v, u)
     valid = mag > np.percentile(mag, 5)                  # near-zero flow is uninformative
     mag_v, ang_v = mag[valid], ang[valid]
@@ -143,11 +115,9 @@ def motion_energy(video, bank):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
-    ap.add_argument("--frames-dir", default=None, help="default: $FER_ROOT/data/stim_frames/set<stimuli>")
-    ap.add_argument("--rdm-dir", default=None, help="default: $FER_ROOT/rdms/set<stimuli>")
     args = ap.parse_args()
-    frames_dir = Path(args.frames_dir) if args.frames_dir else rsa_core.ROOT / f"data/stim_frames/set{args.stimuli}"
-    rdm_dir = Path(args.rdm_dir) if args.rdm_dir else rsa_core.RDM_DIRS[args.stimuli]
+    frames_dir = rsa_core.ROOT / f"data/stim_frames/set{args.stimuli}"
+    rdm_dir = rsa_core.RDM_DIRS[args.stimuli]
     frames, names = load_frames(frames_dir)
     if names != rsa_core.MODEL_STIMULI[args.stimuli]:
         raise SystemExit(f"ABORT: {frames_dir} stimulus order differs from the model order")
@@ -167,7 +137,7 @@ def main():
     bank = filter_bank()
     rdms["motion_energy"] = corr_distance_rdm(np.log1p(np.stack([motion_energy(v, bank) for v in g])))
 
-    for name in controls_for(args.stimuli):
+    for _, name in variants.controls(args.stimuli):
         rdm = rdms[name]
         rdm = rdm if rdm.ndim == 3 else np.broadcast_to(rdm, (N_FRAMES, n, n))
         if not np.isfinite(rdm).all():

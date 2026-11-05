@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""Qwen3-VL activations from one video pass per clip.
-
-Each of the 16 shared frames (indices from the stimulus manifest) is supplied twice, so the
-temporal patch size of 2 gives exactly 16 time points. Writes activations/{stimulus}.npy
-(16, n_decoder_states, hidden) and {stimulus}_vision.npy (16, n_vision_blocks, vision_hidden);
-compute_rdms_from_vlm_activations.py turns them into RDMs.
-"""
-from __future__ import annotations
-
 import argparse
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -24,7 +16,7 @@ from transformers import AutoProcessor
 
 try:
     from qwen_vl_utils import process_vision_info
-except ImportError as exc:  # video mode genuinely requires this helper
+except ImportError as exc:
     raise SystemExit("qwen_vl_utils is required for video mode: pip install qwen-vl-utils") from exc
 
 
@@ -55,22 +47,13 @@ def extract_emotion(text: str) -> str:
     return "unknown"
 
 
-def load_model(model_id: str, device: str, dtype: str, attn_implementation: str | None, random_weights: bool = False):
-    if device == "cuda" and not torch.cuda.is_available():
-        raise SystemExit(
-            "[FATAL] --device cuda requested but torch.cuda.is_available() is False. "
-            "The allocated GPU failed to initialise; refusing to fall back to CPU "
-            "(a 7B video forward pass on CPU takes hours). Resubmit on another node."
-        )
+def load_model(model_id: str, dtype: str, random_weights: bool = False):
+    if not torch.cuda.is_available():
+        raise SystemExit("[FATAL] no GPU: refusing to run on CPU. Resubmit on another node.")
     torch_dtype = {"float16": torch.float16, "float32": torch.float32}.get(dtype, torch.bfloat16)
-    kwargs: Dict[str, Any] = {"torch_dtype": torch_dtype}
-    if device == "cuda":
-        kwargs["device_map"] = "auto"
-    if attn_implementation:
-        kwargs["attn_implementation"] = attn_implementation
+    kwargs: Dict[str, Any] = {"torch_dtype": torch_dtype, "device_map": "auto"}
     errors = []
-    # Qwen3 first: with a Qwen3-VL checkpoint the 2.5 class would either fail or
-    # silently mis-map weights, so try the newer architecture before the older one.
+    # Qwen3 first: the 2.5 class can mis-map Qwen3-VL weights
     for cls_name in ("Qwen3VLForConditionalGeneration",
                      "Qwen2_5_VLForConditionalGeneration",
                      "AutoModelForImageTextToText"):
@@ -79,37 +62,28 @@ def load_model(model_id: str, device: str, dtype: str, attn_implementation: str 
             continue
         try:
             if random_weights:
-                # Same architecture, freshly initialised: the untrained control.
-                # Config still comes from the hub repo, so depth/width/vocab match
-                # the pretrained model exactly; only the weights differ.
                 cfg = transformers.AutoConfig.from_pretrained(model_id)
                 try:
                     model = cls.from_config(cfg)
                 except (AttributeError, TypeError):
                     model = cls(cfg)
-                model = model.to(dtype=torch_dtype)
-                if device == "cuda":
-                    model = model.to("cuda")
+                model = model.to(dtype=torch_dtype).to("cuda")
             else:
                 model = cls.from_pretrained(model_id, **kwargs)
             model.eval()
             return model, cls_name
-        except Exception as exc:  # try the next class
+        except Exception as exc:
             errors.append(f"{cls_name}: {exc}")
     raise RuntimeError("Could not load a video-capable Qwen class.\n" + "\n".join(errors))
 
 
 class QwenVideoExtractor:
-    def __init__(self, model_id: str, device: str = "cuda", dtype: str = "bfloat16",
-                 attn_implementation: str | None = None, random_weights: bool = False):
-        self.model, self.model_class = load_model(model_id, device, dtype,
-                                                  attn_implementation, random_weights)
-        self.random_weights = random_weights
+    def __init__(self, model_id: str, dtype: str = "bfloat16", random_weights: bool = False):
+        self.model, self.model_class = load_model(model_id, dtype, random_weights)
         self.processor = AutoProcessor.from_pretrained(model_id)
         print(f"[model] {model_id} loaded as {self.model_class}"
               f"{'  [RANDOM WEIGHTS]' if random_weights else '  [pretrained]'}", flush=True)
-        # Vision-encoder block outputs, captured during the analysis forward pass only
-        # (not during generation). The decoder's hidden_states do not include them.
+        # vision blocks are not in the decoder's hidden_states: hooked, analysis pass only
         self._vision_out: List[torch.Tensor] = []
         self._capture = False
         self.vision_blocks = self._find_vision_blocks()
@@ -126,7 +100,6 @@ class QwenVideoExtractor:
         if self._capture:
             self._vision_out.append(output[0] if isinstance(output, tuple) else output)
 
-    # -- locating the visual tokens -------------------------------------------------
     def _video_token_id(self) -> int:
         tid = getattr(self.model.config, "video_token_id", None)
         if tid is not None:
@@ -143,10 +116,7 @@ class QwenVideoExtractor:
 
     @staticmethod
     def canonical_frame_paths(video_path: str, tmpdir: str, indices: List[int]) -> List[str]:
-        """Write the shared frames (indices from the stimulus manifest, the same frames
-        every model reads) to disk and return each path TWICE. Qwen fuses frames in
-        temporal pairs, so 2 x 16 images give exactly 16 temporal groups.
-        """
+        """Save the manifest frames as JPEGs; each path twice (Qwen fuses frame pairs)."""
         import av
         from PIL import Image
 
@@ -163,20 +133,18 @@ class QwenVideoExtractor:
         for k, i in enumerate(idx):
             p = os.path.join(tmpdir, f"{stem}_f{k:03d}.jpg")
             Image.fromarray(frames[int(i)]).save(p, quality=95)
-            paths.extend([p, p])          # duplicate -> one temporal group per frame
+            paths.extend([p, p])
         return paths
 
     @torch.inference_mode()
     def infer_video(self, video_path: str, prompt: str, max_new_tokens: int,
                     tmpdir: str, indices: List[int]) -> Dict[str, Any]:
-        nframes = len(indices)              # canonical frames == temporal groups
+        nframes = len(indices)
         vid = self.canonical_frame_paths(video_path, tmpdir, indices)
 
         messages = [{
             "role": "user",
-            # nframes MUST be given for a frame list too: without it
-            # process_vision_info applies its own default sampling and silently
-            # drops most of the frames (observed: 32 -> 4, i.e. 2 timepoints).
+            # without nframes, process_vision_info resamples the list (32 -> 4 frames)
             "content": [{"type": "video", "video": vid, "nframes": len(vid)}] + [
                 {"type": "text", "text": prompt},
             ],
@@ -186,9 +154,7 @@ class QwenVideoExtractor:
         if not video_inputs:
             raise RuntimeError(f"process_vision_info returned no video for {video_path}")
 
-        # Qwen3VLVideoProcessor defaults to do_sample_frames=True (fps=2), which
-        # RE-samples an already-sampled frame list: 32 canonical frames collapse to
-        # 4, i.e. 2 temporal groups instead of 16. Disable it for a frame list.
+        # do_sample_frames defaults to True and would resample the list (32 -> 4 frames)
         inputs = self.processor(text=[text], images=image_inputs, videos=video_inputs,
                                 padding=True, return_tensors="pt", do_sample_frames=False)
         dev = next(self.model.parameters()).device
@@ -204,7 +170,6 @@ class QwenVideoExtractor:
         if hidden_states is None:
             raise RuntimeError("Model returned no hidden_states.")
 
-        # --- split the visual tokens into temporal groups ---
         ids = inputs["input_ids"][0]
         vid_positions = (ids == self._video_token_id()).nonzero(as_tuple=True)[0]
         if vid_positions.numel() == 0:
@@ -215,7 +180,6 @@ class QwenVideoExtractor:
         merge = self._merge_size()
         per_group = int(grid[1] * grid[2] // (merge * merge))
         if per_group <= 0 or n_groups * per_group != int(vid_positions.numel()):
-            # defensive fallback: split the token run evenly
             per_group = int(vid_positions.numel()) // max(n_groups, 1)
             print(f"  [warn] grid {grid} vs {int(vid_positions.numel())} tokens; "
                   f"falling back to {n_groups}x{per_group}", flush=True)
@@ -230,12 +194,11 @@ class QwenVideoExtractor:
         for layer_hidden in hidden_states:                    # (1, seq, hidden)
             vis = layer_hidden[0][vid_positions][:usable]     # (usable, hidden)
             vis = vis.reshape(n_groups, per_group, -1).mean(dim=1)   # (T, hidden)
-            vis = F.normalize(vis.float(), dim=-1)            # same normalisation as frame mode
+            vis = F.normalize(vis.float(), dim=-1)
             per_layer.append(vis.cpu().numpy())
         acts = np.stack(per_layer, axis=1)                    # (T, n_layers, hidden)
 
-        # Vision blocks: patch tokens of this one video, laid out time-major
-        # (T groups x H x W patches), so the same T-way split gives the temporal positions.
+        # vision patch tokens are time-major: the same T-way split
         if len(self._vision_out) != len(self.vision_blocks):
             raise RuntimeError(f"captured {len(self._vision_out)} vision blocks, "
                                f"expected {len(self.vision_blocks)}")
@@ -262,40 +225,38 @@ class QwenVideoExtractor:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Qwen3-VL video-mode activation extraction.")
+    p = argparse.ArgumentParser()
     p.add_argument("--metadata_csv", required=True)
     p.add_argument("--output_dir", required=True)
     p.add_argument("--model_id", default="Qwen/Qwen3-VL-8B-Instruct")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--random", dest="random_weights", action="store_true",
-                   help="randomly initialise the architecture instead of loading the "
-                        "pretrained checkpoint (untrained control)")
+                   help="random weights (untrained control)")
     p.add_argument("--max_new_tokens", type=int, default=8)
     p.add_argument("--prompt", default=DEFAULT_PROMPT)
     p.add_argument("--seed", type=int, default=42)
     args = p.parse_args()
 
     set_seed(args.seed)
-    out_dir = Path(args.output_dir); (out_dir / "activations").mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.output_dir)
     act_dir = out_dir / "activations"
+    act_dir.mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv(args.metadata_csv)
     missing = {"video_path", "stimulus_id", "frame_indices"} - set(df.columns)
     if missing:
         raise ValueError(f"metadata_csv missing columns: {missing}")
 
-    import tempfile
     tmp = Path(tempfile.mkdtemp(prefix='qwen_vid_frames_'))
-    ex = QwenVideoExtractor(args.model_id, "cuda", args.dtype, None,
-                            random_weights=args.random_weights)
+    ex = QwenVideoExtractor(args.model_id, args.dtype, random_weights=args.random_weights)
 
     rows: List[Dict[str, Any]] = []
     for i, row in df.iterrows():
         video_path = str(row["video_path"])
-        cond = stimulus_id = str(row["stimulus_id"])
+        cond = str(row["stimulus_id"])
         if not os.path.exists(video_path):
             raise SystemExit(f"ABORT: missing video {video_path}")
-        indices = [int(i) for i in str(row["frame_indices"]).split()]
+        indices = [int(k) for k in str(row["frame_indices"]).split()]
         res = ex.infer_video(video_path, args.prompt, args.max_new_tokens, str(tmp), indices)
         acts = res["activations"]
         np.save(act_dir / f"{cond}.npy", acts)
@@ -305,7 +266,7 @@ def main() -> None:
               f"pred={res['pred_label']}", flush=True)
 
         for t in range(acts.shape[0]):
-            rows.append({"condition_id": cond, "stimulus_id": stimulus_id,
+            rows.append({"condition_id": cond, "stimulus_id": cond,
                          "video_path": video_path, "frame_index": t,
                          "prediction_text": res["prediction_text"],
                          "pred_label": res["pred_label"],

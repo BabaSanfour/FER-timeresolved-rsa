@@ -1,16 +1,6 @@
 #!/usr/bin/env python3
-"""Task lists for the RDM extraction on Trillium (same line format as make_tasks.py).
-
-Every variant, both stimulus sets; the FaceNet learning designs (size curve, step-matched check,
-checkpoints along training, identity counts): 54-video RDMs only.
---features: the main variants' final-layer features for the linear probe instead,
-into features/set*/ (Qwen3-VL: from the activations kept by its RDM run).
-Layers: every layer with learned parameters except the output layer; M3DFEL: backbone
-convolutions and batch norms; Qwen3-VL: its 64 blocks. Random variants load saved weights.
-"""
 import argparse
 import os
-
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "analysis"))
@@ -23,11 +13,11 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--root", default=os.path.expandvars("$SCRATCH/fer_revision"))
     p.add_argument("--out", default="trillium/tasks")
-    p.add_argument("--features", action="store_true", help="final-layer features of the main variants")
+    p.add_argument("--features", action="store_true", help="final-layer features for the probe")
     a = p.parse_args()
     R, repo = a.root, f"{a.root}/repo"
     D, W, res = f"{R}/data", f"{R}/data/drive", f"{R}/results"
-    # local snapshot at the pinned revision (compute nodes are offline)
+    # pinned local snapshot (compute nodes are offline)
     qwen_dir = f"{D}/.hf/hub/models--Qwen--Qwen3-VL-8B-Instruct/snapshots/0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
     os.makedirs(a.out, exist_ok=True)
     cnn, qwen = [], []
@@ -76,12 +66,11 @@ def main():
                     for size in SIZES:
                         image(f"facenet_size{size}_r{i:02d}", arch,
                               f"{res}/sizecurve/{rep}/{size}/best_weights.pt", "half")
-                        if size != "500k":
+                        if size != SIZES[-1]:
                             image(f"facenet_step{size}_r{i:02d}", arch,
                                   f"{res}/stepmatched/{rep}/{size}/best_weights.pt", "half")
 
-        # FaceNet learning designs (make_tasks.py): weights along full-pool training, and
-        # identity subsets at 100 images each; RDMs of the 54 videos only (the paper's analysis)
+        # FaceNet learning designs: 54 videos only
         for i in range(1, N_DESIGN_REPEATS + 1) if s == "54" and not a.features else ():
             rep = f"repeat_{i:02d}"
             for step in CHECKPOINT_STEPS:
@@ -100,7 +89,7 @@ def main():
 
         for name, extra in [("qwen_released", "")] + [(f"qwen_random_s{x}", f"--random --seed {x}") for x in SEEDS]:
             out = f"{rdms}/{name}"
-            if a.features:                            # the activations of the RDM run are kept
+            if a.features:                            # from the RDM run's kept activations
                 cnn.append(f"{out}\t^\\[ok\\] \\(\tpython {repo}/models/vlm/compute_rdms_from_vlm_activations.py "
                            f"--run-dir {R}/rdms/set{s}/{name}/run --out-dir {out} --out-name {name} "
                            f"--manifest {frames}/stimulus_manifest.json --features")

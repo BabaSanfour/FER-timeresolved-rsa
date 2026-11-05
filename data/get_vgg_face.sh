@@ -1,5 +1,5 @@
 #!/bin/bash
-# VGG-Face (Parkhi et al., 2015), PyTorch conversion by S. Albanie: the VGG16 face model.
+# VGG-Face weights (Parkhi et al., 2015; PyTorch conversion by S. Albanie).
 set -euo pipefail
 
 DEST=${DEST:-${FER_ROOT:-.}/data/net_weights}

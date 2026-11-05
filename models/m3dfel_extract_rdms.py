@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""M3DFEL (R3D-18 backbone + temporal-attention head) RDMs: Kinetics-400 (no weights given),
-DFEW-trained (--checkpoint) or random (--state: the saved random weights).
-
-Each of the 16 frames is the centre of a 4-frame window (frames t-1..t+2), so the 16 windows give 16
-time points; the trained pwconv (which depends on the number of windows) is tiled to fit. Only the
-backbone's convolutions and batch norms are analysed: the temporal head mixes all windows. Inputs:
-the shared frames at 112 x 112 in [0, 1], as in M3DFEL's training transform.
-Output: <out-name>.npy (n_layers, 16, n_stim, n_stim) + .layers.json + .predictions.csv;
-with --features also <out-name>.features.npy (n_stim, 16, C), the last analysed layer
-(the backbone's final layer, the linear probe's features).
-"""
 import argparse
 import csv
 import json
@@ -22,7 +11,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-# M3DFEL code (bundled in M3DFEL/) and its pretrained/r3d_18-b3b3357e.pth backbone weights.
+from extract_model_rdms import N_FRAMES, corr_distance_rdm, load_slide, resize_batch, stimulus_names
+
 M3DFEL_DIR = Path(os.environ.get("M3DFEL_DIR", Path(__file__).resolve().parents[1] / "M3DFEL"))
 sys.path.insert(0, str(M3DFEL_DIR))
 
@@ -30,87 +20,40 @@ INSTANCE_LENGTH = 4
 
 
 def load_canonical_frames(frames_dir, size=112):
-    """(N, 16, 3, size, size) float32 in [0,1] from stimulus-video samples."""
-    import h5py
-    from PIL import Image
-    stim_dir = Path(frames_dir)
-    slides = sorted(stim_dir.glob("Slide*.h5"), key=lambda p: int(p.stem.replace("Slide", "")))
-    per_frame = []
-    for p in slides:
-        with h5py.File(p, "r") as f:
-            img = np.asarray(f["images"])                      # (18,224,224,3) uint8
-        out = np.stack([np.array(Image.fromarray(img[s]).resize((size, size), Image.BILINEAR))
-                        for s in range(img.shape[0])])
-        per_frame.append(out)
-    X = np.stack(per_frame, 1).astype(np.float32) / 255.0       # (18,16,H,W,3)
-    return np.transpose(X, (0, 1, 4, 2, 3))                     # (18,16,3,H,W)
+    """(n_stim, 16, 3, size, size) float32 in [0, 1]."""
+    X = np.stack([resize_batch(load_slide(Path(frames_dir), s), size) for s in range(1, N_FRAMES + 1)], 1)
+    X = X.astype(np.float32) / 255.0                            # (n_stim, 16, H, W, 3)
+    return np.transpose(X, (0, 1, 4, 2, 3))
 
 
 def overlapping_windows(x, instance_length=INSTANCE_LENGTH):
-    """(16,3,H,W) -> (16*instance_length,3,H,W): window t = frames t-1..t+2, clipped."""
+    """(16, 3, H, W) -> (16 * instance_length, 3, H, W): window t = frames t-1..t+2, clipped."""
     T = x.shape[0]
     off = np.arange(instance_length) - 1
     idx = np.clip(np.arange(T)[:, None] + off[None, :], 0, T - 1).reshape(-1)
     return x[idx]
 
 
-def randomize(model, seed):
-    """Same scheme as extract_model_rdms.py: Xavier conv/linear, identity norms
-    (used by trillium/extract_prep.sh to draw the saved random weights)."""
-    torch.manual_seed(seed)
-    for m in model.modules():
-        if isinstance(m, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.Linear)):
-            nn.init.xavier_uniform_(m.weight)
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
-        elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
-                            nn.GroupNorm, nn.LayerNorm)):
-            if getattr(m, "weight", None) is not None:
-                nn.init.ones_(m.weight)
-            if getattr(m, "bias", None) is not None:
-                nn.init.zeros_(m.bias)
-            if getattr(m, "running_mean", None) is not None:
-                m.running_mean.zero_(); m.running_var.fill_(1.0)
-        elif isinstance(m, nn.LSTM):
-            for name, p in m.named_parameters():
-                if "weight" in name:
-                    nn.init.xavier_uniform_(p)
-                elif "bias" in name:
-                    nn.init.zeros_(p)
-    return model
-
-
-def corr_distance_rdm(X):
-    Xc = X - X.mean(1, keepdims=True)
-    n = np.linalg.norm(Xc, axis=1, keepdims=True)
-    rdm = 1.0 - (Xc @ Xc.T) / np.maximum(n * n.T, 1e-12)
-    np.fill_diagonal(rdm, 0.0)
-    return rdm.astype(np.float32)
-
-
 def main():
     ap = argparse.ArgumentParser()
     weights = ap.add_mutually_exclusive_group()
-    weights.add_argument("--checkpoint", default=None,
-                         help="trained M3DFEL state dict (e.g. selected Fold 3 best_weights.pt)")
-    weights.add_argument("--state", default=None,
-                         help="full saved state dict of this extractor's model (a saved random seed)")
+    weights.add_argument("--checkpoint", default=None, help="trained M3DFEL state dict (DFEW fold 3)")
+    weights.add_argument("--state", default=None, help="saved random weights")
     ap.add_argument("--frames-dir", required=True, help="frames from build_stimuli_h5_16frames.py")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--out-name", required=True)
-    ap.add_argument("--features", action="store_true",
-                    help="also save the last analysed layer per stimulus and window")
+    ap.add_argument("--features", action="store_true", help="also save the last analysed layer")
     args = ap.parse_args()
 
     from models.M3DFEL import M3DFEL
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    n_time = 16
+    n_time = N_FRAMES
+    saved = torch.load(args.state, map_location="cpu", weights_only=True) if args.state else None
     margs = SimpleNamespace(
         num_frames=n_time * INSTANCE_LENGTH,
         instance_length=INSTANCE_LENGTH,
-        num_classes=(torch.load(args.state, map_location="cpu", weights_only=True)["fc.weight"].shape[0]
-                     if args.state else 3 if args.checkpoint else 7),
+        num_classes=(saved["fc.weight"].shape[0] if args.state else 3 if args.checkpoint else 7),
         gpu_ids=[0] if device.type == "cuda" else [],
         r3d_weights=os.environ.get("M3DFEL_R3D", str(M3DFEL_DIR / "pretrained/r3d_18-b3b3357e.pth")),
     )
@@ -119,13 +62,7 @@ def main():
     if args.checkpoint:
         state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
         state = {k.removeprefix("module."): v for k, v in state.items()}
-        # Training uses 16 frames / 4-frame instances => bag_size=4.  The
-        # time-locked extractor uses 16 overlapping instances so upstream
-        # representations align one-to-one with the 16 EEG windows.  Only
-        # pwconv (the final temporal collapse, which is not retained as an RDM
-        # layer) depends on bag_size. Repeat its four learned input-channel
-        # kernels to permit the expanded forward pass; all RDM-producing
-        # backbone/MIL parameters remain exact checkpoint weights.
+        # pwconv (trained on 4 windows, not an RDM layer) is tiled to the 16 windows
         if state["pwconv.weight"].shape != model.pwconv.weight.shape:
             old = state["pwconv.weight"]
             if model.pwconv.weight.shape[1] % old.shape[1] != 0:
@@ -137,35 +74,20 @@ def main():
         model.load_state_dict(state, strict=True)
         print(f"[M3DFEL TRAINED] loaded {args.checkpoint}")
     elif args.state:
-        model.load_state_dict(torch.load(args.state, map_location="cpu", weights_only=True), strict=True)
+        model.load_state_dict(saved, strict=True)
         print(f"[M3DFEL] loaded saved weights {args.state}")
     else:
         print("[M3DFEL] Kinetics-400 pretrained r3d_18 backbone + untrained MIL head")
     model.eval().to(device)
 
-    # ---- hooks: the R3D-18 backbone's convolutions and batch norms. The temporal
-    # head (LSTM, attention, norm) mixes all 16 windows, so it is not analysed. ----
+    # backbone convolutions and batch norms only: the temporal head mixes the 16 windows
     acts = {}
 
     def make_hook(name):
         def hook(_m, _i, o):
-            o = o[0] if isinstance(o, tuple) else o
-            if not torch.is_tensor(o):
-                return
-            t = o.detach().float()
-            if t.dim() == 5:                    # (bag, C, T, H, W) -> (bag, C)
-                t = t.mean(dim=(2, 3, 4))
-            elif t.dim() == 4:                  # (bag, C, H, W)
-                t = t.mean(dim=(2, 3))
-            elif t.dim() == 3 and t.shape[0] == 1:   # (1, bag, C)
-                t = t[0]
-            elif t.dim() == 2:                  # (bag, C)
-                pass
-            else:
-                return
-            if t.shape[0] != n_time:
-                return
-            acts[name] = t.cpu().numpy()
+            t = o.detach().float().mean(dim=(2, 3, 4))      # (bag, C, T, H, W) -> (bag, C)
+            if t.shape[0] == n_time:
+                acts[name] = t.cpu().numpy()
         return hook
 
     handles, layer_names = [], []
@@ -177,26 +99,25 @@ def main():
 
     X = load_canonical_frames(args.frames_dir)
     manifest_path = Path(args.frames_dir) / "stimulus_manifest.json"
-    stim_names = [row["stimulus"] for row in json.loads(manifest_path.read_text())]
+    stim_names = stimulus_names(manifest_path)
     if len(stim_names) != len(X):
         raise RuntimeError(f"manifest has {len(stim_names)} stimuli but frames contain {len(X)}")
     print(f"[stim] {X.shape}")
 
+    label_order = ["happy", "fear", "neutral"] if args.checkpoint else None
     per_stim, order, predictions = [], None, []
     with torch.no_grad():
         for s in range(X.shape[0]):
-            clip = overlapping_windows(X[s])                       # (64,3,112,112)
-            xb = torch.from_numpy(clip).unsqueeze(0).to(device)    # (1,64,3,112,112)
+            clip = overlapping_windows(X[s])                       # (64, 3, 112, 112)
+            xb = torch.from_numpy(clip).unsqueeze(0).to(device)    # (1, 64, 3, 112, 112)
             acts.clear()
             output = model(xb)
             pred_idx = int(output.argmax(1).item())
-            label_order = ["happy", "fear", "neutral"] if args.checkpoint else None
             pred_label = label_order[pred_idx] if label_order and pred_idx < 3 else str(pred_idx)
             predictions.append((stim_names[s], pred_idx, pred_label))
             if order is None:
                 order = [n for n in layer_names if n in acts]
                 print(f"[hooks] {len(order)} layers kept a 16-point time axis")
-            # layers have different channel counts, so keep them separate
             per_stim.append({n: acts[n].copy() for n in order})
     for h in handles:
         h.remove()
@@ -204,7 +125,7 @@ def main():
     n_stim, L, T = len(per_stim), len(order), n_time
     rdms = np.zeros((L, T, n_stim, n_stim), dtype=np.float32)
     for l, name in enumerate(order):
-        A = np.stack([per_stim[s][name] for s in range(n_stim)], 0)   # (18,16,C_l)
+        A = np.stack([per_stim[s][name] for s in range(n_stim)], 0)   # (n_stim, 16, C_l)
         for t in range(T):
             rdms[l, t] = corr_distance_rdm(A[:, t, :].astype(np.float64))
 

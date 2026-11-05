@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Fine-tune the face-pretrained image models on 3-class AffectNet (fear, happy, neutral).
-
-    facenet        InceptionResnetV1, our VGGFace2 pretraining
-    resnet18/50    torchvision ResNets, our VGGFace2 pretraining
-    vgg16_vggface  VGG16 (Parkhi et al., 2015)
-"""
 import argparse
 import csv
 import json
@@ -23,7 +17,6 @@ CLASSES = ["fear", "happy", "neutral"]
 
 
 class VGG16(nn.Module):
-    """VGG16 network."""
     def __init__(self, num_classes=2622):
         super().__init__()
         layers = []
@@ -48,9 +41,7 @@ class VGG16(nn.Module):
 
 
 def remap_vgg16_state(state):
-    """Map either torchvision-style or MatConvNet-conversion names."""
-    if "state_dict" in state:
-        state = state["state_dict"]
+    """Torchvision-style or MatConvNet-conversion names -> VGG16 names."""
     state = {k.removeprefix("module."): v for k, v in state.items()}
     if any(k.startswith("features.") for k in state):
         return state
@@ -75,8 +66,7 @@ def remap_vgg16_state(state):
 def checkpoint_state(path):
     if not path or not Path(path).is_file():
         raise FileNotFoundError(f"pretrained checkpoint not found: {path}")
-    # weights_only: tensors and plain containers only, so a downloaded file
-    # (e.g. the public VGG-Face conversion) cannot run code when loaded
+    # weights_only: a downloaded file cannot run code
     obj = torch.load(path, map_location="cpu", weights_only=True)
     return obj.get("model", obj.get("state_dict", obj))
 
@@ -103,12 +93,12 @@ def build_model(arch, weights_path):
 
 def make_transforms(arch):
     if arch == "vgg16_vggface":
-        # Original VGG16 RGB mean subtraction on [0,255] pixels.
+        # VGG-Face: RGB mean subtraction on [0, 255] pixels
         mean = [129.1863 / 255, 104.7624 / 255, 93.5940 / 255]
         std = [1 / 255, 1 / 255, 1 / 255]
         size, resize = 224, 256
     else:
-        # Matches the RGB preprocessing used for our VGGFace2 pretraining.
+        # as in the VGGFace2 pretraining
         mean, std = [0.5] * 3, [0.5] * 3
         size, resize = 112, 128
     train = transforms.Compose([
@@ -161,7 +151,7 @@ def main():
     p.add_argument("--data-root", required=True)
     p.add_argument("--out-dir", required=True)
     p.add_argument("--weights", required=True,
-                   help="VGGFace/VGGFace2 pretrained checkpoint for this architecture")
+                   help="VGG-Face or VGGFace2-pretraining weights")
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--workers", type=int, default=12)
@@ -172,9 +162,9 @@ def main():
     p.add_argument("--max-hours", type=float)
     p.add_argument("--channels-last", action="store_true", help="faster convolutions on H100")
     p.add_argument("--val-fraction", type=float, default=0.1,
-                   help="share of each Train class held out for epoch selection")
+                   help="share of each Train class held out for validation")
     p.add_argument("--split-seed", type=int, default=0,
-                   help="fixes the validation split (kept the same across models and seeds)")
+                   help="seed of the validation split")
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -191,9 +181,7 @@ def main():
     test_set = datasets.ImageFolder(root / "Test", val_tf)
     if full_train.classes != CLASSES or test_set.classes != CLASSES:
         raise ValueError(f"expected classes {CLASSES}; got train={full_train.classes}, test={test_set.classes}")
-    # Validation split carved from Train, class-balanced and fixed by --split-seed,
-    # so every model and seed sees the same split. The epoch is chosen on it; the
-    # Test folder is evaluated once, at the end, for the chosen epoch only.
+    # class-balanced validation split of Train, the same for every model and seed
     rng = random.Random(args.split_seed)
     val_idx = []
     for c in range(len(CLASSES)):

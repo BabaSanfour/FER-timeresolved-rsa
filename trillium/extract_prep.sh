@@ -1,7 +1,5 @@
 #!/bin/bash
-# Inputs for the RDM extraction (run once, from the repo root, on a Trillium login node):
-#   - 16 frames per video for both stimulus sets (one sampler) + Qwen video lists
-#   - plain-VGG16 random seeds 0-8, drawn on CPU like the existing seed-42 file
+# Stimulus frames, Qwen video lists and missing random weights for the RDM extraction (run once).
 set -euo pipefail
 R=${FER_ROOT:-$SCRATCH/fer_revision}
 D=$R/data
@@ -42,12 +40,12 @@ for seed in SEEDS[1:]:                       # 0-8 (seed 42 exists and is checke
 print("vgg16 random seeds 0-8 saved")
 PY
 
-# M3DFEL random seeds: redraw on CPU; must equal every downloaded seed; draw the missing ones
+# M3DFEL random seeds: redraws must equal the downloaded ones; missing ones are drawn
 M3DFEL_R3D=$D/drive/M3DFEL/pretrained/r3d_18-b3b3357e.pth CUDA_VISIBLE_DEVICES= python - "$D" <<'PY'
 import os, sys, torch
 from types import SimpleNamespace
 sys.path[:0] = ["models", "M3DFEL", "analysis"]
-from m3dfel_extract_rdms import randomize
+from extract_model_rdms import randomize
 from variants import SEEDS
 from models.M3DFEL import M3DFEL
 D = sys.argv[1]

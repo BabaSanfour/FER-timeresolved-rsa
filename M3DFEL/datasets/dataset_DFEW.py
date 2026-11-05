@@ -12,8 +12,7 @@ from .video_transform import *
 
 
 class DFEWDataset(data.Dataset):
-    # Original DFEW labels: 1=happy, 3=neutral, 7=fear.
-    # Remap to the requested contiguous order: happy, fear, neutral.
+    # DFEW labels 1=happy, 7=fear, 3=neutral -> 0, 1, 2
     LABEL_MAP = {1: 0, 7: 1, 3: 2}
     def __init__(self, args, mode):
         """Dataset for DFEW

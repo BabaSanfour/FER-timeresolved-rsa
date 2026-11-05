@@ -1,37 +1,4 @@
 #!/usr/bin/env python3
-"""EEG RDMs of every participant, from the segmented recordings.
-
-Input ($FER_ROOT/eeg_raw/):
-  <subject>_EmoDyn_Bloc<b>_<scheme>_Segmentation all_y.{vhdr,dat}   Brain Vision Analyzer
-      export after re-referencing, filtering, ICA ocular correction and segmentation:
-      ASCII, 64 EEG channels (+ EXG, Status), 1024 Hz, 1024-sample segments from -200 ms,
-      stimulus onset at sample 206.
-  <subject>_EmoDyn_Bloc<b>_<scheme>_Segmentation all.Markers        trigger code per segment
-  behavior_RT_perf_identity_occlusion.csv                           video shown on every trial
-
-Trial labels. The trigger codes (S1-S15) name a group of videos, not a video; the behaviour
-file names the video of every trial in presentation order. Each block's behaviour sequence,
-mapped to codes (CODES), must match the block's code sequence except for trials missing at
-either end of the recording. A block without a Markers file is labelled by order only if it
-has as many segments as the behaviour file has trials; otherwise it is dropped.
-
-Per participant:
-  1. baseline correction on the 205 pre-stimulus samples (-200 to 0 ms);
-  2. bad channels (above +-BAD_UV in more than BAD_FRACTION of trials) are interpolated
-     (spherical splines, standard 10-05 positions);
-  3. trials above +-REJECT_UV on any channel are rejected;
-  4. the remaining trials are averaged per video (54 videos);
-  5. RDMs: correlation distance (1 - Pearson) between the video averages, the features being
-     the channels of a scope x the samples of a window. Scopes: the 11 ROIs of
-     roi_definitions.json, then the whole scalp (64 channels). Windows: 13 from onset, 64
-     samples (62.5 ms) each; the last holds the 51 samples left (750-800 ms).
-Participants with fewer than half of the 972 trials recorded are excluded.
-
-Output ($FER_ROOT/eeg_rdms/): <subject>.npy (12, 13, 54, 54) float32 over rsa_core.MODEL_STIMULI["54"],
-and meta.json (scopes, channels, window bounds in ms, subjects, exclusions, trial counts).
-
-  python eeg/build_eeg_rdms.py [--subjects AB AF ...]
-"""
 import argparse
 import difflib
 import json
@@ -44,7 +11,6 @@ import pandas as pd
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
 RAW = ROOT / "eeg_raw"
-OUT = ROOT / "eeg_rdms"
 ROIS = json.loads((Path(__file__).parent / "roi_definitions.json").read_text())
 ROIS.pop("_note")
 N_EEG, SEG, FS, ONSET = 64, 1024, 1024.0, 205
@@ -93,7 +59,7 @@ def read_block(vhdr):
 
 
 def label_block(codes, n_segments, conditions):
-    """Behaviour trials of a block -> (segment indices, stimulus names) or None if unalignable."""
+    """Behaviour trials of a block -> (segment indices, stimulus names, behaviour rows), or None."""
     names, beh = zip(*(parse_condition(c) for c in conditions))
     if codes is None:
         return (np.arange(n_segments), list(names), np.arange(len(names))) if n_segments == len(names) else None
@@ -136,10 +102,7 @@ def rdms(avgs, channels):
     return out
 
 
-CORRECT_ONLY = {"on": False}
-
-
-def build(subject, behaviour):
+def build(subject, behaviour, correct_only):
     log = {"blocks": {}, "dropped_blocks": []}
     xs, labels, correct, channels = [], [], [], None
     for vhdr in sorted(RAW.glob(f"{subject}_EmoDyn_Bloc*_y.vhdr")):
@@ -172,7 +135,7 @@ def build(subject, behaviour):
     if bad.any():
         x = interpolate(x, channels, bad)
     clean = np.abs(x).max((1, 2)) <= REJECT_UV
-    if CORRECT_ONLY["on"]:                         # only trials the participant classified correctly
+    if correct_only:                               # only trials the participant classified correctly
         ok = clean & np.array(correct)
         # a video never classified correctly keeps all its clean trials (logged)
         fallback = [s for s in STIMULI if not np.any(ok & (labels == s)) and np.any(clean & (labels == s))]
@@ -195,25 +158,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--subjects", nargs="*", default=None)
     ap.add_argument("--correct-only", action="store_true",
-                    help="average only the trials each participant classified correctly (output eeg_rdms_correct/)")
+                    help="only correctly classified trials (output eeg_rdms_correct/)")
     args = ap.parse_args()
-    global OUT
-    if args.correct_only:
-        CORRECT_ONLY["on"] = True
-        OUT = ROOT / "eeg_rdms_correct"
+    out = ROOT / ("eeg_rdms_correct" if args.correct_only else "eeg_rdms")
     behaviour = pd.read_csv(RAW / "behavior_RT_perf_identity_occlusion.csv")
     subjects = args.subjects or sorted({p.name.split("_")[0] for p in RAW.glob("*_EmoDyn_Bloc*_y.vhdr")})
-    OUT.mkdir(parents=True, exist_ok=True)
-    meta_path = OUT / "meta.json"
+    out.mkdir(parents=True, exist_ok=True)
+    meta_path = out / "meta.json"
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {"participants": {}}
     for s in subjects:
-        r, channels, log = build(s, behaviour)
+        r, channels, log = build(s, behaviour, args.correct_only)
         meta["participants"][s] = log
         if r is None:
-            (OUT / f"{s}.npy").unlink(missing_ok=True)
+            (out / f"{s}.npy").unlink(missing_ok=True)
             print(f"[excluded] {s}: {log['excluded']}")
             continue
-        np.save(OUT / f"{s}.npy", r)
+        np.save(out / f"{s}.npy", r)
         print(f"[ok] {s}: kept {log['trials_kept']} of {log['trials_recorded']} trials, "
               f"{len(log['bad_channels'])} channels interpolated, {log['trials_per_video_min']}-"
               f"{log['trials_per_video_max']} trials per video", flush=True)
@@ -225,7 +185,7 @@ def main():
                 rules={"baseline_ms": [-200, 0], "bad_channel_uv": BAD_UV, "bad_channel_fraction": BAD_FRACTION,
                        "reject_uv": REJECT_UV, "min_fraction_trials": MIN_FRACTION, "distance": "correlation"})
     meta_path.write_text(json.dumps(meta, indent=1))
-    print(f"[ok] -> {OUT} ({len(meta['subjects'])} participants)")
+    print(f"[ok] -> {out} ({len(meta['subjects'])} participants)")
 
 
 if __name__ == "__main__":

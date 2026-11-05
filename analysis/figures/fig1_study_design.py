@@ -1,22 +1,7 @@
 #!/usr/bin/env python3
-"""Figure 1 (study design), drawn from code.
-
-Panels
-  a  stimuli: real frames of one actor (fear / happiness / neutral) across the 1-s clip,
-     plus the sunglasses and mask versions used in the 54-video set
-  b  EEG: Biosemi-64 layout with the 11 scalp ROIs (eeg/roi_definitions.json) and the
-     13 analysis windows of 62.5 ms from onset (the last ends at 800 ms)
-  c  model families x training regimes actually analysed, cells naming the training data
-  d  EEG RDMs, e  model RDMs, f  layer x time RSA map with its maximum (rho_max)
-     -- d, e, f are schematic: synthetic matrices generated here, not data
-
-Usage
-  python analysis/figures/fig1_study_design.py --stimuli <dir with set18/ and set54/> \
-      --out analysis/figures/out/fig1_study_design
-Writes <out>.pdf and <out>.png.
-"""
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import av
@@ -25,38 +10,37 @@ import matplotlib.pyplot as plt
 import mne
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.lines import Line2D
 from matplotlib.patches import Circle, FancyArrowPatch, Polygon, Rectangle
 from PIL import Image
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "analysis"))
+import figure_style as st
+from figure_style import INK, INK2, RULE
 
-# Validated categorical slots (dataviz reference palette, light mode, --pairs all).
 EMOTION_COLORS = {"fear": "#eb6834", "happy": "#1baf7a", "neutral": "#2a78d6"}
-# ROI regions (dataviz slots violet, magenta, green, yellow; validated --pairs all, labelled)
-ROI_COLORS = {"Frontal": "#6250d6", "Central": "#e87ba4", "CentroParietal": "#008300", "OccipitoTemporal": "#eda100"}
 ROI_LABELS = {"Frontal": "Frontal", "Central": "Central", "CentroParietal": "Centro-parietal",
               "OccipitoTemporal": "Occipito-temporal"}
 WINDOW_MS, N_WINDOWS, END_MS = 62.5, 13, 800
-INK, INK2, MUTED, RULE = "#0b0b0b", "#52514e", "#8a8984", "#d6d5d0"
 BLUE_RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 SEQ = LinearSegmentedColormap.from_list("seq_blue", BLUE_RAMP)
-DIV = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
 
-ACTOR = "11"      # all nine actor-11 clips show the same person (several other actors' files are mislabelled)
+ACTOR = "11"                             # other actors' files are partly mislabelled
 FRAMES_SHOWN = (0, 5, 10, 15)            # of the 16 sampled frames -> 0, 333, 667, 1000 ms
 CROP = (640, 60, 1320, 967)              # portrait box (3:4) around the face in the 1920x1080 frames
 ASPECT = (CROP[3] - CROP[1]) / (CROP[2] - CROP[0])
 
 
 def sixteen_frames(path):
-    """The 16 frames the pipeline samples (prepare_stimuli_54.sample_16 rule)."""
+    """16 evenly spaced frames of the clip."""
     with av.open(str(path)) as c:
         frames = [f.to_image().convert("RGB") for f in c.decode(video=0)]
     idx = np.rint(np.linspace(0, len(frames) - 1, 16)).astype(int)
     return [frames[i] for i in idx]
 
 
-def thumb(img, width=240):
+def thumb(img, width=300):
     return np.asarray(img.crop(CROP).resize((width, round(width * ASPECT)), Image.Resampling.LANCZOS))
 
 
@@ -104,21 +88,15 @@ def draw_stack(ax, rdms, label_blocks):
 
 
 def draw_head(ax):
-    """Biosemi ActiveTwo 64-channel layout (10-10 labels), standard azimuthal projection (MNE).
-
-    The 11 ROIs (eeg/roi_definitions.json) are coloured by region; left and right ROIs are filled
-    dots, midline ROIs open dots; channels outside the ROIs (P9, P10: whole scalp only) are small
-    grey dots.
-    """
+    """Biosemi-64 layout, ROI electrodes by region (midline open; P9, P10 small grey)."""
     from mne.channels.layout import _find_topomap_coords
     roi = json.loads((REPO / "eeg/roi_definitions.json").read_text())
     montage = mne.channels.make_standard_montage("biosemi64")
     info = mne.create_info(montage.ch_names, 256.0, "eeg")
     info.set_montage(montage)
     xy = dict(zip(montage.ch_names, _find_topomap_coords(info, picks=list(range(len(montage.ch_names))))))
-    centre = np.zeros(2)
     radius = max(np.linalg.norm(p) for p in xy.values()) * 1.07     # just outside P9 / P10 / Iz
-    ax.add_patch(Circle(centre, radius, fill=False, lw=0.7, ec=INK2))
+    ax.add_patch(Circle((0, 0), radius, fill=False, lw=0.7, ec=INK2))
     nose = np.array([[-0.12 * radius, radius * 0.99], [0, radius * 1.13], [0.12 * radius, radius * 0.99]])
     ax.add_patch(Polygon(nose, closed=False, fill=False, lw=0.7, ec=INK2))
     member = {ch: name for name, chans in roi.items() if not name.startswith("_") for ch in chans}
@@ -128,19 +106,18 @@ def draw_head(ax):
             ax.plot(*p, "o", ms=1.5, mfc="#b9b8b2", mec="none")
             continue
         region, side = name.split("-")
-        color = ROI_COLORS[region]
+        color = st.REGION_COLORS[region]
         if side == "M":
             ax.plot(*p, "o", ms=2.4, mfc="white", mec=color, mew=0.8)
         else:
             ax.plot(*p, "o", ms=2.6, mfc=color, mec="white", mew=0.3)
-    from matplotlib.lines import Line2D
-    handles = [Line2D([], [], marker="o", ls="none", ms=2.6, mfc=ROI_COLORS[r], mec="white", mew=0.3, label=lab)
+    handles = [Line2D([], [], marker="o", ls="none", ms=2.6, mfc=st.REGION_COLORS[r], mec="white", mew=0.3, label=lab)
                for r, lab in ROI_LABELS.items()]
     handles.append(Line2D([], [], marker="o", ls="none", ms=2.4, mfc="white", mec=INK2, mew=0.8, label="midline"))
     ax.legend(handles=handles, ncol=3, loc="upper center", bbox_to_anchor=(0.5, 0.1), frameon=False,
               fontsize=5, handletextpad=0.1, columnspacing=0.6, borderaxespad=0, labelspacing=0.3)
-    ax.set_xlim(centre[0] - radius * 1.6, centre[0] + radius * 1.6)
-    ax.set_ylim(centre[1] - radius * 1.45, centre[1] + radius * 1.3)
+    ax.set_xlim(-radius * 1.6, radius * 1.6)
+    ax.set_ylim(-radius * 1.45, radius * 1.3)
     ax.set_aspect("equal")
     ax.axis("off")
 
@@ -163,9 +140,9 @@ def draw_windows(ax):
 
 
 def draw_models(ax):
-    """Families x training regimes; cells name the training data (random = dot, none = small grey dot)."""
+    """Families x training regimes; cells name the training data (random = dot, none = grey dot)."""
     families = ["ResNet18", "ResNet50", "FaceNet", "VGG16", "M3DFEL", "Qwen3-VL"]
-    regimes = ["Random", "Generic", "Face", "Emotion"]
+    regimes = st.REGIMES
     img = ["*", "ImageNet", "VGGFace2", "AffectNet"]
     cells = {"ResNet18": img, "ResNet50": img, "FaceNet": img, "VGG16": img[:2] + ["VGG-Face"] + img[3:],
              "M3DFEL": ["*", "Kinetics", "", "DFEW"], "Qwen3-VL": ["*", "Released", "", ""]}
@@ -198,7 +175,7 @@ def draw_rsa_map(ax, rng):
     peak = 0.16 * np.exp(-((li - 0.72) ** 2) / 0.05 - ((wi - 3) ** 2) / 6)
     early = 0.05 * np.exp(-((li - 0.25) ** 2) / 0.04 - ((wi - 1.5) ** 2) / 3)
     grid = peak + early + rng.normal(0, 0.012, (L, W))
-    ax.imshow(grid, cmap=DIV, vmin=-0.2, vmax=0.2, origin="lower", aspect="auto",
+    ax.imshow(grid, cmap=st.DIVERGING, vmin=-0.2, vmax=0.2, origin="lower", aspect="auto",
               extent=(0, W * WINDOW_MS, 0, 1), interpolation="nearest")
     l, w = np.unravel_index(np.argmax(grid), grid.shape)
     xy = ((w + 0.5) * WINDOW_MS, (l + 0.5) / L)
@@ -231,14 +208,14 @@ def main():
     fig = plt.figure(figsize=(W_IN, H_IN))
     sq = W_IN / H_IN                         # height (fig fraction) of a square of width w is w * sq
 
-    # Columns: a | b over c | d over e | f (narrow, both rows)
+    # columns: a | b over c | d over e | f
     A0, A1 = 0.010, 0.262
     B0, B1 = 0.292, 0.572
     C0, C1 = 0.600, 0.790
     D0, D1 = 0.835, 0.990
     TOP, MID = 0.945, 0.455                   # panel-title baselines of the two rows
 
-    # ---- a: stimuli (both rows) ----------------------------------------------------
+    # a: stimuli
     panel_label(fig, A0, TOP, "a", "Stimuli")
     rule(fig, A0, A1, TOP - 0.007)
     names = {"fear": "Fear", "happy": "Hapiness", "neutral": "Neutral"}      # stimuli/set18 file names
@@ -249,7 +226,7 @@ def main():
     x_img0 = xa + lab_w
     h = size * sq * ASPECT
     row_gap, axis_h = 0.010, 0.075                # space under the rows for the time arrow + labels
-    note_top = 0.030 + 0.85 * size * sq * ASPECT  # top of the occlusion note (see below)
+    note_top = 0.030 + 0.85 * size * sq * ASPECT  # top of the occlusion note
     block_h = 3 * h + 2 * row_gap + axis_h
     y_block_top = (TOP - 0.015 + note_top) / 2 + block_h / 2   # centred between title rule and note
     for r, emo in enumerate(EMOTION_COLORS):
@@ -261,7 +238,7 @@ def main():
                  fontsize=6, color=INK, va="center", rotation=90)
         for c, k in enumerate(FRAMES_SHOWN):
             ax = fig.add_axes([x_img0 + c * (size + gap), y, size, h])
-            ax.imshow(thumb(frames[k], width=300), interpolation="none")
+            ax.imshow(thumb(frames[k]), interpolation="none")
             ax.axis("off")
     y_arrow = y - 0.035
     ax_t = fig.add_axes([x_img0, y_arrow, 4 * size + 3 * gap, 0.02])
@@ -271,7 +248,7 @@ def main():
     for c, ms in enumerate((0, 333, 667, 1000)):
         fig.text(x_img0 + c * (size + gap) + size / 2, y_arrow - 0.025, f"{ms} ms" if c == 3 else f"{ms}",
                  fontsize=5.5, color=INK, ha="center")
-    # 54-video set: a small note at the bottom of the column (two tiny occluded examples + one line)
+    # 54-video set: two occluded examples
     size_o, gap_o = 0.85 * size, 0.004
     h_o = size_o * sq * ASPECT
     y_o = 0.030
@@ -279,13 +256,13 @@ def main():
     for c, fname in enumerate([f"Fear_Glasses_Actor{ACTOR}.mp4", f"Fear_Masked_Actor{ACTOR}.mp4"]):
         frames = sixteen_frames(args.stimuli / "set54" / fname)
         ax = fig.add_axes([x_o + c * (size_o + gap_o), y_o, size_o, h_o])
-        ax.imshow(thumb(frames[15], width=300), interpolation="none")
+        ax.imshow(thumb(frames[15]), interpolation="none")
         ax.axis("off")
     fig.text(x_o + 2 * (size_o + gap_o) + 0.006, y_o + h_o / 2,
              "54-video set: each clip\nalso with sunglasses\nor a mask", fontsize=5.5, color=INK,
              va="center", linespacing=1.15)
 
-    # ---- b: EEG (top) / c: models (bottom) ------------------------------------------
+    # b: EEG (top) / c: models (bottom)
     panel_label(fig, B0, TOP, "b", "Electroencephalography")
     rule(fig, B0, B1, TOP - 0.007)
     draw_head(fig.add_axes([B0 + 0.03, 0.640, B1 - B0 - 0.06, 0.285]))
@@ -295,7 +272,7 @@ def main():
     rule(fig, B0, B1, MID - 0.007)
     draw_models(fig.add_axes([B0, 0.015, B1 - B0, MID - 0.03]))
 
-    # ---- d: EEG RDMs (top) / e: model RDMs (bottom) ----------------------------------
+    # d: EEG RDMs (top) / e: model RDMs (bottom)
     panel_label(fig, C0, TOP, "d", "EEG RDMs")
     rule(fig, C0, C1, TOP - 0.007)
     draw_stack(fig.add_axes([C0 + 0.012, 0.555, C1 - C0 - 0.02, 0.35]),
@@ -306,7 +283,7 @@ def main():
     draw_stack(fig.add_axes([C0 + 0.012, 0.065, C1 - C0 - 0.02, 0.35]),
                [synthetic_rdm(rng, s) for s in (0.2, 0.35, 0.5, 0.65)], label_blocks=True)
 
-    # ---- f: RSA map (both rows) ------------------------------------------------------
+    # f: RSA map
     panel_label(fig, D0, TOP, "f", "RSA")
     rule(fig, D0, D1, TOP - 0.007)
     ax_f = fig.add_axes([D0 + 0.050, 0.30, D1 - D0 - 0.058, 0.40])
@@ -320,9 +297,7 @@ def main():
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    from matplotlib.text import Text
-    for t in fig.findobj(Text):                                  # every text in black ink
-        t.set_color(INK)
+    st.black_text(fig)
     fig.savefig(out.with_suffix(".pdf"))
     fig.savefig(out.with_suffix(".png"), dpi=300)
     print(f"[ok] {out.with_suffix('.pdf')}")

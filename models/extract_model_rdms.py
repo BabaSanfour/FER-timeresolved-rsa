@@ -1,17 +1,3 @@
-"""Layer-wise RDMs for ResNet18, ResNet50, VGG16 and FaceNet.
-
-Loads a checkpoint (refusing partial loads; random variants load their saved
-random weights), hooks every layer with learned parameters except the output
-layer, runs the 16 frames of every stimulus (Slide{1..16}.h5 +
-stimulus_manifest.json from build_stimuli_h5_16frames.py) and writes
-<out-name>.npy (n_layers, 16, n_stim, n_stim) correlation-distance RDMs,
-.layers.json (provenance) and .predictions.csv; with --features also
-<out-name>.features.npy (n_stim, 16, d), the input to the output layer (the
-final-layer features of the linear probe). Example:
-
-    python models/extract_model_rdms.py --arch resnet50 --checkpoint <weights> --preproc imagenet \
-        --h5-dir <frames> --out-dir <dir> --out-name resnet50_imagenet
-"""
 import argparse
 import csv
 import json
@@ -26,25 +12,17 @@ import torch
 import torch.nn as nn
 from torchvision import models as tvm
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(_HERE)
-sys.path.append(os.path.join(_HERE, "image"))   # FaceNet.py lives in models/image/
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "image"))
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+N_FRAMES = 16
 
-# ---------------------------------------------------------------------------
-# 1. Architecture registry: name -> builder(num_classes) -> nn.Module
-#    Head is replaced to `num_classes` so the checkpoint's task head fits.
-# ---------------------------------------------------------------------------
-def _resnet(fn, head_dropout=False):
+
+def _resnet(fn):
     def build(nc):
         m = fn(weights=None)
         if nc:
-            # The net_weights/ checkpoints carry a plain Linear head named
-            # `classifier`; wrapping it in Sequential(Dropout, Linear) would
-            # rename the keys to fc.1.* and silently fail to load.
-            m.fc = nn.Sequential(nn.Dropout(0.2), nn.Linear(m.fc.in_features, nc)) \
-                if head_dropout else nn.Linear(m.fc.in_features, nc)
+            m.fc = nn.Linear(m.fc.in_features, nc)
         return m
     return build
 
@@ -67,42 +45,36 @@ ARCHS = {
     "facenet": _facenet,
 }
 
-# ---------------------------------------------------------------------------
-# 2. Preprocessing registry: name -> (uint8 NHWC RGB) -> torch NCHW
-# ---------------------------------------------------------------------------
+
+def _to_nchw(x):
+    return torch.tensor(np.transpose(x, (0, 3, 1, 2)).copy(), dtype=torch.float32)
+
 def _pp_imagenet(x):
     x = x.astype(np.float32) / 255.0
-    x = (x - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
-    return torch.tensor(np.transpose(x, (0, 3, 1, 2)).copy(), dtype=torch.float32)
+    return _to_nchw((x - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225])
 
 def _pp_vggface_rgb(x):
-    """RGB mean subtraction used by the AffectNet VGG-Face fine-tuning run."""
-    x = x.astype(np.float32) - np.array([129.1863, 104.7624, 93.5940], np.float32)
-    return torch.tensor(np.transpose(x, (0, 3, 1, 2)).copy(), dtype=torch.float32)
+    """VGG-Face RGB mean subtraction on [0, 255] pixels."""
+    return _to_nchw(x.astype(np.float32) - np.array([129.1863, 104.7624, 93.5940], np.float32))
 
-def _pp_half(x):                          # (x/255 - 0.5)/0.5, as train.py normalises
-    x = (x.astype(np.float32) / 255.0 - 0.5) / 0.5
-    return torch.tensor(np.transpose(x, (0, 3, 1, 2)).copy(), dtype=torch.float32)
+def _pp_half(x):                          # as vggface_train/train.py
+    return _to_nchw((x.astype(np.float32) / 255.0 - 0.5) / 0.5)
 
 PREPROCS = {"imagenet": _pp_imagenet, "vggface_rgb": _pp_vggface_rgb, "half": _pp_half}
 
 
 def resize_batch(x, size):
-    """Resize a (N,H,W,3) uint8 batch; models trained at 112 should see 112."""
     from PIL import Image
     return np.stack([np.array(Image.fromarray(im).resize((size, size), Image.BILINEAR))
                      for im in x])
 
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
+
 def infer_num_classes(state):
-    """Guess head size = out_features of the deepest 2-D Linear/fc weight in the ckpt."""
+    """Head size: out_features of the last 2-D head weight (else of any 2-D weight)."""
     best = None
     for k, v in state.items():
         if hasattr(v, "ndim") and v.ndim == 2 and any(t in k.lower() for t in ("fc", "classifier", "logits", "head", "linear")):
             best = v.shape[0]
-    # fallback: any 2-D weight
     if best is None:
         for k, v in state.items():
             if hasattr(v, "ndim") and v.ndim == 2:
@@ -119,13 +91,8 @@ def load_checkpoint(path):
         state = {k.replace("module.", "", 1): v for k, v in state.items()}
     return state
 
-# ---------------------------------------------------------------------------
-# Checkpoint key layout. The net_weights/ checkpoints wrap the torchvision
-# backbone in a `model.` attribute, rename ResNet layer{N} -> block{N}, and name
-# the head `classifier`. Without remapping, every key is "unexpected", and
-# strict=False leaves a randomly initialised network whose RDMs look plausible
-# but mean nothing.
-# ---------------------------------------------------------------------------
+
+# net_weights/ layout: backbone under `model.`, ResNet layerN named blockN, head named `classifier`
 def _repo_to_torchvision(arch, k):
     if arch.startswith("resnet"):
         if k.startswith("classifier."):
@@ -145,7 +112,7 @@ _VGGFACE = dict(zip(
 
 
 def remap_state(arch, state):
-    """Detect the checkpoint's key layout and rename it to torchvision's."""
+    """Rename checkpoint keys to torchvision's."""
     if arch == "vgg16" and "conv1_1.weight" in state:          # VGG-Face (Albanie's conversion)
         return {f"{_VGGFACE[k.rsplit('.', 1)[0]]}.{k.rsplit('.', 1)[1]}": v for k, v in state.items()}
     if not any(k.startswith("model.") for k in state):
@@ -154,8 +121,7 @@ def remap_state(arch, state):
 
 
 def randomize(model, seed):
-    """Xavier weights, zero biases, reset norms: the random-initialisation rule
-    (used by trillium/extract_prep.sh to draw the saved random weights)."""
+    """Random-initialisation rule of the saved random weights (trillium/extract_prep.sh)."""
     torch.manual_seed(seed)
     for m in model.modules():
         if isinstance(m, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.Linear)):
@@ -169,18 +135,18 @@ def randomize(model, seed):
                 nn.init.zeros_(m.bias)
             if hasattr(m, "running_mean") and m.running_mean is not None:
                 m.running_mean.zero_(); m.running_var.fill_(1.0)
+        elif isinstance(m, nn.LSTM):
+            for name, p in m.named_parameters():
+                if "weight" in name:
+                    nn.init.xavier_uniform_(p)
+                elif "bias" in name:
+                    nn.init.zeros_(p)
     return model
 
 def trainable_layers(model):
-    """Leaf modules that carry learnable parameters (Conv/Linear/Norm/...)."""
-    out = []
-    for name, mod in model.named_modules():
-        if len(list(mod.children())):           # not a leaf
-            continue
-        if any(p.requires_grad for p in mod.parameters(recurse=False)) or \
-           len(list(mod.parameters(recurse=False))) > 0:
-            out.append((name, mod))
-    return out
+    """Leaf modules with parameters."""
+    return [(name, mod) for name, mod in model.named_modules()
+            if not len(list(mod.children())) and len(list(mod.parameters(recurse=False))) > 0]
 
 def corr_distance_rdm(X):
     Xc = X - X.mean(1, keepdims=True)
@@ -191,27 +157,26 @@ def corr_distance_rdm(X):
 
 def load_slide(h5_dir, s):
     with h5py.File(h5_dir / f"Slide{s}.h5", "r") as f:
-        return np.array(f["images"])            # (18,224,224,3) uint8
+        return np.array(f["images"])            # (n_stim, 224, 224, 3) uint8
 
-# ---------------------------------------------------------------------------
+def stimulus_names(manifest_path):
+    return [row["stimulus"] for row in json.loads(Path(manifest_path).read_text())]
+
+
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--arch", required=True, choices=sorted(ARCHS), help="architecture to build")
-    ap.add_argument("--checkpoint", required=True,
-                    help="weights file (state_dict); random variants: their saved random weights")
-    ap.add_argument("--preproc", required=True, choices=sorted(PREPROCS), help="input preprocessing")
-    ap.add_argument("--resize", type=int, default=None,
-                    help="resize stimuli to NxN before preprocessing (e.g. 112 for models "
-                         "trained at 112; default: keep the native 224)")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--arch", required=True, choices=sorted(ARCHS))
+    ap.add_argument("--checkpoint", required=True, help="state dict (random variants: the saved random weights)")
+    ap.add_argument("--preproc", required=True, choices=sorted(PREPROCS))
+    ap.add_argument("--resize", type=int, default=None, help="resize frames to NxN (default: 224)")
     ap.add_argument("--h5-dir", required=True, help="frames from build_stimuli_h5_16frames.py")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--out-name", required=True)
-    ap.add_argument("--features", action="store_true",
-                    help="also save the input to the output layer, per stimulus and frame")
+    ap.add_argument("--features", action="store_true", help="also save the input to the output layer")
     args = ap.parse_args()
     h5_dir, out_dir = Path(args.h5_dir), Path(args.out_dir)
     manifest_path = h5_dir / "stimulus_manifest.json"
-    stim_names = [row["stimulus"] for row in json.loads(manifest_path.read_text())]
+    stim_names = stimulus_names(manifest_path)
 
     state = remap_state(args.arch, load_checkpoint(args.checkpoint))
     nc = infer_num_classes(state)
@@ -221,16 +186,14 @@ def main():
     n_ref = len(model.state_dict())
     print(f"[{args.arch}] loaded {args.checkpoint}  "
           f"(matched {n_ref - len(miss)}/{n_ref}, missing {len(miss)}, unexpected {len(unexp)})")
-    # A partial load yields a partly random network, whose RDMs are meaningless
-    # but look perfectly well-formed.
+    # a partial load leaves random weights that still give well-formed RDMs
     if miss or unexp:
         raise SystemExit(
             f"ABORT: checkpoint did not fully match the {args.arch} architecture "
             f"({len(miss)} missing, {len(unexp)} unexpected; e.g. {list(miss)[:3]} {list(unexp)[:3]})")
     model.eval()
 
-    # --- hooks: every leaf with parameters, except the classification head (the
-    # last one: a low-rank readout not comparable to the other layers) ---
+    # every leaf with parameters except the output layer (the last one)
     layers = trainable_layers(model)
     dropped_head_layer = layers[-1][0]
     layers = layers[:-1]
@@ -254,7 +217,7 @@ def main():
     pp = PREPROCS[args.preproc]
     per_slide, order, preds = [], None, []
     with torch.no_grad():
-        for s in range(1, 17):
+        for s in range(1, N_FRAMES + 1):
             arr = load_slide(h5_dir, s)
             if args.resize:
                 arr = resize_batch(arr, args.resize)
@@ -276,7 +239,7 @@ def main():
     for h in handles:
         h.remove()
 
-    rdms = np.stack(per_slide, 1)               # (L,16,18,18)
+    rdms = np.stack(per_slide, 1)               # (L, 16, n_stim, n_stim)
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{args.out_name}.npy"
     np.save(out, rdms)

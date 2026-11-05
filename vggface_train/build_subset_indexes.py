@@ -1,26 +1,18 @@
 #!/usr/bin/env python3
-"""Subset image lists for the FaceNet learning designs (--design sizes | ids).
-
-  sizes  training-set size: repeat r shuffles the full training list with seed 1000 + r and
-         takes its first 10k, 50k, 100k, 200k, 300k and 500k images (smaller subsets nested in
-         larger ones); each subset keeps the validation images of the identities it covers and
-         the full pool's labels (10 repeats, vggface_train/indexes_repeated/)
-  ids    identity count: repeat r draws identities with at least 100 training images in the
-         order of a shuffle with seed 2000 + r and keeps the first 50, 300, 1,500 and 3,500
-         (nested), each with 100 training images per identity (drawn with the same seed) and all
-         of its validation images; labels are renumbered 0..N-1, so each model has only its own
-         identities as output classes (3 repeats, vggface_train/indexes_identities/)
-"""
 import argparse
 import random
+import sys
 from collections import defaultdict
 from pathlib import Path
 
-SIZES = {"10k": 10_000, "50k": 50_000, "100k": 100_000,
-         "200k": 200_000, "300k": 300_000, "500k": 500_000}
-COUNTS = (50, 300, 1500, 3500)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "analysis"))
+import variants  # noqa: E402
+
+SIZES = {name: int(name.removesuffix("k")) * 1000 for name in variants.SIZES}
+COUNTS = tuple(int(ids.removesuffix("ids")) for ids in variants.IDENTITIES)
 PER_IDENTITY = 100
-DEFAULTS = {"sizes": ("vggface_train/indexes_repeated", 10), "ids": ("vggface_train/indexes_identities", 3)}
+DEFAULTS = {"sizes": ("vggface_train/indexes_repeated", variants.N_RUNS),
+            "ids": ("vggface_train/indexes_identities", variants.N_DESIGN_REPEATS)}
 
 
 def read(path):

@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""Sample 16 frames per stimulus video, the same way for every model and both stimulus sets.
-
-Frames: idx = linspace(0, n - 1, 16).astype(int) over the container's frame count,
-read by seeking, resized to 224x224 (INTER_AREA).
-
-Order: 18 videos -> emotion (fear, happy, neutral), actor;
-       54 videos -> emotion, occlusion (original, glasses, masked), actor.
-
-Writes into --out-dir:
-    Slide{1..16}.h5          "images" = (n_stim, 224, 224, 3) uint8 RGB, one file per frame
-    stimulus_manifest.json   per stimulus: index, stimulus, emotion, condition, actor,
-                             file, total_frames, sampled_frame_indices
-"""
 import argparse
 import json
 import re

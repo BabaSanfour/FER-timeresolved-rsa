@@ -1,6 +1,5 @@
 #!/bin/bash
-# Submit all RDM extractions on Trillium (from the repo root on trillium-gpu; run
-# trillium/extract_prep.sh once first). Safe to re-run: finished extractions are skipped.
+# Submit all RDM extractions on Trillium (after extract_prep.sh); safe to re-run.
 set -euo pipefail
 mkdir -p logs
 python trillium/extract_tasks.py --out trillium/tasks ${FEATURES:+--features}

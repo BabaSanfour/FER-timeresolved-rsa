@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""Train ResNet18, ResNet50 or FaceNet on VGGFace2-HQ identity classification.
-
-Reads the image lists from build_index.py / build_subset_indexes.py.
-"""
 import argparse
 import csv
+import math
 import os
 import time
 
@@ -25,14 +22,12 @@ class ListDataset(Dataset):
     def __init__(self, root, index_file, transform, decode_size, cache_dir=None):
         self.root = root
         self.transform = transform
-        # draft() decodes JPEG straight to the nearest 1/2^n scale, so a 512px
-        # source becomes 128px without ever materialising the full-size bitmap.
-        # This is the single biggest CPU win in the pipeline.
+        # draft() decodes the JPEG at 1/2^n scale: 512px -> 128px
         self.decode_size = (decode_size, decode_size)
         with open(index_file) as f:
             rows = [line.rstrip("\n").split("\t") for line in f if line.strip()]
         self.samples = [(p, int(l)) for p, l in rows]
-        # optional: the same 128px bitmaps, decoded once (build_decode_cache.py)
+        # optional: the same bitmaps decoded once (build_decode_cache.py)
         self.cache_file, self.rows, self.cache = None, None, None
         if cache_dir:
             self.cache_file = os.path.join(cache_dir, f"images_u8_{decode_size}.npy")
@@ -143,14 +138,12 @@ def main():
     p.add_argument("--decode-size", type=int, default=128)
     p.add_argument("--workers", type=int, default=20)
     p.add_argument("--max-hours", type=float, default=None,
-                   help="checkpoint and stop cleanly before the SLURM walltime")
+                   help="stop cleanly before this many hours")
     p.add_argument("--log-every", type=int, default=50)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--compile", action="store_true")
     p.add_argument("--resume", default="auto")
     p.add_argument("--save-at-steps", default="",
-                   help="comma-separated steps (0 = initialisation) at which to evaluate and keep the "
-                        "weights in <out-dir>/checkpoints/, for alignment over training")
+                   help="comma-separated steps (0 = initialisation) whose weights go to <out-dir>/checkpoints/")
     args = p.parse_args()
 
     t0 = time.time()
@@ -184,8 +177,6 @@ def main():
     val_loader = loader(val_set, False, args.batch_size)
 
     model = build_model(args.arch, num_classes).to(device, memory_format=torch.channels_last)
-    if args.compile:
-        model = torch.compile(model)
 
     lr = args.lr if args.lr is not None else 0.1 * args.batch_size / 256
     optimizer = torch.optim.SGD(param_groups(model, args.weight_decay), lr=lr,
@@ -203,7 +194,6 @@ def main():
         if step < warmup_steps:
             return lr * (step + 1) / max(warmup_steps, 1)
         progress = (step - warmup_steps) / max(total_steps - warmup_steps, 1)
-        import math
         return 0.5 * lr * (1 + math.cos(math.pi * min(progress, 1.0)))
 
     print(f"[{args.arch}] classes={num_classes} train={len(train_set)} val={len(val_set)} "
@@ -236,7 +226,7 @@ def main():
     ckpt_dir = os.path.join(args.out_dir, "checkpoints")
 
     def snapshot(step):
-        """Evaluate and keep the weights at one training step (checkpoints.csv: step, val_top1, val_top5)."""
+        """Evaluate and save the weights at this step."""
         os.makedirs(ckpt_dir, exist_ok=True)
         top1, top5 = evaluate(model, val_loader, device, amp_dtype, cuda)
         model.train()
@@ -325,7 +315,7 @@ def main():
             torch.save(state["model"], best_weights_path + ".tmp")
             os.replace(best_weights_path + ".tmp", best_weights_path)
 
-        # Stop on our own terms rather than being killed mid-epoch by SLURM.
+        # stop before the walltime
         if args.max_hours is not None:
             spent = (time.time() - t0) / 3600
             if spent + (epoch_s + 60) / 3600 > args.max_hours:

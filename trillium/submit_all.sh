@@ -1,5 +1,5 @@
 #!/bin/bash
-# Submit all retraining on Trillium (from the repo root on trillium-gpu). Safe to re-run.
+# Submit all retraining on Trillium (from the repo root); safe to re-run.
 set -euo pipefail
 mkdir -p logs
 python trillium/make_tasks.py --out trillium/tasks
@@ -13,8 +13,7 @@ submit() {  # name tasks per_gpu chunk hours [extra sbatch args]
         --export=ALL trillium/run_tasks.sh
 }
 
-# runs per GPU, runs per array element, walltime (h); from a benchmark: FaceNet 9.1k img/s
-# alone, 16.1k with 3 runs per H100
+# runs per GPU, runs per array element, walltime (h)
 PRE=$(submit pretrain    trillium/tasks/pretrain.txt    "${PRE_PER:-3}"  "${PRE_CHUNK:-3}"  "${PRE_H:-4}")
 SIZ=$(submit sizecurve   trillium/tasks/sizecurve.txt   "${SIZ_PER:-3}"  "${SIZ_CHUNK:-6}"  "${SIZ_H:-3}")
 STP=$(submit stepmatched trillium/tasks/stepmatched.txt "${STP_PER:-3}"  "${STP_CHUNK:-3}"  "${STP_H:-4}")
