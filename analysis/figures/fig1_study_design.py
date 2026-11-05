@@ -320,6 +320,9 @@ def main():
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    from matplotlib.text import Text
+    for t in fig.findobj(Text):                                  # every text in black ink
+        t.set_color(INK)
     fig.savefig(out.with_suffix(".pdf"))
     fig.savefig(out.with_suffix(".png"), dpi=300)
     print(f"[ok] {out.with_suffix('.pdf')}")
