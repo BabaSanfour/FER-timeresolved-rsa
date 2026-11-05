@@ -13,6 +13,9 @@ import os
 
 SIZES = ["10k", "50k", "100k", "200k", "300k", "500k"]
 FULL_POOL_STEPS = 1398 * 40  # 715,810 // 512 x 40 epochs
+CHECKPOINT_STEPS = [0, 30, 100, 300, 1000, 3000, 10000, 30000, FULL_POOL_STEPS]
+IDENTITIES = ["50ids", "300ids", "1500ids", "3500ids"]        # build_subset_indexes.py --design ids, 100 images each
+N_DESIGN_REPEATS = 3
 
 
 def main():
@@ -31,7 +34,20 @@ def main():
                f"--seed {seed} --cache-dir {{C}} --max-hours {{H}} {extra}").strip()
         return f"{out}\tFINISHED \\(completed\\)\t{cmd}"
 
-    groups = {"pretrain": [], "sizecurve": [], "stepmatched": [], "finetune": []}
+    groups = {"pretrain": [], "sizecurve": [], "stepmatched": [], "finetune": [], "checkpoints": [],
+              "identities": []}
+    for r in range(1, N_DESIGN_REPEATS + 1):
+        rep = f"repeat_{r:02d}"
+        # the full pool with the seed of pretraining run r, keeping the weights along training
+        groups["checkpoints"].append(pretrain(
+            f"{res}/checkpoints/{rep}", "facenet", f"{repo}/vggface_train/index", 1000 + r,
+            f"--epochs 40 --save-at-steps {','.join(map(str, CHECKPOINT_STEPS))}"))
+        # fewer identities at 100 images each, every model trained for the full pool's steps
+        for ids in IDENTITIES:
+            groups["identities"].append(pretrain(
+                f"{res}/identities/{rep}/{ids}", "facenet",
+                f"{repo}/vggface_train/indexes_identities/{rep}/{ids}", 1000 + r,
+                f"--steps {FULL_POOL_STEPS} --eval-every-steps 1398"))
     for r in range(1, 11):
         rep = f"repeat_{r:02d}"
         archs = ["facenet", "resnet18", "resnet50"]

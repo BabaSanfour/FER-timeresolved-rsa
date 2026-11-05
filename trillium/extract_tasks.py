@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Task lists for the RDM extraction on Trillium (same line format as make_tasks.py).
 
-Every variant, both stimulus sets (the size curve and step-matched check: 18 videos only).
+Every variant, both stimulus sets (the size curve and step-matched check: 18 videos only;
+the FaceNet learning designs: 54 videos only).
 --features: the main variants' final-layer features for the linear probe instead,
 into features/set*/ (Qwen3-VL: from the activations kept by its RDM run).
 Layers: every layer with learned parameters except the output layer; M3DFEL: backbone
@@ -10,7 +11,8 @@ convolutions and batch norms; Qwen3-VL: its 64 blocks. Random variants load save
 import argparse
 import os
 
-SIZES = ["10k", "50k", "100k", "200k", "300k", "500k"]
+from make_tasks import CHECKPOINT_STEPS, IDENTITIES, N_DESIGN_REPEATS, SIZES   # what was trained
+
 SEEDS = [42] + list(range(9))
 REPS = [f"repeat_{r:02d}" for r in range(1, 11)]
 
@@ -75,6 +77,16 @@ def main():
                         if size != "500k":
                             image(f"facenet_step{size}_r{i:02d}", arch,
                                   f"{res}/stepmatched/{rep}/{size}/best_weights.pt", "half")
+
+        # FaceNet learning designs (make_tasks.py): weights along full-pool training, and
+        # identity subsets at 100 images each; RDMs of the 54 videos only (the paper's analysis)
+        for i in range(1, N_DESIGN_REPEATS + 1) if s == "54" and not a.features else ():
+            rep = f"repeat_{i:02d}"
+            for step in CHECKPOINT_STEPS:
+                image(f"facenet_ckpt{step:05d}_r{i:02d}", "facenet",
+                      f"{res}/checkpoints/{rep}/checkpoints/step{step:06d}_weights.pt", "half")
+            for ids in IDENTITIES:
+                image(f"facenet_{ids}_r{i:02d}", "facenet", f"{res}/identities/{rep}/{ids}/best_weights.pt", "half")
 
         for seed in SEEDS:
             state = f"{W}/random_init_weights/m3dfel/m3dfel_random_seed{seed}.pt"

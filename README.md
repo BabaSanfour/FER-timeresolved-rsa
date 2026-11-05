@@ -124,7 +124,7 @@ exact versions in `trillium/trainenv_freeze.txt`).
 |---|---|---|
 | VGGFace2-HQ training archives 01--06 (726,502 images) | `DEST=$FER_ROOT/data/vggface_dataset bash data/get_vggface2_hq.sh` (accept the dataset terms on HuggingFace first) | sizes of the six zips |
 | Image lists: full pool and validation | `python vggface_train/build_index.py --root $FER_ROOT/data/vggface_dataset/VGGface2_None_norm_512_true_bygfpgan --out vggface_train/index` | 715,810 train, 10,692 val |
-| Image lists: subsets | `python vggface_train/build_subset_indexes.py` (10k--500k, 10 repeats) | reproduce the lists on Drive byte for byte |
+| Image lists: subsets | `python vggface_train/build_subset_indexes.py --design sizes` (10k--500k, 10 repeats) and `--design ids` (50--3,500 identities x 100 images, 3 repeats) | reproduce the lists on Drive byte for byte |
 | Decoded-image cache (36 GB) | `python vggface_train/build_decode_cache.py --data-root ... --index-dir vggface_train/index --out-dir $FER_ROOT/data/vggface_cache` | 200-image spot check |
 | AffectNet, 3 classes | `bash data/get_affectnet_3class.sh` (Kaggle token) | archive checksum and per-class counts |
 | VGG-Face weights | `bash data/get_vgg_face.sh` | checksum |
