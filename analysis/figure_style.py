@@ -55,3 +55,10 @@ def blend(color, t):
     """color mixed with white (t = share of the colour kept)."""
     from matplotlib.colors import to_rgb
     return tuple(t * c + (1 - t) for c in to_rgb(color))
+
+
+def black_text(fig):
+    """Every text of the figure (titles, labels, ticks, legends, annotations) in black ink."""
+    from matplotlib.text import Text
+    for t in fig.findobj(Text):
+        t.set_color(INK)

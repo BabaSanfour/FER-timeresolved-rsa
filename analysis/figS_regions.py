@@ -44,6 +44,7 @@ def regimes(out):
         else:
             ax.set_ylabel(r"$\rho_{\max}$ (fraction of noise ceiling)", fontsize=6.4)
     legend_block(fig, H)
+    st.black_text(fig)
     for ext in ("pdf", "png"):
         fig.savefig(f"{out}.{ext}")
 
@@ -81,6 +82,7 @@ def times(out):
     handles = [Line2D([], [], color=COLORS[h], lw=1.3, ls=LINE_STYLE[h], label=n) for h, n, _ in COMPARISONS]
     handles.append(Line2D([], [], color=st.INK2, lw=1.6, label="p < .05"))
     fig.legend(handles=handles, loc="lower center", ncol=3, fontsize=6.2, frameon=False, bbox_to_anchor=(0.55, 0.0))
+    st.black_text(fig)
     for ext in ("pdf", "png"):
         fig.savefig(f"{out}.{ext}")
 

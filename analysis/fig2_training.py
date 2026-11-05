@@ -276,8 +276,8 @@ def grid_panel(ax, hyp, contrast, tables, labels=False):
                           ((cols[5], cols[5]), "WS", "wholescalp")):
         ax.plot([xs_[0] - 0.4, xs_[1] + 0.4], [n - 0.5 + 0.25] * 2, color=REGION_COLORS[reg], lw=1.2,
                 clip_on=False, solid_capstyle="butt")
-        ax.text(np.mean(xs_), n - 0.5 + 0.45, lab, ha="center", va="top", fontsize=5.8, color=REGION_COLORS[reg],
-                clip_on=False)
+        ax.text(np.mean(xs_), n - 0.5 + (1.05 if lab == "WS" else 0.45), lab, ha="center", va="top", fontsize=5.8,
+                clip_on=False)                                         # WS one line lower, apart from C
     for tick, scope in zip(ax.get_xticklabels(), D_SCOPES):
         tick.set_color(REGION_COLORS["wholescalp" if scope == "wholescalp" else region_of(scope)])
     ax.set_yticks(range(n), [lab for _, lab in CONTROL_SETS] if labels else [""] * n, fontsize=6.4)
@@ -356,6 +356,7 @@ def layout_best(args, tables, variant):
                          ("e", xc[0] - 0.02, 4.68 if not grid else 3.96)):
         fig.text(x, f(y), letter, fontsize=9, fontweight="bold", va="top")   # each panel's top-left corner
     legend_block(fig, H)
+    st.black_text(fig)
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")

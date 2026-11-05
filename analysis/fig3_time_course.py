@@ -155,6 +155,7 @@ def main():
     for letter, y in (("a", 0.05), ("b", 1.95), ("c", 3.98)):
         fig.text(0.01, f(y), letter, fontsize=9, fontweight="bold", va="top")
     fig.text(0.515, f(4.12), "187–250 ms", fontsize=7, ha="center", va="top")   # below the letter, above the maps
+    st.black_text(fig)
     for ext in ("pdf", "png"):
         fig.savefig(f"{args.out}.{ext}")
     print(f"[ok] -> {args.out}.{{pdf,png}}")
