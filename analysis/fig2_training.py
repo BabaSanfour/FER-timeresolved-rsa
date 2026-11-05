@@ -40,23 +40,23 @@ def p_text(p):
 
 
 def forest(ax):
-    table = rows(STATS / "contrasts.csv")
+    table = [r for r in rows(STATS / "contrasts.csv") if r["scope"] == "wholescalp"]
     y, ticks, labels = 0, [], []
     for hyp, title, regime in HYPOTHESES:
         color = st.REGIME_COLORS[regime]
-        pooled = next(r for r in table if r["level"] == "primary" and r["hypothesis"] == hyp)
+        pooled = next(r for r in table if r["contrast"] == "pooled" and r["hypothesis"] == hyp)
         ph = float(pooled["p_holm"])
         ax.text(-0.0255, y, title, fontsize=6.3, fontweight="bold", va="center", ha="left")
         ax.text(0.0365, y, f"Holm {p_text(ph)}", fontsize=5.8, va="center", ha="left",
                 color=st.INK if ph < .05 else st.MUTED, fontweight="bold" if ph < .05 else "normal")
         y -= 1
-        for r in (r for r in table if r["level"] == "secondary" and r["hypothesis"] == hyp):
-            m, lo, hi = float(r["corrected_difference"]), float(r["ci95_low"]), float(r["ci95_high"])
+        for r in (r for r in table if r["contrast"] != "pooled" and r["hypothesis"] == hyp):
+            m, lo, hi = float(r["corrected"]), float(r["low"]), float(r["high"])
             ax.plot([lo, hi], [y, y], color=color, lw=0.9, solid_capstyle="butt", zorder=2)
             ax.plot(m, y, "o", ms=3.2, color=color, mec="white", mew=0.3, zorder=3)
             ticks.append(y); labels.append(r["contrast"].replace(" Pretrained", "").replace(" Kinetics-400", ""))
             y -= 1
-        m, lo, hi = (float(pooled[k]) for k in ("corrected_difference", "ci95_low", "ci95_high"))
+        m, lo, hi = (float(pooled[k]) for k in ("corrected", "low", "high"))
         ax.fill([lo, m, hi, m], [y, y + 0.32, y, y - 0.32], color=st.INK if ph < .05 else st.MUTED, lw=0, zorder=3)
         ticks.append(y); labels.append("pooled")
         y -= 1.6
