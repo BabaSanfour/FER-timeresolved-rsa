@@ -1,236 +1,203 @@
 # Which Steps of Training Make Vision Models More Brain-Like? Evidence from EEG Responses to Dynamic Facial Expressions
 
-Code for the paper: model training, stimulus preparation, activation extraction and model RDMs, EEG RDMs,
-time-locked EEG-model RSA, the planned comparisons between training regimes against their own permutation
-nulls, nuisance controls and partial RSA, cluster permutation tests, linear probing, and every figure and table.
+Code for the paper. It compares 25 participants' EEG responses to 54 dynamic facial-expression videos with
+vision networks at each step of training (random, generic pretraining, face training, emotion fine-tuning),
+using time-locked representational similarity analysis (RSA).
 
-Data that cannot go on GitHub (model weights, VGGFace2 subset indexes, EEG and model RDMs,
-RSA results) are in a Google Drive folder: **`https://drive.google.com/drive/folders/1w-IQJMyxpl0GaoB_b7Gx0Ho3YRmGENw_?usp=sharing`**. See [Data on Google Drive](#data-on-google-drive).
+Data: **https://drive.google.com/drive/folders/1w-IQJMyxpl0GaoB_b7Gx0Ho3YRmGENw_?usp=sharing**
+(EEG and model RDMs, RSA results, trained weights; see [Data](#data-on-google-drive)).
 
-- [Layout](#layout)
-- [Setup](#setup)
-- [Which script gives which result](#which-script-gives-which-result)
-- [Full pipeline](#full-pipeline)
+- [Quick start: every figure and table](#quick-start-every-figure-and-table)
+- [What each step makes](#what-each-step-makes)
+- [Repository layout](#repository-layout)
+- [Full pipeline from raw data](#full-pipeline-from-raw-data)
 - [Data on Google Drive](#data-on-google-drive)
 - [Steps without code](#steps-without-code)
 
-## Layout
+## Quick start: every figure and table
 
-```
-fer_rsa/                 the Python package (pip install -e .)
-  eeg/                   EEG RDMs from the segmented recordings; ROI definitions
-  models/                stimulus frames, activations and model RDMs (CNNs, M3DFEL, Qwen3-VL)
-  training/              VGGFace2-HQ image lists and training, AffectNet fine-tuning
-  analysis/              RSA grids, nuisance controls, partial RSA, comparisons, cluster tests, probe
-  figures/               every figure and appendix table of the paper
-  tasks/                 task lists of the cluster job arrays
-scripts/                 SLURM drivers (Trillium training and extraction, cluster tests) and downloads
-M3DFEL/                  M3DFEL (Wang et al., CVPR 2023), bundled with the 3-class DFEW changes
-```
+Runs on a CPU from the Drive data; no GPU, training or extraction needed.
 
-## Setup
+**1. Install** (Python 3.12):
 
 ```bash
 git clone https://github.com/MaryemBenslimane/FER-timeresolved-rsa.git
 cd FER-timeresolved-rsa
-python -m venv $HOME/envs/fer && source $HOME/envs/fer/bin/activate   # Python 3.12
-pip install -e .                    # the fer_rsa package and the analysis dependencies
-# training and RDM extraction (GPU) also need:
-pip install -e ".[models]" && pip install --no-deps facenet-pytorch==2.6.0
-# and OpenCV: module load opencv/4.11.0 on Alliance clusters, else pip install opencv-python-headless
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
 ```
 
-Download the Drive folder and merge its contents into the repository root, so that
-for example `net_weights/`, `eeg_rdms/` and `analysis/rsa_grid_54/` sit next to the code.
-Its folders use the same relative paths as the scripts. Alternatively, keep the data elsewhere
-and set `FER_ROOT` to that directory.
+**2. Get the data.** Download the Drive folder and merge it into the repository root, so that
+`rdms/`, `eeg_rdms/` and `analysis/` sit next to `fer_rsa/`. To keep the data elsewhere, set
+`FER_ROOT=/path/to/data`.
 
-- Every Python step is a module of the `fer_rsa` package, run as `python -m fer_rsa.<part>.<script>`
-  from the repository root. Scripts read the data from `FER_ROOT` (default `.`).
-- SLURM scripts (`#SBATCH`): set `--account` (`YOUR_ALLOCATION`) and submit from the repository
-  root. `scripts/submit_cluster_permutation.sh` and the `M3DFEL/` scripts activate `$HOME/envs/fer` (`VENV=/path/to/env` for another);
-  `scripts/trillium/` scripts use `$SCRATCH/fer_revision/trainenv` (`scripts/trillium/setup_env.sh`).
-- Compute nodes without internet need the HuggingFace cache for Qwen3-VL-8B-Instruct
-  (`HF_HOME=./.hf`, revision `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`).
-- `M3DFEL/pretrained/r3d_18-b3b3357e.pth` (on Drive; torchvision's Kinetics-400 R3D-18) is the
-  M3DFEL backbone.
+**3. Run.**
 
-**Random weights are loaded, not redrawn.** Random variants use the saved weights on Drive
-(`random_init_weights/`: ResNet18, ResNet50, FaceNet and M3DFEL, seeds 42 and 0--8).
-`scripts/trillium/extract_prep.sh` draws the plain-VGG16 seeds 0--8 and any missing M3DFEL seed on the CPU,
-after checking that redrawing the existing seeds reproduces those files bit for bit. Random
-Qwen3-VL models are drawn from its default initializer (seeds 42 and 0--8).
+```bash
+STAGES=figures bash scripts/run_paper.sh     # redraw the figures and tables from the results on Drive (minutes)
+bash scripts/run_paper.sh                    # recompute everything: grids, statistics, cluster tests, probe, figures
+```
 
-## Which script gives which result
+`STAGES` picks any of `grids stats clusters probe figures` (default: all). Recomputing the statistics
+takes hours: each comparison is tested against 1,000 permutations and each cluster test uses 20,000
+sign flips. Outputs go to `analysis/paper_stats_54/` (18 videos: `analysis/paper_stats/`); the appendix
+table rows go to `analysis/paper_stats_54/tables/`. Fig. 1 needs the stimulus videos, which are not
+distributed (`python -m fer_rsa.figures.fig1_study_design --stimuli <dir with set18/ and set54/>`).
 
-Paths are relative to the repository root. Every input listed here is on Drive, so each row can be re-run
-from the downloaded RDMs and RSA grids without retraining or re-extracting. Statistics use the 54 videos
-unless stated; every value is a fraction of the upper noise ceiling (`--normalize`).
+## What each step makes
 
-### Statistics behind the figures and tables
+Every step is a module run as `python -m fer_rsa.<part>.<script>` from the repository root; `--help`
+lists its options. All values are fractions of the upper noise ceiling (`--normalize`); statistics use
+the 54 videos unless stated.
 
-| Analysis | Command | Writes |
+### Statistics
+
+| Step | Command | Writes |
 |---|---|---|
-| RSA grids (layer x window x participant) | `python -m fer_rsa.analysis.rsa_grid --stimuli 54` (and `18`) | `analysis/rsa_grid{_54,}/` |
-| Nuisance-control RDMs (identity, occlusion, pixel, optical flow, motion energy) | `python -m fer_rsa.analysis.control_rdms --stimuli 54` | `rdms/set54/control_*/` |
-| Partial RSA, each control alone and jointly | `python -m fer_rsa.analysis.partial_rsa --stimuli 54` | `analysis/partial_rsa_54/<set>/` |
-| The five planned comparisons and every variant against its own permutation null, per ROI and on the whole scalp, and their time courses | `python -m fer_rsa.analysis.contrasts --stimuli 54 --normalize [--partial <set>]` | `analysis/paper_stats_54/contrasts[_<set>]_nc.csv`, `contrasts_time[_<set>]_nc.csv` |
-| Each network at its own peak (for the probe and the learning designs) | add `--per-rdm` | rows `rdm` in the same files |
-| Within each emotion; each actor left out; correctly classified trials only | add `--emotion fear\|happy\|neutral`, `--drop-actor 0..5`, `--eeg-dir eeg_rdms_correct` | `contrasts*_nc_{emotion,dropactorK,eeg_rdms_correct}.csv` |
-| FaceNet learning designs: training-set sizes, checkpoints, identity counts | add `--design sizes`, `--design ckpt`, `--design ids` | `contrasts_{sizes,ckpt,ids}[_joint]_nc.csv` |
-| Cluster permutation tests (study-wide maximum statistic) | `mkdir -p analysis/logs && sbatch scripts/submit_cluster_permutation.sh`; after the controls: `python -m fer_rsa.analysis.cluster_permutation --study 54 --partial joint` | `analysis/cluster_permutation_{54,18,54_partial_joint}/` |
-| Linear emotion probe on final-layer features | `python -m fer_rsa.analysis.probe --stimuli 54 --jobs 8` | `analysis/paper_stats_54/probe.csv`, `probe_per_rdm.csv` |
-| Identity accuracy of the face models and the learning designs | `python -m fer_rsa.analysis.identity_accuracy` | `analysis/identity_accuracy.csv`, `checkpoint_accuracy.csv`, `identity_count_accuracy.csv` |
-
-The 18-video statistics are the same commands with `--stimuli 18` (outputs in `analysis/paper_stats/`).
+| RSA grids: Spearman ρ per participant, scalp analysis (11 ROIs + whole scalp), layer, emotion and EEG window | `fer_rsa.analysis.rsa_grid --stimuli 54` (and `18`) | `analysis/rsa_grid{_54,}/` |
+| Partial RSA: each nuisance RDM (identity, occlusion, pixel, optical flow, motion energy) removed alone and all jointly | `fer_rsa.analysis.partial_rsa --stimuli 54` | `analysis/partial_rsa_54/<set>/` |
+| The five planned comparisons and every variant against its own permutation null, per ROI and whole scalp, with time courses | `fer_rsa.analysis.contrasts --stimuli 54 --normalize [--partial <set>]` | `analysis/paper_stats_54/contrasts[_<set>]_nc.csv`, `contrasts_time[_<set>]_nc.csv` |
+| Each network at its own peak (probe, learning designs) | add `--per-rdm` | rows `rdm` of the same files |
+| Robustness: one emotion, one actor left out, correct trials only | add `--emotion fear\|happy\|neutral`, `--drop-actor 0..5`, `--eeg-dir eeg_rdms_correct` | `contrasts*_nc_{emotion,dropactorK,eeg_rdms_correct}.csv` |
+| FaceNet learning designs: training-set sizes, checkpoints, identity counts | add `--design sizes\|ckpt\|ids` | `contrasts_{sizes,ckpt,ids}[_joint]_nc.csv` |
+| Cluster permutation tests, corrected study-wide by the maximum statistic | `fer_rsa.analysis.cluster_permutation --study 54 [--partial joint]` (and `--study 18`) | `analysis/cluster_permutation_{54,18,54_partial_joint}/` |
+| Linear emotion probe on final-layer features | `fer_rsa.analysis.probe --stimuli 54 --jobs 8` | `analysis/paper_stats_54/probe.csv`, `probe_per_rdm.csv` |
+| Identity accuracy of the face models and learning designs | `fer_rsa.analysis.identity_accuracy` | `analysis/{identity,checkpoint,identity_count}_accuracy.csv` |
 
 ### Figures and tables
 
-| In the paper | Script | Reads |
+| In the paper | Command | Reads |
 |---|---|---|
-| **Fig. 1**, study design | `python -m fer_rsa.figures.fig1_study_design --stimuli <dir with set18/ and set54/> --out <path>` | stimulus videos, `fer_rsa/eeg/roi_definitions.json` |
-| **Fig. 2**, what each training regime contributes, before and after the controls | `python -m fer_rsa.figures.fig2_training` | `contrasts{,_identity,_occlusion,_pixel,_optical_flow,_motion_energy,_joint}_nc.csv` |
-| **Fig. 3**, the comparisons in time and at 187-250 ms | `python -m fer_rsa.figures.fig3_time_course` | `contrasts_time_joint_nc.csv` |
-| Appendix Figs. 4 and 6, remaining ROIs | `python -m fer_rsa.figures.figS_regions` | as Figs. 2 and 3 |
-| Appendix Fig. 5, the 18 videos | `python -m fer_rsa.figures.figS_18` | `analysis/paper_stats/contrasts{,_joint}_nc.csv` |
-| Appendix Fig. 7, robustness (each emotion, actor folds, correct trials, recognition time) | `python -m fer_rsa.figures.figS_robustness --recognition <recognition_frames.csv>` | the robustness tables above; recognition frames per participant and video |
-| Appendix Fig. 8, task accuracy and face-recognition training | `python -m fer_rsa.figures.figS_learning` | `probe_per_rdm.csv`, rows `rdm`, the learning-design tables, the accuracy files |
-| Appendix Tables 5-7, peak alignment of every variant and the cluster tests | `python -m fer_rsa.figures.tables_supp --out <paper>/tables` | `contrasts{,_joint}_nc.csv`, `cluster_permutation_*/model_survivors.csv` |
-| Appendix Tables 2-4: ROIs, variants and layers, training recipes | `fer_rsa/eeg/roi_definitions.json`; the `layer_order` of each RDM's `.layers.json`; the training scripts | |
+| Fig. 1, study design | `fer_rsa.figures.fig1_study_design --stimuli <dir>` | stimulus videos, `fer_rsa/eeg/roi_definitions.json` |
+| Fig. 2, what each training step contributes, before and after the controls | `fer_rsa.figures.fig2_training` | `contrasts{,_identity,_occlusion,_pixel,_optical_flow,_motion_energy,_joint}_nc.csv` |
+| Fig. 3, the comparisons in time and at 187–250 ms | `fer_rsa.figures.fig3_time_course` | `contrasts_time_joint_nc.csv` |
+| Appendix Figs. 4 and 6, remaining ROIs | `fer_rsa.figures.figS_regions` | as Figs. 2 and 3 |
+| Appendix Fig. 5, the 18 unoccluded videos | `fer_rsa.figures.figS_18` | `analysis/paper_stats/contrasts{,_joint}_nc.csv` |
+| Appendix Fig. 7, robustness | `fer_rsa.figures.figS_robustness` | the robustness tables, `behavior/recognition_frames.csv` |
+| Appendix Fig. 8, task accuracy and face training | `fer_rsa.figures.figS_learning` | `probe_per_rdm.csv`, rows `rdm`, the learning-design tables, the accuracy files |
+| Appendix Tables 5–7, peak alignment of every variant, cluster tests | `fer_rsa.figures.tables_supp --out <dir>` | `contrasts{,_joint}_nc.csv`, `cluster_permutation_*/model_survivors.csv` |
+| Appendix Tables 2–4: ROIs, layers, training recipes | `fer_rsa/eeg/roi_definitions.json`; each RDM's `.layers.json`; the training scripts | |
 
-## Full pipeline
+## Repository layout
+
+```
+fer_rsa/                 the Python package
+  eeg/                   EEG RDMs from the segmented recordings; ROI definitions
+  models/                stimulus frames, activations, model RDMs (CNNs, M3DFEL, Qwen3-VL)
+  training/              VGGFace2-HQ image lists and training, AffectNet fine-tuning
+  analysis/              RSA grids, nuisance controls, partial RSA, comparisons, cluster tests, probe
+  figures/               every figure and appendix table
+  tasks/                 task lists of the cluster job arrays
+scripts/                 run_paper.sh; SLURM drivers (scripts/trillium/, cluster tests); downloads (scripts/data/)
+M3DFEL/                  M3DFEL (Wang et al., CVPR 2023) with the 3-class DFEW changes
+```
+
+`fer_rsa/analysis/variants.py` lists every model variant and its RDMs; `fer_rsa/analysis/rsa_core.py`
+holds the data paths (all under `FER_ROOT`, default `.`) and the shared RSA helpers.
+
+## Full pipeline from raw data
+
+Optional: these steps rebuild the inputs that the quick start downloads. Training and extraction ran
+on Trillium (Digital Research Alliance of Canada) H100 GPUs, where `FER_ROOT=$SCRATCH/fer_revision`.
+
+**Environment.** `bash scripts/trillium/setup_env.sh` installs the package with the `models` extra
+(PyTorch, transformers), `facenet-pytorch` (`--no-deps`) and checks the imports; exact versions are in
+`scripts/trillium/trainenv_freeze.txt`. OpenCV comes from `module load opencv/4.11.0` (elsewhere:
+`pip install opencv-python-headless`). In every `#SBATCH` script, set `--account` (`YOUR_ALLOCATION`)
+and submit from the repository root.
 
 ### 1. EEG RDMs
 
-| Step | Script | Notes |
-|---|---|---|
-| Trial labels, artefact handling, video averages, RDMs `(12, 13, 54, 54)` per participant | `python -m fer_rsa.eeg.build_eeg_rdms [--subjects ...] [--correct-only]` | Reads `$FER_ROOT/eeg_raw/` (Brain Vision Analyzer segment exports and `behavior_RT_perf_identity_occlusion.csv`); writes `eeg_rdms/<subject>.npy` and `eeg_rdms/meta.json` (`--correct-only`: `eeg_rdms_correct/`, trials classified as intended) |
+```bash
+python -m fer_rsa.eeg.build_eeg_rdms              # eeg_raw/ -> eeg_rdms/<subject>.npy (12, 13, 54, 54), meta.json
+python -m fer_rsa.eeg.build_eeg_rdms --correct-only   # -> eeg_rdms_correct/ (trials classified as intended)
+```
 
-Each trial's video comes from the behaviour file; its sequence is checked against the block's trigger
-codes (which name groups of videos), allowing only trials missing at either end of a recording. Per
-participant: baseline -200 to 0 ms; channels above ±100 µV in more than 20% of trials are interpolated
-(spherical splines); trials above ±150 µV are rejected; the rest are averaged per video. RDMs are
-correlation distances between video averages over the channels of a scope × the samples of a window:
-11 ROIs (`fer_rsa/eeg/roi_definitions.json`) and the whole scalp; 13 windows of 64 samples (62.5 ms) from
-onset, the last holding the 51 samples to 800 ms. Participants with fewer than half of the 972 trials
-are excluded (CEG, one block). AA has no Markers file: its blocks are labelled by order, and block 6
-(126 of 162 segments) is dropped. Both stimulus sets use the same 25 participants; the 18 stimuli are
-the unoccluded videos (`rsa_core.EEG_ROWS`).
+Each trial's video comes from the behaviour file and is checked against the block's trigger codes. Per
+participant: baseline −200 to 0 ms; channels above ±100 µV in more than 20% of trials are interpolated;
+trials above ±150 µV are rejected; the rest are averaged per video. RDMs are correlation distances between
+video averages over the channels of a scope × the samples of a window: 11 ROIs and the whole scalp, 13
+windows of 62.5 ms from onset (the last ends at 800 ms). Participants with fewer than half of the 972
+trials are excluded (CEG); AA has no Markers file, so its blocks are labelled by order and block 6 is
+dropped. Both stimulus sets use the same 25 participants; the 18 stimuli are the unoccluded videos.
 
-### 2. Stimuli
+### 2. Stimulus frames
 
-`bash scripts/trillium/extract_prep.sh` builds, for the 18- and 54-video sets (`data/stimuli/set18`, `set54`):
-16 frames per video with one sampler (`fer_rsa/models/build_stimuli_h5_16frames.py`: container frame count,
-`linspace`, seek, 224 x 224), `stimulus_manifest.json` (order, file, sampled frame indices) and the
-Qwen3-VL video list `qwen_videos.csv`, in `data/stim_frames/set18|set54/`.
+`bash scripts/trillium/extract_prep.sh` (once) samples 16 frames per video (224 × 224) for both stimulus
+sets into `data/stim_frames/set18|set54/`, writes the Qwen3-VL video lists, and checks or draws the random
+weights. Random variants load the saved weights in `random_init_weights/` (seeds 42 and 0–8); redrawing
+the existing seeds must reproduce those files bit for bit.
 
 ### 3. Training
 
-All trained models in the paper come from one pipeline, run on Trillium (Digital Research
-Alliance of Canada) H100 GPUs; `scripts/trillium/` holds the job scripts. Every run has ten seeds
-(1001--1010; repeat *r* uses seed 1000+*r*). `FER_ROOT` below is the data root
-(`$SCRATCH/fer_revision` on Trillium).
+Data (on a data-transfer node):
 
-**1. Environment.** `bash scripts/trillium/setup_env.sh` (dependencies in `pyproject.toml`, extra `models`;
-exact versions in `scripts/trillium/trainenv_freeze.txt`).
+| Data | Command |
+|---|---|
+| VGGFace2-HQ archives 01–06 (726,502 images) | `DEST=$FER_ROOT/data/vggface_dataset bash scripts/data/get_vggface2_hq.sh` |
+| Image lists: full pool (715,810 train, 10,692 val) | `python -m fer_rsa.training.build_index --root $FER_ROOT/data/vggface_dataset/VGGface2_None_norm_512_true_bygfpgan --out vggface_train/index` |
+| Image lists: subsets (sizes 10k–500k; 50–3,500 identities) | `python -m fer_rsa.training.build_subset_indexes --design sizes` and `--design ids` |
+| Decoded-image cache (36 GB) | `python -m fer_rsa.training.build_decode_cache --data-root ... --index-dir vggface_train/index --out-dir $FER_ROOT/data/vggface_cache` |
+| AffectNet, 3 classes | `bash scripts/data/get_affectnet_3class.sh` |
+| VGG-Face weights | `bash scripts/data/get_vgg_face.sh` |
 
-**2. Data** (on a data-transfer node; on Trillium `ssh tri-dm1`, since login nodes cap CPU time):
+Then `bash scripts/trillium/submit_all.sh` writes the task lists and submits the training arrays; re-running
+skips finished runs. Seeds: repeat *r* uses 1000 + *r*. Outputs: `results/<group>/.../repeat_NN/best_weights.pt`.
 
-| Data | Command | Check |
+| Runs | Recipe | Output |
 |---|---|---|
-| VGGFace2-HQ training archives 01--06 (726,502 images) | `DEST=$FER_ROOT/data/vggface_dataset bash scripts/data/get_vggface2_hq.sh` (accept the dataset terms on HuggingFace first) | sizes of the six zips |
-| Image lists: full pool and validation | `python -m fer_rsa.training.build_index --root $FER_ROOT/data/vggface_dataset/VGGface2_None_norm_512_true_bygfpgan --out vggface_train/index` | 715,810 train, 10,692 val |
-| Image lists: subsets | `python -m fer_rsa.training.build_subset_indexes --design sizes` (10k--500k, 10 repeats) and `--design ids` (50--3,500 identities x 100 images, 3 repeats) | reproduce the lists on Drive byte for byte |
-| Decoded-image cache (36 GB) | `python -m fer_rsa.training.build_decode_cache --data-root ... --index-dir vggface_train/index --out-dir $FER_ROOT/data/vggface_cache` | 200-image spot check |
-| AffectNet, 3 classes | `bash scripts/data/get_affectnet_3class.sh` (Kaggle token) | archive checksum and per-class counts |
-| VGG-Face weights | `bash scripts/data/get_vgg_face.sh` | checksum |
+| Face pretraining: ResNet18, ResNet50, FaceNet, 10 runs each | `fer_rsa.training.train_vggface2`, full pool, 40 epochs, best validation top-1 | `results/pretrain/<arch>/` |
+| Size curve and step-matched check (FaceNet, 10 runs) | subsets of 10k–500k images; step-matched: 55,920 steps | `results/sizecurve/`, `results/stepmatched/` |
+| Learning designs (FaceNet, 3 runs) | checkpoints along full-pool training; 50–3,500 identities × 100 images | `results/checkpoints/`, `results/identities/` |
+| AffectNet fine-tuning: ResNet18, ResNet50, FaceNet, VGG16, 10 runs each | `fer_rsa.training.train_affectnet`; epoch chosen on 10% of Train, Test evaluated once | `results/finetune/<arch>/` |
+| M3DFEL on DFEW fold 3 (not retrained: DFEW needs a licence) | `M3DFEL/prepare_dfew_3class.sh`, `M3DFEL/train_dfew_3class.sh` | `M3DFEL/results/17812056/fold_3/` |
 
-**3. Train.** From the repository root on `trillium-gpu`: `bash scripts/trillium/submit_all.sh`. It writes the
-task lists (`fer_rsa/tasks/make_tasks.py`) and submits four job arrays; each array element takes one H100
-and runs three trainings on it (four for fine-tuning), and fine-tuning starts after pretraining.
-Re-running it skips finished runs and resumes unfinished ones. Outputs go to
-`$FER_ROOT/results/<group>/.../repeat_NN/`; the model used downstream is `best_weights.pt`.
+### 4. Model RDMs and probe features
 
-| Runs (10 seeds each) | Script and recipe | Output |
-|---|---|---|
-| Face pretraining: ResNet18, ResNet50, FaceNet on the full pool (715,810 images, 5,346 identities) | `fer_rsa/training/train_vggface2.py`, 40 epochs; checkpoint = best validation top-1 | `results/pretrain/<arch>/repeat_NN/` |
-| Size curve: FaceNet on 10k--500k subsets; the full-pool FaceNets are its end point | as above | `results/sizecurve/repeat_NN/<size>/` |
-| Step-matched check: FaceNet on 10k--300k subsets for the full pool's 55,920 steps | as above, `--steps 55920 --eval-every-steps 1398` | `results/stepmatched/repeat_NN/<size>/` |
-| FaceNet learning designs: checkpoints along full-pool training (3 runs, `--save-at-steps`) and 50 to 3,500 identities with 100 images each (3 repeats, `build_subset_indexes.py --design ids`) | `fer_rsa/training/train_vggface2.py` | `results/checkpoints/repeat_NN/`, `results/identities/repeat_NN/<n>ids/` |
-| AffectNet fine-tuning: ResNet18, ResNet50, FaceNet (from their pretraining `best_weights.pt`) and VGG16 (from VGG-Face) | `fer_rsa/training/train_affectnet.py`; epoch chosen on a fixed, class-balanced 10% of Train; Test evaluated once (`test_metrics.json`) | `results/finetune/<arch>/repeat_NN/` |
-| M3DFEL on DFEW fold 3 (not retrained: DFEW requires a licence) | `M3DFEL/prepare_dfew_3class.sh`, `M3DFEL/train_dfew_3class.sh` (5 folds; fold 3 used) | `M3DFEL/results/17812056/fold_3/best_weights.pt` |
-
-Packing was chosen from a throughput benchmark (FaceNet: 9.1k images/s alone, 16.1k with three
-runs per H100). The 180 runs took about 180 GPU-hours.
-
-The first version of the paper used single training runs (18-epoch full-pool models, a bootstrap
-"800k" subset, AffectNet epochs chosen on the Test folder); their scripts are in the git history and
-their checkpoints on Drive, but they are not the models in the paper.
-
-`M3DFEL/` is the Tencent TFace implementation (CVPR 2023) with our changes for 3-class DFEW.
-
-### 4. Model RDMs
-
-Model RDMs are `(n_layers, 16, n_stim, n_stim)` correlation-distance RDMs, one per layer and frame
-(the RSA scripts slice the emotions themselves).
-From the repository root on `trillium-gpu`: `bash scripts/trillium/extract_prep.sh` once, then
-`bash scripts/trillium/submit_extract.sh` (425 extractions; re-running skips finished ones). Outputs:
-`$FER_ROOT/rdms/set18|set54/<name>/<name>.npy` with `.layers.json` (layers, weights, preprocessing,
-stimuli). `FEATURES=1 bash scripts/trillium/submit_extract.sh` writes the main variants' final-layer
-features for the linear probe to `$FER_ROOT/features/set18|set54/`.
+`bash scripts/trillium/submit_extract.sh` extracts every model RDM (425; re-running skips finished ones) into
+`rdms/set18|set54/<name>/` (`<name>.npy`, `(layers, 16 frames, stimuli, stimuli)`, and `<name>.layers.json`
+with layers, weights, preprocessing and stimulus order). `FEATURES=1 bash scripts/trillium/submit_extract.sh`
+writes the final-layer features of the probe to `features/`.
 
 | Family (layers) | Variants | Extractor |
 |---|---|---|
-| ResNet18 (40), ResNet50 (106), FaceNet (245), VGG16 (15): every layer with parameters except the output layer | random (10 seeds), ImageNet, face (VGGFace2-HQ, 10 runs; VGG16: VGG-Face), AffectNet (10 runs); FaceNet learning designs: size curve, step-matched check, checkpoints along training, identity counts (54 videos) | `fer_rsa/models/extract_model_rdms.py` |
-| M3DFEL (40): R3D-18 backbone convolutions and batch norms | random (10 seeds), Kinetics-400, DFEW fold 3 | `fer_rsa/models/m3dfel_extract_rdms.py` |
-| Qwen3-VL-8B (64): 27 vision blocks, embedding output, 36 decoder blocks; float32 | released, random (10 seeds) | `fer_rsa/models/vlm_extract_video_mode.py`, `compute_rdms_from_vlm_activations.py` |
+| ResNet18 (40), ResNet50 (106), FaceNet (245), VGG16 (15) | random, ImageNet, face, AffectNet; FaceNet learning designs | `fer_rsa.models.extract_model_rdms` |
+| M3DFEL (40) | random, Kinetics-400, DFEW | `fer_rsa.models.m3dfel_extract_rdms` |
+| Qwen3-VL-8B (64), float32 | released, random | `fer_rsa.models.vlm_extract_video_mode`, `compute_rdms_from_vlm_activations` |
 
-### 5. RSA grids
-
-| | Script | Output |
-|---|---|---|
-| 18 stimuli, 25 participants | `python -m fer_rsa.analysis.rsa_grid --stimuli 18 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid/` |
-| 54 stimuli, 25 participants | `python -m fer_rsa.analysis.rsa_grid --stimuli 54 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid_54/` |
-
-Models: every RDM listed in `fer_rsa/analysis/variants.py` (21 variants; random seeds 42, 0–8 and training
-runs r01–r10 have ten RDMs each), read from `rdms/set18|set54/<name>/<name>.npy`; each RDM's stimulus
-order is checked against the EEG's. Each grid file holds the participant × scalp analysis (11 ROIs + whole scalp) × layer × condition
-(all, fear, happy, neutral) × EEG window array of Spearman ρ. Statistics, controls and tables are
-in [Which script gives which result](#which-script-gives-which-result).
+The nuisance-control RDMs come from the frames: `python -m fer_rsa.analysis.control_rdms --stimuli 54`
+(and `18`). Then continue with the [quick start](#quick-start-every-figure-and-table).
 
 ## Data on Google Drive
 
-Folder: the link at the top (layout below, as under `$FER_ROOT`). `MANIFEST.tsv` at its root
-will list every file with its size and SHA-256.
+The folder mirrors `FER_ROOT`.
 
 | Folder | Content |
 |---|---|
-| `eeg_raw/` | Segmented EEG recordings (Brain Vision Analyzer exports) and the trial-level behaviour file |
-| `eeg_rdms/` | EEG RDMs of the 25 participants and `meta.json` (`fer_rsa/eeg/build_eeg_rdms.py`) |
-| `rdms/set18/`, `rdms/set54/` | Model RDMs, one folder per RDM (`fer_rsa/analysis/variants.py`), with `.layers.json` (layers, weights, preprocessing, stimulus order) |
-| `results/{pretrain,sizecurve,stepmatched,finetune}/` | The retrained models (`best_weights.pt`), with training logs, metrics and `test_metrics.json` |
-| `random_init_weights/` | The saved random-initialization weights the random variants load |
-| `analysis/rsa_grid/`, `rsa_grid_54/` | RSA grids |
-| `analysis/paper_stats/`, `paper_stats_54/` | Comparison tables (`contrasts*_nc.csv`), probe tables, figures |
-| `analysis/cluster_permutation_{18,54}*/`, `partial_rsa{,_54}/` | Cluster tests (also on the joint partial grids), partial RSA |
+| `eeg_rdms/`, `eeg_rdms_correct/` | EEG RDMs of the 25 participants (all trials; correct trials only) and `meta.json` |
+| `rdms/set18/`, `rdms/set54/` | Model and nuisance-control RDMs, one folder per RDM |
+| `features/` | Final-layer features for the probe |
+| `behavior/recognition_frames.csv` | Frame at which each participant recognised each video (no names) |
+| `analysis/` | RSA and partial-RSA grids, comparison tables, cluster tests, probe and accuracy tables, figures |
+| `results/` | Trained models (`best_weights.pt`), training logs and metrics |
+| `random_init_weights/`, `net_weights/` | Saved random weights; ImageNet and VGG-Face weights |
+| `vggface_train/` | VGGFace2-HQ image lists (full pool, subsets, identity subsets) |
+| `M3DFEL/pretrained/`, `M3DFEL/results/` | R3D-18 Kinetics-400 backbone; the DFEW fold-3 model |
 
-Qwen3-VL-8B-Instruct pretrained weights are not copied: download `Qwen/Qwen3-VL-8B-Instruct` at
-revision `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`. Stimulus videos and frames are not distributed.
+Not distributed: the raw EEG recordings, the stimulus videos and frames, and the Qwen3-VL-8B-Instruct
+weights (download `Qwen/Qwen3-VL-8B-Instruct` at revision `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`).
 
 ## Steps without code
 
-These steps were done by hand or with code that no longer exists. Their outputs are on Drive.
-
-- **EEG preprocessing up to segmentation** in Brain Vision Analyzer 2.1 (re-referencing, filtering,
-  ICA ocular correction, segmentation from -200 to +800 ms); `fer_rsa/eeg/build_eeg_rdms.py` starts from its
-  exports. The recordings are not distributed.
-- **Behavioral analysis** behind the per-stimulus accuracy and reaction-time table, the accuracy
-  figures quoted in Section 2.1, and the recognition-frame table (exported from the lab spreadsheet
-  without names).
+- **EEG preprocessing up to segmentation** in Brain Vision Analyzer 2.1 (re-referencing, filtering, ICA
+  ocular correction, segmentation from −200 to +800 ms); `fer_rsa.eeg.build_eeg_rdms` starts from its exports.
+- **Behavioral analysis** behind the per-stimulus accuracy and reaction-time table and the recognition frames.
 - **The AffectNet three-class subset** (the Kaggle archive was already reduced).
-- **Two ImageNet checkpoints from the authors' earlier study** (MFRS): FaceNet and ResNet50
-  (`resnet50_None_imagenet`); the ResNet18 and VGG16 ImageNet weights are torchvision's.
+- **Two ImageNet checkpoints from the authors' earlier study** (FaceNet and ResNet50); the ResNet18 and
+  VGG16 ImageNet weights are torchvision's.
+
+The first version of the paper used single training runs; its scripts are in the git history.
 
 ## License
 
-MIT, see `LICENSE`. `M3DFEL/` is adapted from Tencent TFace and remains under the Apache License 2.0 (`M3DFEL/LICENSE`).
+MIT (`LICENSE`). `M3DFEL/` is adapted from Tencent TFace and remains under the Apache License 2.0 (`M3DFEL/LICENSE`).

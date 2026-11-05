@@ -8,7 +8,7 @@ REPS = [f"repeat_{r:02d}" for r in range(1, N_RUNS + 1)]
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--root", default=os.path.expandvars("$SCRATCH/fer_revision"))
+    p.add_argument("--root", default=os.environ.get("FER_ROOT", os.path.expandvars("$SCRATCH/fer_revision")))
     p.add_argument("--out", default="scripts/trillium/tasks")
     p.add_argument("--features", action="store_true", help="final-layer features for the probe")
     a = p.parse_args()

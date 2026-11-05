@@ -10,7 +10,7 @@ assert CHECKPOINT_STEPS[-1] == FULL_POOL_STEPS
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--root", default=os.path.expandvars("$SCRATCH/fer_revision"))
+    p.add_argument("--root", default=os.environ.get("FER_ROOT", os.path.expandvars("$SCRATCH/fer_revision")))
     p.add_argument("--out", default="scripts/trillium/tasks")
     a = p.parse_args()
     repo, data = f"{a.root}/repo", f"{a.root}/data"

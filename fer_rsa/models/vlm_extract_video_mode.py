@@ -46,11 +46,14 @@ def extract_emotion(text: str) -> str:
     return "unknown"
 
 
-def load_model(model_id: str, dtype: str, random_weights: bool = False):
+QWEN_REVISION = "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"   # Qwen/Qwen3-VL-8B-Instruct used in the paper
+
+
+def load_model(model_id: str, dtype: str, random_weights: bool = False, revision: str = QWEN_REVISION):
     if not torch.cuda.is_available():
         raise SystemExit("[FATAL] no GPU: refusing to run on CPU. Resubmit on another node.")
     torch_dtype = {"float16": torch.float16, "float32": torch.float32}.get(dtype, torch.bfloat16)
-    kwargs: Dict[str, Any] = {"torch_dtype": torch_dtype, "device_map": "auto"}
+    kwargs: Dict[str, Any] = {"torch_dtype": torch_dtype, "device_map": "auto", "revision": revision}
     errors = []
     # Qwen3 first: the 2.5 class can mis-map Qwen3-VL weights
     for cls_name in ("Qwen3VLForConditionalGeneration",
@@ -61,7 +64,7 @@ def load_model(model_id: str, dtype: str, random_weights: bool = False):
             continue
         try:
             if random_weights:
-                cfg = transformers.AutoConfig.from_pretrained(model_id)
+                cfg = transformers.AutoConfig.from_pretrained(model_id, revision=revision)
                 try:
                     model = cls.from_config(cfg)
                 except (AttributeError, TypeError):
@@ -77,9 +80,10 @@ def load_model(model_id: str, dtype: str, random_weights: bool = False):
 
 
 class QwenVideoExtractor:
-    def __init__(self, model_id: str, dtype: str = "bfloat16", random_weights: bool = False):
-        self.model, self.model_class = load_model(model_id, dtype, random_weights)
-        self.processor = AutoProcessor.from_pretrained(model_id)
+    def __init__(self, model_id: str, dtype: str = "bfloat16", random_weights: bool = False,
+                 revision: str = QWEN_REVISION):
+        self.model, self.model_class = load_model(model_id, dtype, random_weights, revision)
+        self.processor = AutoProcessor.from_pretrained(model_id, revision=revision)
         print(f"[model] {model_id} loaded as {self.model_class}"
               f"{'  [RANDOM WEIGHTS]' if random_weights else '  [pretrained]'}", flush=True)
         # vision blocks are not in the decoder's hidden_states: hooked, analysis pass only
@@ -227,7 +231,8 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--metadata_csv", required=True)
     p.add_argument("--output_dir", required=True)
-    p.add_argument("--model_id", default="Qwen/Qwen3-VL-8B-Instruct")
+    p.add_argument("--model_id", default="Qwen/Qwen3-VL-8B-Instruct", help="hub name or local snapshot")
+    p.add_argument("--revision", default=QWEN_REVISION, help="hub revision (ignored for a local snapshot)")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--random", dest="random_weights", action="store_true",
                    help="random weights (untrained control)")
@@ -247,7 +252,7 @@ def main() -> None:
         raise ValueError(f"metadata_csv missing columns: {missing}")
 
     tmp = Path(tempfile.mkdtemp(prefix='qwen_vid_frames_'))
-    ex = QwenVideoExtractor(args.model_id, args.dtype, random_weights=args.random_weights)
+    ex = QwenVideoExtractor(args.model_id, args.dtype, random_weights=args.random_weights, revision=args.revision)
 
     rows: List[Dict[str, Any]] = []
     for i, row in df.iterrows():
@@ -275,7 +280,7 @@ def main() -> None:
         raise RuntimeError("No videos processed - check metadata paths.")
     pd.DataFrame(rows).to_csv(out_dir / "frame_predictions.csv", index=False)
     (out_dir / "summary.json").write_text(json.dumps(
-        {"mode": "video", "model_id": args.model_id, "nframes": len(indices),
+        {"mode": "video", "model_id": args.model_id, "revision": args.revision, "nframes": len(indices),
          "random_weights": bool(args.random_weights), "seed": args.seed,
          "n_conditions": len(set(r["condition_id"] for r in rows))}, indent=2))
     print(f"[ok] wrote {act_dir} and frame_predictions.csv")

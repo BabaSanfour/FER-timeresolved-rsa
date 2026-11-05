@@ -1,7 +1,7 @@
 #!/bin/bash
 # Training and extraction environment on Trillium (from the repository root).
 set -euo pipefail
-ENV=${ENV:-$SCRATCH/fer_revision/trainenv}
+ENV=${ENV:-${FER_ROOT:-$SCRATCH/fer_revision}/trainenv}
 module load StdEnv/2023 python/3.12
 python3.12 -m venv "$ENV"
 source "$ENV/bin/activate"

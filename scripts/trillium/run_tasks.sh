@@ -6,7 +6,7 @@
 # One H100 per array element: CHUNK task lines, PER_GPU at a time; finished runs are skipped.
 set -uo pipefail
 : "${TASKS:?}" "${PER_GPU:=1}" "${CHUNK:=1}" "${WALL_H:?set WALL_H to the --time in hours}" "${LOG:=train.log}"
-R=$SCRATCH/fer_revision
+R=${FER_ROOT:-$SCRATCH/fer_revision}
 module load StdEnv/2023 python/3.12
 source "$R/trainenv/bin/activate"
 export PYTHONUNBUFFERED=1 OMP_NUM_THREADS=2
