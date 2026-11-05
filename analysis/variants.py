@@ -13,7 +13,8 @@ extract_tasks.py import them.
 The nuisance controls (analysis/control_rdms.py) are one-layer RDMs in the same
 place, group "control"; occlusion exists for 54 stimuli only.
 """
-SEEDS = (42, 0, 1, 2, 3, 4, 5, 6, 7, 8)
+SEEDS = (42, 0, 1, 2, 3, 4, 5, 6, 7, 8)     # random initialisations (saved weights)
+N_RUNS = 10                                  # training runs r01-r10 (seeds 1001-1010)
 SIZES = ("10k", "50k", "100k", "200k", "300k", "500k")
 FULL_POOL = "715k"           # the full VGGFace2-HQ training pool, 715,810 images
 
@@ -23,7 +24,7 @@ def seeds(prefix):
 
 
 def runs(prefix):
-    return [f"{prefix}_r{r:02d}" for r in range(1, 11)]
+    return [f"{prefix}_r{r:02d}" for r in range(1, N_RUNS + 1)]
 
 
 # family -> [(variant, RDM names)], in the order of Table 1

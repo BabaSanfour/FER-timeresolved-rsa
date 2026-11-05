@@ -14,10 +14,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "analysis"))
-from variants import CHECKPOINT_STEPS, IDENTITIES, N_DESIGN_REPEATS, SIZES  # noqa: E402  (one definition)
+from variants import CHECKPOINT_STEPS, IDENTITIES, N_DESIGN_REPEATS, N_RUNS, SEEDS, SIZES  # noqa: E402
 
-SEEDS = [42] + list(range(9))
-REPS = [f"repeat_{r:02d}" for r in range(1, 11)]
+REPS = [f"repeat_{r:02d}" for r in range(1, N_RUNS + 1)]
 
 
 def main():
