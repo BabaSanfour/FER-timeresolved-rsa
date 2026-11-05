@@ -37,8 +37,7 @@ whole computation, selection included, is repeated on the participant-mean grids
 (linear in the participants' EEG). With --partial, the permuted model vectors are
 residualised on the control set of each window, as in partial_rsa.py.
 
-The scopes are the 11 ROIs, the whole scalp and the four regions (the mean over each region's
-ROIs, frontal, central, centro-parietal, occipito-temporal, maxT across the four).
+The scopes are the 11 ROIs and the whole scalp.
 Reported per hypothesis, contrast and scope: the observed difference, the null mean, the
 corrected difference (observed - null mean) with a 95% bootstrap CI over participants
 shifted by the null mean, the two-sided permutation p, and p corrected across the 11 ROIs
@@ -47,16 +46,11 @@ whole-scalp test of each pooled hypothesis is Holm-corrected across the five hyp
 Each time course (H1-H5) is corrected across the 11 x 13 ROI-window cells (whole scalp: across
 its 13 windows).
 
---sizes: the FaceNet size curve instead: each training-set size (and each step-matched
-subset) against the random FaceNet and against the full pool, same procedure and output
-columns (the full-pool rows repeat H1 FaceNet).
+--design sizes | ckpt | ids: a FaceNet learning design instead of H1-H5, each model against the
+random FaceNet and against the full pool, same procedure and output columns: training-set sizes
+(40 epochs) and step-matched subsets (sizes), checkpoints along training (ckpt), identity counts (ids).
 
-Output: analysis/paper_stats[_54]/contrasts[_<set>].csv, contrasts_time[_<set>].csv and
-contrasts_participants[_<set>].csv (each participant's pooled difference per scope, minus the null mean)
-(--sizes: contrasts_sizes[_<set>].csv)
-
---design ckpt | ids: the FaceNet learning designs (variants.CHECKPOINTS, IDENTITY_COUNTS), each
-model against the random FaceNet and the full pool -> contrasts_ckpt[...].csv, contrasts_ids[...].csv
+Output: analysis/paper_stats[_54]/contrasts[_<design>][_<set>].csv and contrasts_time[...].csv
 """
 import argparse
 import csv
@@ -99,24 +93,16 @@ def hypotheses():
     }
 
 
-def size_hypotheses():
-    """{hypothesis: [(label, A, B)]} of the size curve, one contrast each."""
+def design_hypotheses(design):
+    """{hypothesis: [(label, A, B)]} of a FaceNet learning design: each model against the random
+    FaceNet and against the full pool. sizes: training-set sizes (size) and step-matched subsets
+    (step); ckpt: checkpoints along training; ids: identity counts."""
+    if design == "sizes":
+        levels = [("size", z) for z in variants.SIZES] + [("step", z) for z in variants.SIZES[:-1]]
+    else:
+        levels = [(design, z) for z in (variants.CHECKPOINT_STEPS if design == "ckpt" else variants.IDENTITIES)]
     out = {}
-    for group in ("size", "step"):
-        for size in variants.SIZES if group == "size" else variants.SIZES[:-1]:
-            a = ("FaceNet", f"{group} {size}")
-            out[f"{group} {size} vs random"] = [("FaceNet", a, ("FaceNet", "Random"))]
-            out[f"{group} {size} vs full pool"] = [("FaceNet", a, ("FaceNet", "VGGFace2"))]
-    return out
-
-
-def design_hypotheses(group):
-    """{hypothesis: [(label, A, B)]} of a FaceNet learning design (checkpoints along training,
-    group ckpt; identity counts, group ids): each model against the random FaceNet and against
-    the full pool."""
-    levels = variants.CHECKPOINT_STEPS if group == "ckpt" else variants.IDENTITIES
-    out = {}
-    for level in levels:
+    for group, level in levels:
         a = ("FaceNet", f"{group} {level}")
         out[f"{group} {level} vs random"] = [("FaceNet", a, ("FaceNet", "Random"))]
         out[f"{group} {level} vs full pool"] = [("FaceNet", a, ("FaceNet", "VGGFace2"))]
@@ -286,13 +272,13 @@ def holm(p):
 
 def tests(obs, null, rng):
     """obs (S, *shape), null (N, *shape) -> per-cell dict of arrays; maxT over the ROI cells
-    (the first N_ROI scopes), separately over the whole-scalp cells, and over the region means."""
+    (the first N_ROI scopes), and separately over the whole-scalp cells."""
     centre, spread = null.mean(0), null.std(0)
     z = (obs.mean(0) - centre) / spread
     zn = np.abs((null - centre) / spread)
     p = (1 + (zn >= np.abs(z)).sum(0)) / (N_PERM + 1)
     p_max = np.empty_like(p)
-    for part in (slice(0, rsa_core.N_ROI), slice(rsa_core.N_ROI, rsa_core.N_ROI + 1), slice(rsa_core.N_ROI + 1, None)):
+    for part in (slice(0, rsa_core.N_ROI), slice(rsa_core.N_ROI, rsa_core.N_ROI + 1)):
         m = zn[:, part].reshape(N_PERM, -1).max(1)
         p_max[part] = (1 + (m[:, None] >= np.abs(z[part]).ravel()[None]).sum(0)).reshape(z[part].shape) / (N_PERM + 1)
     boot = obs[rng.integers(0, len(obs), size=(N_BOOT, len(obs)))].mean(1)
@@ -305,9 +291,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stimuli", choices=["18", "54"], required=True)
     ap.add_argument("--partial", default=None, help="a control set of partial_rsa.py (e.g. joint)")
-    ap.add_argument("--sizes", action="store_true", help="the FaceNet size curve instead of H1-H5")
-    ap.add_argument("--design", choices=["ckpt", "ids"], default=None,
-                    help="a FaceNet learning design instead: checkpoints along training or identity counts")
+    ap.add_argument("--design", choices=["sizes", "ckpt", "ids"], default=None,
+                    help="a FaceNet learning design instead of H1-H5: training-set sizes, checkpoints, identity counts")
     ap.add_argument("--n-perm", type=int, default=N_PERM, help="permutations (default 1,000; fewer for a quick check)")
     ap.add_argument("--eeg-dir", default=None,
                     help="EEG RDMs from another build (e.g. eeg_rdms_correct): participant grids recomputed from them")
@@ -349,7 +334,7 @@ def main():
             cache[tag] = g / scale["ceiling"][None, :, None, :, :g.shape[-1]] if "ceiling" in scale else g
         return cache[tag]
 
-    hyp = design_hypotheses(args.design) if args.design else size_hypotheses() if args.sizes else hypotheses()
+    hyp = design_hypotheses(args.design) if args.design else hypotheses()
     W = grid(tags["ResNet18", "Random"][0]).shape[-1]
     scopes = rsa_core.scopes()
     bounds = rsa_core.window_bounds()[:W]
@@ -357,27 +342,13 @@ def main():
     if args.normalize:
         scale["ceiling"] = ceiling; cache.clear()
     obs = all_contrasts(grid, tags, hyp)
-    # region means (the mean over a region's ROIs), tested against the same permutations
-    regions = list(dict.fromkeys(sc.split("-")[0] for sc in scopes[:rsa_core.N_ROI]))
-    members = [[i for i, sc in enumerate(scopes[:rsa_core.N_ROI]) if sc.startswith(rg + "-")] for rg in regions]
-    with_regions = lambda a: np.concatenate([a] + [a[:, m].mean(1, keepdims=True) for m in members], axis=1)
-    obs = {k: with_regions(v) for k, v in obs.items()}
-    null = {k: with_regions(v) for k, v in null.items()}
-    scopes = list(scopes) + regions
     rng = np.random.default_rng(SEED)
     n_pairs = {h: len(items) for h, items in hyp.items()}
-    rows, time_rows, participant_rows = [], [], []
+    rows, time_rows = [], []
     for key, value in obs.items():
         r = tests(value, null[key], rng)
         if key[0] == "time":
             _, th, label = key
-            if label == "pooled":
-                centre = null[key].mean(0)
-                for oi, sc in enumerate(scopes):
-                    for wi in range(W):
-                        for pi, v in enumerate(value[:, oi, wi] - centre[oi, wi]):
-                            participant_rows.append({"hypothesis": "time " + th, "scope": sc, "window": wi,
-                                                     "participant": pi, "difference": round(float(v), 5)})
             for oi, sc in enumerate(scopes):
                 for wi in range(W):
                     time_rows.append({"hypothesis": th, "contrast": label, "scope": sc,
@@ -386,12 +357,6 @@ def main():
                                          (int(v[oi, wi]) if k == "n_above" else float(v[oi, wi])) for k, v in r.items()}})
             continue
         h, label = (key, "pooled") if isinstance(key, str) else key
-        if label == "pooled" or h in ("variant", "rdm"):
-            centre = null[key].mean(0)
-            for oi, sc in enumerate(scopes):
-                for pi, v in enumerate(value[:, oi] - centre[oi]):
-                    participant_rows.append({"hypothesis": h if h not in ("variant", "rdm") else f"{h} {label}", "scope": sc,
-                                             "participant": pi, "difference": round(float(v), 5)})
         for oi, sc in enumerate(scopes):
             rows.append({"hypothesis": h, "contrast": label, "n_pairs": n_pairs[h] if label == "pooled" else "",
                          "scope": sc, "n": len(value),
@@ -400,14 +365,13 @@ def main():
     whole = [r for r in rows if r["contrast"] == "pooled" and r["scope"] == "wholescalp"]
     for r, ph in zip(whole, holm([r["p"] for r in whole])):     # sizes: Holm across all size contrasts
         r["p_holm"] = float(ph)
-    suffix = (f"_{args.design}" if args.design else "_sizes" if args.sizes else "") + \
+    suffix = (f"_{args.design}" if args.design else "") + \
         (f"_{args.partial}" if args.partial else "") + ("_nc" if args.normalize else "") + \
         (f"_dropactor{args.drop_actor}" if args.drop_actor is not None else "") + \
         (f"_{args.emotion}" if args.emotion else "") + (f"_{args.eeg_dir}" if args.eeg_dir else "")
     out = rsa_core.ROOT / ("analysis/paper_stats" if s == "18" else "analysis/paper_stats_54")
     out.mkdir(parents=True, exist_ok=True)
-    for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows),
-                        (f"contrasts_participants{suffix}.csv", participant_rows)):
+    for name, table in ((f"contrasts{suffix}.csv", rows), (f"contrasts_time{suffix}.csv", time_rows)):
         if not table:
             continue
         fields = list(dict.fromkeys(k for r in table for k in r))
