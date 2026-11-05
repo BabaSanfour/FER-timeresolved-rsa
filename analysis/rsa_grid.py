@@ -8,16 +8,16 @@ time-locked (EEG window k is always paired with model frame k). Spearman is a
 dot product of rank-normalised vectors, so the whole grid is one einsum.
 Every cell is kept, so nothing is collapsed before the summaries.
 
-Scopes  : the 6 ROIs (roi_order.npy) + "wholescalp"                      -> 7
+Scopes  : the 11 ROIs + "wholescalp" (eeg_rdms/meta.json)               -> 12
 Emotions: all, fear, happy, neutral; the model RDM is sliced with the same
           indices as the EEG (rsa_core.EMOTIONS)                          -> 4
---stimuli 18: 26 participants; 54: 25 participants and 53 stimuli (rsa_core.py).
+--stimuli 18 or 54: the same 25 participants (rsa_core.py).
 
 Models: every RDM of analysis/variants.py (or --models), from rdms/set<stimuli>/<name>/;
 each RDM's stimulus order is checked against the EEG's.
 
 Output: <out-dir>/<model>_rsa_grid.npz
-  rsa (S, 7, L, 4, W) float32, subjects, scopes, emotions, n_layers, window_bounds
+  rsa (S, 12, L, 4, W) float32, subjects, scopes, emotions, n_layers, window_bounds
 """
 import argparse
 from pathlib import Path

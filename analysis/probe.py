@@ -11,20 +11,18 @@ one actor out, 6 folds). Accuracy is over all videos; a variant's value is the
 mean +/- SD over its RDMs. Its p comes from 200 permutations of the emotion
 labels within each actor (the same for every RDM of a variant), which keep every
 training fold balanced, so the null is centred on chance (1/3); a permutation over
-all videos would unbalance the folds and push the null below chance. Across the
-21 variants, the Spearman
-correlation between probe accuracy and rho_max (ROI average, emotion average,
-maxr_table.py) tests whether task performance tracks EEG alignment.
+all videos would unbalance the folds and push the null below chance.
 
-Outputs: analysis/paper_stats[_54]/probe.csv (per variant), probe_per_rdm.csv,
-probe_vs_alignment.csv
+The relation of probe accuracy to alignment (a linear mixed model within variants) is fitted in
+figS_learning.py.
+
+Outputs: analysis/paper_stats[_54]/probe.csv (per variant) and probe_per_rdm.csv (per RDM)
 """
 import argparse
 import csv
 from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
-from scipy.stats import spearmanr
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -92,7 +90,7 @@ def main():
         res = [next(results) for _ in tags]
         a = np.array([r[0] for r in res]); null = np.mean([r[1] for r in res], axis=0)
         for tag, r in zip(tags, res):
-            per_rdm.append({"family": family, "variant": variant, "rdm": tag, "accuracy": round(r[0], 4)})
+            per_rdm.append({"group": "main", "family": family, "variant": variant, "rdm": tag, "accuracy": round(r[0], 4)})
         rows.append({"family": family, "variant": variant, "n": len(tags), "accuracy": round(float(a.mean()), 4),
                      "sd": round(float(a.std(ddof=1)), 4) if len(a) > 1 else "",
                      "min": round(float(a.min()), 4), "max": round(float(a.max()), 4),
@@ -101,21 +99,10 @@ def main():
         print(f"  {family:9s} {variant:13s} n={len(tags):2d} accuracy {a.mean():.3f} "
               f"(null {null.mean():.3f}, 95% {np.percentile(null, 95):.3f}, p {rows[-1]['p']:.3f})", flush=True)
 
-    with (out / "rho_max.csv").open() as fh:
-        rho = {(r["family"], r["variant"]): float(r["max_r"]) for r in csv.DictReader(fh)
-               if r["group"] == "main" and r["roi"] == rsa_core.ROI_AVG and r["emotion"] == rsa_core.EMO_AVG}
-    acc = [r["accuracy"] for r in rows]
-    al = [rho[r["family"], r["variant"]] for r in rows]
-    trained = [i for i, r in enumerate(rows) if r["variant"] != "Random"]
-    relation = []
-    for label, idx in (("all variants", range(len(rows))), ("trained variants", trained)):
-        r_s, p = spearmanr([acc[i] for i in idx], [al[i] for i in idx])
-        relation.append({"variants": label, "n": len(idx), "spearman_r": round(float(r_s), 3), "p": round(float(p), 4)})
-        print(f"[accuracy vs rho_max] {label}: Spearman r = {r_s:.3f} (n = {len(idx)}, p = {p:.4f})")
-    for name, table in (("probe.csv", rows), ("probe_per_rdm.csv", per_rdm), ("probe_vs_alignment.csv", relation)):
+    for name, table in (("probe.csv", rows), ("probe_per_rdm.csv", per_rdm)):
         with (out / name).open("w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=list(table[0])); w.writeheader(); w.writerows(table)
-    print(f"[ok] -> {out}/probe.csv, probe_per_rdm.csv, probe_vs_alignment.csv")
+    print(f"[ok] -> {out}/probe.csv, probe_per_rdm.csv")
 
 
 if __name__ == "__main__":

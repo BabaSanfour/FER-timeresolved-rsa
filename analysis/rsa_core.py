@@ -6,13 +6,10 @@ stimuli `STIMULI[stimuli]`, in the model order: emotion (fear, happy, neutral),
 then for 54 stimuli occlusion (original, glasses, masked), then actor (01 02 04
 07 08 11). `EMOTIONS[stimuli][emotion]` indexes all of them.
 
-18 stimuli: all 26 participants of the 18-stimulus folders.
-54 stimuli: 25 participants (CEG has no 54-stimulus data). Eleven of them have no
-EEG response to one video (neutral, glasses, actor 07), so that video is excluded
-for every participant and every RDM: 53 stimuli, 17 of them neutral. The pooled
-EEG files (`<subject>_all_rdms.npy`) are ordered happy, fear, neutral
-(`stimulus_order.json`) and are reordered here by stimulus name; the per-emotion
-files are blocks of the pooled file and are not needed.
+EEG RDMs come from eeg/build_eeg_rdms.py: one file per participant over the 54
+videos (12 scopes: 11 ROIs + whole scalp; 13 windows from stimulus onset). The 18
+stimuli are the 18 unoccluded videos of the same recordings, so both sets use the
+same 25 participants.
 """
 import json
 import os
@@ -22,14 +19,7 @@ import numpy as np
 from scipy.stats import rankdata
 
 ROOT = Path(os.environ.get("FER_ROOT", "."))
-EEG_DIRS = {
-    "18": (ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full", "_windowed_rdms.npy",
-           ROOT / "eeg_data/Unmasked_avg_wholescalp_16win", "_wholescalp_rdms.npy"),
-    "54": (ROOT / "eeg_rdms_complete/perroi", "_all_rdms.npy",
-           ROOT / "eeg_rdms_complete/wholescalp", "_all_rdms.npy"),
-}
-META_DIRS = {"18": ROOT / "eeg_data/Unmasked_avg_windowed_rdms_16win_full",
-             "54": ROOT / "eeg_rdms_complete"}
+EEG_DIR = ROOT / "eeg_rdms"                # eeg/build_eeg_rdms.py: <subject>.npy, meta.json
 MODEL_EMOTION_ORDER = ("fear", "happy", "neutral")
 ACTORS = ("01", "02", "04", "07", "08", "11")
 # stimulus names in the model RDMs' .layers.json (build_stimuli_h5_16frames.py)
@@ -38,10 +28,10 @@ MODEL_STIMULI = {
     "54": [f"{e}_{c}_Actor{a}" for e in MODEL_EMOTION_ORDER
            for c in ("original", "glasses", "masked") for a in ACTORS],
 }
-# no EEG response for 11 of the 25 participants: excluded for everyone
-EXCLUDED = {"18": [], "54": ["neutral_glasses_Actor07"]}
-STIMULI = {s: [n for n in names if n not in EXCLUDED[s]] for s, names in MODEL_STIMULI.items()}
-KEEP = {s: np.array([MODEL_STIMULI[s].index(n) for n in STIMULI[s]]) for s in STIMULI}
+STIMULI = MODEL_STIMULI
+# rows of the 54-video EEG RDM that form each stimulus set
+EEG_ROWS = {"54": np.arange(54),
+            "18": np.array([MODEL_STIMULI["54"].index(n.replace("_Actor", "_original_Actor")) for n in MODEL_STIMULI["18"]])}
 EMOTIONS = {s: {"all": np.arange(len(names)),
                 **{e: np.array([i for i, n in enumerate(names) if n.startswith(e + "_")])
                    for e in MODEL_EMOTION_ORDER}}
@@ -50,58 +40,36 @@ RDM_DIRS = {s: ROOT / f"rdms/set{s}" for s in ("18", "54")}       # <name>/<name
 GRID_DIRS = {"18": ROOT / "analysis/rsa_grid", "54": ROOT / "analysis/rsa_grid_54"}
 # partial-RSA grids (partial_rsa.py), one folder per control set
 PARTIAL_DIRS = {"18": ROOT / "analysis/partial_rsa", "54": ROOT / "analysis/partial_rsa_54"}
-N_ROI = 6                    # scopes 0-5 are ROIs, 6 is the whole scalp
+N_ROI = 11                   # scopes 0-10 are ROIs, 11 is the whole scalp
 EMO_SPECIFIC = (1, 2, 3)     # emotions are ordered all, fear, happy, neutral
 ROI_AVG, EMO_AVG = "ROI-avg", "emo-avg"
-CONDITIONS_54 = ("unmasked", "glasses", "masked")
 
 
-def subjects(stimuli):
-    roi_dir, roi_suffix, ws_dir, ws_suffix = EEG_DIRS[stimuli]
-    roi = {p.name.removesuffix(roi_suffix) for p in roi_dir.glob(f"*{roi_suffix}")
-           if not p.name.startswith("group")}
-    ws = {p.name.removesuffix(ws_suffix) for p in ws_dir.glob(f"*{ws_suffix}")}
-    if roi != ws:
-        raise SystemExit(f"ABORT: subject mismatch: ROI-only={sorted(roi - ws)}, "
-                         f"whole-scalp-only={sorted(ws - roi)}")
-    return sorted(roi)
+def eeg_meta():
+    return json.loads((EEG_DIR / "meta.json").read_text())
 
 
-def scopes(stimuli):
-    rois = np.load(META_DIRS[stimuli] / "roi_order.npy", allow_pickle=True)
-    return [str(x) for x in rois] + ["wholescalp"]
+def subjects(stimuli=None):
+    return eeg_meta()["subjects"]
 
 
-def window_bounds(stimuli):
-    return np.load(META_DIRS[stimuli] / "window_bounds.npy")
+def scopes(stimuli=None):
+    return eeg_meta()["scopes"]
 
 
-def model_order_54():
-    """Indices that put the pooled 54-stimulus EEG RDM into the model order."""
-    names = json.loads((META_DIRS["54"] / "stimulus_order.json").read_text())["all_54"]
-    return np.array([names.index(f"{e}_{c}_{i}") for e in MODEL_EMOTION_ORDER
-                     for c in CONDITIONS_54 for i in range(6)])
-
-
-def select_stimuli(rdm, stimuli):
-    """(..., n, n) RDM over MODEL_STIMULI -> (..., m, m) over the analysed STIMULI."""
-    keep = KEEP[stimuli]
-    return rdm[..., keep, :][..., keep]
+def window_bounds(stimuli=None):
+    """(13, 2) window bounds in ms from stimulus onset."""
+    return np.asarray(eeg_meta()["window_bounds_ms"])
 
 
 def load_eeg(stimuli, emotion="all", subs=None):
-    """-> (eeg (S, 7, W, n, n) over STIMULI, subject ids, scope names)."""
-    subs = subjects(stimuli) if subs is None else subs
-    roi_dir, roi_suffix, ws_dir, ws_suffix = EEG_DIRS[stimuli]
-    roi = np.stack([np.load(roi_dir / f"{s}{roi_suffix}") for s in subs])
-    ws = np.stack([np.load(ws_dir / f"{s}{ws_suffix}") for s in subs])
-    if roi.ndim != 5 or ws.ndim != 4:
-        raise SystemExit(f"ABORT: unexpected EEG shapes {roi.shape} / {ws.shape}")
-    eeg = np.concatenate([roi, ws[:, None]], axis=1)
-    if stimuli == "54":
-        order = model_order_54()
-        eeg = eeg[..., order, :][..., order]
-    eeg = select_stimuli(eeg, stimuli)
+    """-> (eeg (S, 12, W, n, n) over STIMULI, subject ids, scope names)."""
+    meta = eeg_meta()
+    if meta["stimuli"] != MODEL_STIMULI["54"] or len(meta["scopes"]) != N_ROI + 1:
+        raise SystemExit("ABORT: eeg_rdms/meta.json does not match rsa_core (stimuli or scopes)")
+    subs = meta["subjects"] if subs is None else subs
+    rows = EEG_ROWS[stimuli]
+    eeg = np.stack([np.load(EEG_DIR / f"{s}.npy") for s in subs])[..., rows, :][..., rows]
     if not np.isfinite(eeg).all():
         raise SystemExit(f"ABORT: missing EEG values in the {stimuli}-stimulus RDMs")
     idx = EMOTIONS[stimuli][emotion]
@@ -123,14 +91,6 @@ def rank_normalise(v):
     rc = r - r.mean(-1, keepdims=True)
     n = np.linalg.norm(rc, axis=-1, keepdims=True)
     return np.divide(rc, np.clip(n, 1e-12, None)), (n[..., 0] < 1e-12)
-
-
-def spearman(x, y):
-    """Spearman's rho; NaN if either vector is constant."""
-    rx, ry = rankdata(x), rankdata(y)
-    if np.std(rx) == 0 or np.std(ry) == 0:
-        return np.nan
-    return float(np.corrcoef(rx, ry)[0, 1])
 
 
 def row_spearman(x, y):
@@ -191,7 +151,7 @@ def load_model_rdm(stimuli, tag, rdm_dir=None):
     stimuli_order = meta.get("stimuli") or meta.get("stim_order")
     if stimuli_order != MODEL_STIMULI[stimuli]:
         raise SystemExit(f"ABORT {tag}: stimulus order differs from the EEG's")
-    return select_stimuli(np.load(folder / f"{tag}.npy"), stimuli)
+    return np.load(folder / f"{tag}.npy")
 
 
 def cell_maxima(rsa, nc_lower=None, nc_upper=None):
@@ -220,8 +180,8 @@ def cell_maxima(rsa, nc_lower=None, nc_upper=None):
 
 
 def averaged_cells(cells):
-    """Add the averaged scope (index 7, ROI-avg: the six ROIs) and emotion (index 4,
-    emo-avg: fear, happy, neutral); ROI-avg x emo-avg averages the 18 cells.
+    """Add the averaged scope (index N_ROI + 1, ROI-avg: the 11 ROIs) and emotion (index 4,
+    emo-avg: fear, happy, neutral); ROI-avg x emo-avg averages the ROI x emotion cells.
     Values and ceilings are averaged (NaN if a cell is undefined); layer and window become -1."""
     out = {}
     for oi in range(N_ROI + 2):

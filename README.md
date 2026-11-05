@@ -26,7 +26,7 @@ pip install ".[models]" && pip install --no-deps facenet-pytorch==2.6.0
 ```
 
 Download the Drive folder and merge its contents into the repository root, so that
-for example `net_weights/`, `eeg_data/` and `analysis/rsa_grid_54/` sit next to the code.
+for example `net_weights/`, `eeg_rdms/` and `analysis/rsa_grid_54/` sit next to the code.
 Its folders use the same relative paths as the scripts. Alternatively, keep the data elsewhere
 and set `FER_ROOT` to a directory that contains both the code and the data.
 
@@ -64,10 +64,10 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 | Nuisance controls and their RSA (Section 4.4): identity, occlusion (54 videos), pixel (per frame), optical flow, motion energy | `analysis/control_rdms.py` → `analysis/rsa_grid.py` → `analysis/maxr_table.py` | `python analysis/control_rdms.py --stimuli 18` (and `54`), then as Table 1 (controls are one-layer RDMs) | `data/stim_frames/set18\|set54/` (the models' frames) | `rdms/set*/control_*/`; group `control` of `analysis/paper_stats{,_54}/rho_max.csv` |
 | Partial RSA (each control alone, and jointly; window k uses the controls of frame k) | `analysis/partial_rsa.py` → `analysis/maxr_table.py --partial <set>` | `python analysis/partial_rsa.py --stimuli 18` (and `54`), then `python analysis/maxr_table.py --stimuli 18 --partial joint` | model, EEG and control RDMs | `analysis/partial_rsa{,_54}/<set>/`, `analysis/paper_stats{,_54}/rho_max_partial_<set>.csv` |
 | Noise ceilings (rank-based, Nili et al., 2014), averaged over windows | `analysis/maxr_table.py` (`rsa_core.noise_ceilings`) | as Table 1 | EEG RDMs | `analysis/paper_stats{,_54}/noise_ceilings.csv` |
-| Linear probe of the emotion label on final-layer features (Appendix): leave one actor out, within-actor permutation null; accuracy vs rho_max | `analysis/probe.py` | `FEATURES=1 trillium/submit_extract.sh`, then `python analysis/probe.py --stimuli 18 --jobs 8` (and `54`) | `features/set*/` | `analysis/paper_stats{,_54}/probe.csv`, `probe_per_rdm.csv`, `probe_vs_alignment.csv` |
+| Linear probe of the emotion label on final-layer features (Appendix): leave one actor out, within-actor permutation null; face-identity accuracy of the face-trained runs | `analysis/probe.py`, `analysis/identity_accuracy.py` | `FEATURES=1 trillium/submit_extract.sh`, then `python analysis/probe.py --stimuli 54 --jobs 8`; `python analysis/identity_accuracy.py` | `features/set*/`, `results/*/train.log` | `analysis/paper_stats{,_54}/probe.csv`, `probe_per_rdm.csv`; `analysis/identity_accuracy.csv` |
 | rho_max against its own chance level (models vs nuisance controls): stimulus labels permuted within each emotion, 1,000 times; excess over the null mean and permutation p | `analysis/rho_max_null.py` | `python analysis/rho_max_null.py --stimuli 18` (and `54`) | `rdms/set*/`, EEG RDMs | `analysis/paper_stats{,_54}/rho_max_null.csv` |
-| Comparisons between training regimes (Sections 4.1–4.3): four planned tests (pretrained vs random, face vs ImageNet, fine-tuned vs start, video vs image), each against its own permutation null (labels within emotion, 1,000 times; corrects the layer-selection bias), Holm across the four; per-family contrasts with 95% CIs | `analysis/contrasts.py` | `python analysis/contrasts.py --stimuli 18` (and `54`) | `analysis/rsa_grid{,_54}/`, `rdms/set*/`, EEG RDMs | `analysis/paper_stats{,_54}/contrasts.csv` |
-| Cluster-based permutation tests (Section 4.5), both stimulus sets: one test per variant on its grid averaged over its 10 seeds or runs, 20,000 sign flips, Holm within the model and across all grids of all variants | `analysis/cluster_permutation.py` | `sbatch analysis/submit_cluster_permutation.sh` (array task 0 = 54 stimuli, 1 = 18); on the joint partial grids: `python analysis/cluster_permutation.py --study 54 --partial joint` | `analysis/rsa_grid{,_54}/` | `analysis/cluster_permutation_{18,54}/` (`grid_summary.csv`, `clusters.csv`, `model_survivors.csv`, `*_cluster_masks.npz`) |
+| Comparisons between training regimes (Sections 4.1–4.3): four planned tests (pretrained vs random, face vs ImageNet, fine-tuned vs start, video vs image) and each family's contrast, in every ROI and on the whole scalp, each against its own permutation null (labels within emotion, 1,000 times; corrects the layer-selection bias); maxT across the 11 ROIs, Holm across the four whole-scalp tests; the H1 time course per ROI × window (maxT across cells); `--partial joint` for the controlled grids | `analysis/contrasts.py` | `python analysis/contrasts.py --stimuli 18` (and `54`; add `--partial <set>`) | `analysis/rsa_grid{,_54}/` or `partial_rsa{,_54}/<set>/`, `rdms/set*/`, EEG RDMs | `analysis/paper_stats{,_54}/contrasts[_<set>].csv`, `contrasts_time[_<set>].csv` |
+| Cluster-based permutation tests (Section 4.5), both stimulus sets: one test per variant on its grid averaged over its 10 seeds or runs, 20,000 sign flips, corrected across all grids of all variants by the maximum statistic (each grid's maximum cluster mass standardised by its null) | `analysis/cluster_permutation.py` | `sbatch analysis/submit_cluster_permutation.sh` (array task 0 = 54 stimuli, 1 = 18); on the joint partial grids: `python analysis/cluster_permutation.py --study 54 --partial joint` | `analysis/rsa_grid{,_54}/` | `analysis/cluster_permutation_{18,54}/` (`grid_summary.csv`, `clusters.csv`, `model_survivors.csv`, `method.json`) |
 | **Fig. 3**, where and when alignment survives the study-wide test: layer × time map of each surviving grid with its clusters, and the time course at its best layer against random initialisation | `analysis/fig3_time.py` | after `cluster_permutation.py --study 54`: `python analysis/fig3_time.py` | `analysis/rsa_grid_54/`, `analysis/cluster_permutation_54/` | `analysis/paper_stats_54/fig3_time.{pdf,png}` |
 
 ### Appendix
@@ -88,16 +88,18 @@ each row can be re-run from the downloaded RDMs and RSA grids without retraining
 
 | Step | Script | Notes |
 |---|---|---|
-| 18-stimulus per-ROI RDMs, `(6, 16, 18, 18)` per participant | `eeg/compute_windowed_eeg_rdms_16win.py` | Reads per-participant condition-averaged epochs `eeg_data/Unmasked_avg/*_avg.pkl` (not distributed); writes `eeg_data/Unmasked_avg_windowed_rdms_16win_full/` |
-| 18-stimulus whole-scalp RDMs, 54-stimulus per-ROI and whole-scalp RDMs | none | Distributed as data (`eeg_data/Unmasked_avg_wholescalp_16win/`, `eeg_rdms_complete/`) |
+| Trial labels, artefact handling, video averages, RDMs `(12, 13, 54, 54)` per participant | `eeg/build_eeg_rdms.py [--subjects ...]` | Reads `$FER_ROOT/eeg_raw/` (Brain Vision Analyzer segment exports and `behavior_RT_perf_identity_occlusion.csv`); writes `eeg_rdms/<subject>.npy` and `eeg_rdms/meta.json` |
 
-The 18-stimulus folders contain 26 participants, and every 18-stimulus analysis uses all 26.
-The 54-stimulus folders contain 25:
-participant CEG has no 54-stimulus data. The pooled 54-stimulus EEG files (`*_all_rdms.npy`)
-are ordered happy, fear, neutral; `analysis/rsa_core.py` reorders them to the model order (fear, happy,
-neutral) by stimulus name. Eleven participants (LC LJ LMB MD MDR MH NW RG RP TA YN) have no EEG
-response to one video (neutral, glasses, actor 07), so that video is excluded for everyone: the
-54-stimulus analyses use 53 videos (17 neutral) and all 25 participants (`rsa_core.STIMULI`).
+Each trial's video comes from the behaviour file; its sequence is checked against the block's trigger
+codes (which name groups of videos), allowing only trials missing at either end of a recording. Per
+participant: baseline -200 to 0 ms; channels above ±100 µV in more than 20% of trials are interpolated
+(spherical splines); trials above ±150 µV are rejected; the rest are averaged per video. RDMs are
+correlation distances between video averages over the channels of a scope × the samples of a window:
+11 ROIs (`eeg/roi_definitions.json`) and the whole scalp; 13 windows of 64 samples (62.5 ms) from
+onset, the last holding the 51 samples to 800 ms. Participants with fewer than half of the 972 trials
+are excluded (CEG, one block). AA has no Markers file: its blocks are labelled by order, and block 6
+(126 of 162 segments) is dropped. Both stimulus sets use the same 25 participants; the 18 stimuli are
+the unoccluded videos (`rsa_core.EEG_ROWS`).
 
 ### 2. Stimuli
 
@@ -122,7 +124,7 @@ exact versions in `trillium/trainenv_freeze.txt`).
 |---|---|---|
 | VGGFace2-HQ training archives 01--06 (726,502 images) | `DEST=$FER_ROOT/data/vggface_dataset bash data/get_vggface2_hq.sh` (accept the dataset terms on HuggingFace first) | sizes of the six zips |
 | Image lists: full pool and validation | `python vggface_train/build_index.py --root $FER_ROOT/data/vggface_dataset/VGGface2_None_norm_512_true_bygfpgan --out vggface_train/index` | 715,810 train, 10,692 val |
-| Image lists: subsets | `python vggface_train/build_subset_indexes.py` (10k--500k, 10 repeats) | reproduce the lists on Drive byte for byte |
+| Image lists: subsets | `python vggface_train/build_subset_indexes.py --design sizes` (10k--500k, 10 repeats) and `--design ids` (50--3,500 identities x 100 images, 3 repeats) | reproduce the lists on Drive byte for byte |
 | Decoded-image cache (36 GB) | `python vggface_train/build_decode_cache.py --data-root ... --index-dir vggface_train/index --out-dir $FER_ROOT/data/vggface_cache` | 200-image spot check |
 | AffectNet, 3 classes | `bash data/get_affectnet_3class.sh` (Kaggle token) | archive checksum and per-class counts |
 | VGG-Face weights | `bash data/get_vgg_face.sh` | checksum |
@@ -161,7 +163,7 @@ stimuli).
 
 | Family (layers) | Variants | Extractor |
 |---|---|---|
-| ResNet18 (40), ResNet50 (106), FaceNet (245), VGG16 (15): every layer with parameters except the output layer | random (10 seeds), ImageNet, face (VGGFace2-HQ, 10 runs; VGG16: VGG-Face), AffectNet (10 runs); FaceNet size curve and step-matched check (18 videos) | `models/extract_model_rdms.py` |
+| ResNet18 (40), ResNet50 (106), FaceNet (245), VGG16 (15): every layer with parameters except the output layer | random (10 seeds), ImageNet, face (VGGFace2-HQ, 10 runs; VGG16: VGG-Face), AffectNet (10 runs); FaceNet learning designs: size curve, step-matched check, checkpoints along training, identity counts (54 videos) | `models/extract_model_rdms.py` |
 | M3DFEL (40): R3D-18 backbone convolutions and batch norms | random (10 seeds), Kinetics-400, DFEW fold 3 | `models/m3dfel_extract_rdms.py` |
 | Qwen3-VL-8B (64): 27 vision blocks, embedding output, 36 decoder blocks; float32 | released, random (10 seeds) | `models/vlm/vlm_extract_video_mode.py`, `compute_rdms_from_vlm_activations.py` |
 
@@ -169,12 +171,12 @@ stimuli).
 
 | | Script | Output |
 |---|---|---|
-| 18 stimuli, 26 participants | `analysis/rsa_grid.py --stimuli 18 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid/` |
+| 18 stimuli, 25 participants | `analysis/rsa_grid.py --stimuli 18 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid/` |
 | 54 stimuli, 25 participants | `analysis/rsa_grid.py --stimuli 54 [--models <names>] [--rdm-dir] [--out-dir]` | `analysis/rsa_grid_54/` |
 
 Models: every RDM listed in `analysis/variants.py` (21 variants; random seeds 42, 0–8 and training
 runs r01–r10 have ten RDMs each), read from `rdms/set18|set54/<name>/<name>.npy`; each RDM's stimulus
-order is checked against the EEG's. Each grid file holds the participant × scalp analysis (6 ROIs + whole scalp) × layer × condition
+order is checked against the EEG's. Each grid file holds the participant × scalp analysis (11 ROIs + whole scalp) × layer × condition
 (all, fear, happy, neutral) × EEG window array of Spearman ρ. Statistics, controls and tables are
 in [Which script gives which result](#which-script-gives-which-result).
 
@@ -185,7 +187,8 @@ Folder: **`<DRIVE_LINK>`** (to be published with the revision; planned layout be
 
 | Folder | Content |
 |---|---|
-| `eeg_data/`, `eeg_rdms_complete/` | EEG RDMs: 18 stimuli per ROI and whole scalp (26 participants); 54 stimuli per ROI and whole scalp (25) |
+| `eeg_raw/` | Segmented EEG recordings (Brain Vision Analyzer exports) and the trial-level behaviour file |
+| `eeg_rdms/` | EEG RDMs of the 25 participants and `meta.json` (`eeg/build_eeg_rdms.py`) |
 | `rdms/set18/`, `rdms/set54/` | Model RDMs, one folder per RDM (`analysis/variants.py`), with `.layers.json` (layers, weights, preprocessing, stimulus order) |
 | `results/{pretrain,sizecurve,stepmatched,finetune}/` | The retrained models (`best_weights.pt`), with training logs, metrics and `test_metrics.json` |
 | `random_weights/` | The saved random-initialization weights the random variants load |
@@ -200,15 +203,11 @@ revision `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b`. Stimulus videos and frames 
 
 These steps were done by hand or with code that no longer exists. Their outputs are on Drive.
 
-- **EEG preprocessing** in Brain Vision Analyzer 2.1 (re-referencing, 0.1–30 Hz filter, ICA, artifact
-  review, epoching, baseline correction), the export to Python, and the trial averaging that wrote
-  `*_avg.pkl`. The raw recordings and the `*_avg.pkl` files are not distributed.
-- **Behavioral data and analysis** behind the per-stimulus accuracy and reaction-time table and the
+- **EEG preprocessing up to segmentation** in Brain Vision Analyzer 2.1 (re-referencing, filtering,
+  ICA ocular correction, segmentation from -200 to +800 ms); `eeg/build_eeg_rdms.py` starts from its
+  exports. The recordings are not distributed.
+- **Behavioral analysis** behind the per-stimulus accuracy and reaction-time table and the
   accuracy figures quoted in Section 3.1.
-- **The channel selection** for the ROIs (the electrode lists are in `eeg/roi_definitions.json`), the
-  **18-stimulus whole-scalp RDMs** and **all 54-stimulus EEG RDMs**.
-  The 18-stimulus whole-scalp RDMs and the unoccluded part of the 54-stimulus RDMs agree exactly,
-  and the per-ROI RDMs to within 5e-7, so all of them come from the same averaged data.
 - **The AffectNet three-class subset** (the Kaggle archive was already reduced).
 - **Two ImageNet checkpoints from the authors' earlier study** (MFRS): FaceNet and ResNet50
   (`resnet50_None_imagenet`); the ResNet18 and VGG16 ImageNet weights are torchvision's.

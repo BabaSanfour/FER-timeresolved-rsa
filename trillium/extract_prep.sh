@@ -24,8 +24,9 @@ done
 mkdir -p "$D/random_weights"
 CUDA_VISIBLE_DEVICES= python - "$D" <<'PY'
 import sys, torch
-sys.path.insert(0, "models")
+sys.path[:0] = ["models", "analysis"]
 from extract_model_rdms import ARCHS, randomize
+from variants import SEEDS
 D = sys.argv[1]
 def draw(seed):
     torch.manual_seed(seed)
@@ -36,7 +37,7 @@ same = all(torch.equal(her[k], v) for k, v in draw(42).items())
 print(f"seed 42 redrawn on CPU equals the existing file: {same}")
 if not same:
     sys.exit("ABORT: the random-weight code no longer reproduces the existing seed")
-for seed in range(9):
+for seed in SEEDS[1:]:                       # 0-8 (seed 42 exists and is checked above)
     torch.save(draw(seed), f"{D}/random_weights/vgg16_random_seed{seed}.pt")
 print("vgg16 random seeds 0-8 saved")
 PY
@@ -45,8 +46,9 @@ PY
 M3DFEL_R3D=$D/drive/M3DFEL/pretrained/r3d_18-b3b3357e.pth CUDA_VISIBLE_DEVICES= python - "$D" <<'PY'
 import os, sys, torch
 from types import SimpleNamespace
-sys.path[:0] = ["models", "M3DFEL"]
+sys.path[:0] = ["models", "M3DFEL", "analysis"]
 from m3dfel_extract_rdms import randomize
+from variants import SEEDS
 from models.M3DFEL import M3DFEL
 D = sys.argv[1]
 def draw(seed):
@@ -54,7 +56,7 @@ def draw(seed):
     m = M3DFEL(SimpleNamespace(num_frames=64, instance_length=4, num_classes=7, gpu_ids=[],
                                r3d_weights=os.environ["M3DFEL_R3D"]))
     return {k: v.clone() for k, v in randomize(m, seed).state_dict().items()}
-for seed in [42] + list(range(9)):
+for seed in SEEDS:
     her = f"{D}/drive/random_init_weights/m3dfel/m3dfel_random_seed{seed}.pt"
     new = draw(seed)
     if os.path.exists(her):
