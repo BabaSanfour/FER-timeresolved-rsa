@@ -12,7 +12,7 @@
   d  the within-variant slope of a in every ROI, raw and after the controls
 
 Reads analysis/paper_stats_54/probe_per_rdm.csv (probe.py), contrasts{,_joint}_nc.csv (hypothesis "rdm"),
-contrasts_{ckpt,sizes,ids}{,_joint}_nc.csv (contrasts.py --normalize --design ckpt|ids, --sizes), and
+contrasts_{ckpt,sizes,ids}{,_joint}_nc.csv (contrasts.py --normalize --design ckpt|sizes|ids), and
 analysis/{checkpoint_accuracy,identity_accuracy,identity_count_accuracy}.csv (identity_accuracy.py, train.py);
 writes <out>.pdf and <out>.png.
 """

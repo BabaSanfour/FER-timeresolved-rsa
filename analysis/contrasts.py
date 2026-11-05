@@ -60,8 +60,9 @@ import numpy as np
 import rsa_core
 import variants
 from partial_rsa import control_sets, nuisance_basis, ranked_centered, residual_normalise
-from rho_max_null import EMOTIONS, pair_permutation
-from rsa_core import rank_normalise, upper
+from rsa_core import pair_permutation, rank_normalise, upper
+
+EMOTIONS = rsa_core.MODEL_EMOTION_ORDER                 # fear, happy, neutral (--emotion keeps one)
 
 N_PERM = 1000
 N_BOOT = 10000

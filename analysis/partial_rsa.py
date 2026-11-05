@@ -11,8 +11,7 @@ of them jointly. A control that is constant in a condition (identity within one
 emotion of the 18 stimuli) is left out of that condition's regression.
 
 Outputs: one grid per RDM and control set, in the format of rsa_grid.py, so
-maxr_table.py --partial <set> summarises them and cluster_permutation.py
---partial <set> tests them:
+contrasts.py --partial <set> and cluster_permutation.py --partial <set> test them:
   analysis/partial_rsa[_54]/<set>/<model>_rsa_grid.npz   rsa (S, 7, L, 4, W), ..., controls
 """
 import argparse

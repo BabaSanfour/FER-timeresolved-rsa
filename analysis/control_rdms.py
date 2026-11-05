@@ -3,8 +3,8 @@
 
 Reads $FER_ROOT/data/stim_frames/set<stimuli>/ (models/build_stimuli_h5_16frames.py:
 Slide1..16.h5, 224 x 224 RGB, and stimulus_manifest.json) and writes each control
-like a one-layer model RDM, so rsa_grid.py, maxr_table.py and the noise ceilings
-treat it as any model:
+like a one-layer model RDM, so rsa_grid.py, partial_rsa.py and contrasts.py treat it as
+any model:
 
     rdms/set<stimuli>/control_<name>/control_<name>.npy   (1, 16, n, n) float32
                                      control_<name>.layers.json

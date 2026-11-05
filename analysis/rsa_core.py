@@ -1,5 +1,5 @@
 """Shared pieces of the RSA analyses: EEG loading for both stimulus sets, the
-rank-correlation helpers, the noise ceilings, and the rho_max summary of a grid.
+rank-correlation helpers, the RSA grid paths and the stimulus permutation of the nulls.
 
 EEG, model and control RDMs are returned as (..., n, n) over the analysed
 stimuli `STIMULI[stimuli]`, in the model order: emotion (fear, happy, neutral),
@@ -41,8 +41,6 @@ GRID_DIRS = {"18": ROOT / "analysis/rsa_grid", "54": ROOT / "analysis/rsa_grid_5
 # partial-RSA grids (partial_rsa.py), one folder per control set
 PARTIAL_DIRS = {"18": ROOT / "analysis/partial_rsa", "54": ROOT / "analysis/partial_rsa_54"}
 N_ROI = 11                   # scopes 0-10 are ROIs, 11 is the whole scalp
-EMO_SPECIFIC = (1, 2, 3)     # emotions are ordered all, fear, happy, neutral
-ROI_AVG, EMO_AVG = "ROI-avg", "emo-avg"
 
 
 def eeg_meta():
@@ -93,39 +91,6 @@ def rank_normalise(v):
     return np.divide(rc, np.clip(n, 1e-12, None)), (n[..., 0] < 1e-12)
 
 
-def row_spearman(x, y):
-    """Row-wise Spearman of two (rows, pairs) arrays."""
-    rx, ry = rankdata(x, axis=1), rankdata(y, axis=1)
-    rx -= rx.mean(1, keepdims=True); ry -= ry.mean(1, keepdims=True)
-    denom = np.linalg.norm(rx, axis=1) * np.linalg.norm(ry, axis=1)
-    return np.divide(np.sum(rx * ry, axis=1), denom,
-                     out=np.full(len(x), np.nan), where=denom > 0)
-
-
-def noise_ceilings(eeg, stimuli):
-    """eeg (S, O, W, n, n) -> lower, upper, each (O, emotions, W).
-
-    Rank-based ceilings for Spearman RSA (Nili et al., 2014): each participant's
-    RDM is rank-transformed, then per scope, emotion and window the mean over
-    participants of
-      upper: Spearman(participant, mean rank RDM including the participant)
-      lower: Spearman(participant, leave-one-out mean rank RDM).
-    """
-    emotions = EMOTIONS[stimuli]
-    S, O, W = eeg.shape[:3]
-    lower = np.full((O, len(emotions), W), np.nan)
-    upper_nc = np.full((O, len(emotions), W), np.nan)
-    for ei, idx in enumerate(emotions.values()):
-        ranked = rankdata(upper(eeg[..., idx, :][..., idx]), axis=-1)   # (S, O, W, P)
-        total = ranked.sum(0)                                            # (O, W, P), exact
-        for oi in range(O):
-            for wi in range(W):
-                x = ranked[:, oi, wi]
-                upper_nc[oi, ei, wi] = np.nanmean(row_spearman(x, np.broadcast_to(total[oi, wi] / S, x.shape)))
-                lower[oi, ei, wi] = np.nanmean(row_spearman(x, (total[oi, wi][None] - x) / (S - 1)))
-    return lower, upper_nc
-
-
 def grid_path(stimuli, tag, partial=None):
     """Grid of an RDM; partial = a control set of partial_rsa.py."""
     folder = GRID_DIRS[stimuli] if partial is None else PARTIAL_DIRS[stimuli] / partial
@@ -154,43 +119,11 @@ def load_model_rdm(stimuli, tag, rdm_dir=None):
     return np.load(folder / f"{tag}.npy")
 
 
-def cell_maxima(rsa, nc_lower=None, nc_upper=None):
-    """rsa (S, O, L, E, W) -> {(scope, emotion): (rho_max, nc_lower, nc_upper, layer, window)}.
-
-    The grid is averaged over participants first; the maximum over layer x window
-    is then taken separately in each scope x emotion cell (never after averaging
-    cells), and the ceilings (O, E, W) are read at that cell's window. A cell with
-    no defined value (a constant RDM, e.g. identity within one emotion of the 18
-    stimuli) is NaN with layer and window -1.
-    """
-    gm = np.nanmean(rsa, axis=0)                                   # (O, L, E, W)
-    cells = {}
-    for oi in range(gm.shape[0]):
-        for ei in range(gm.shape[2]):
-            block = gm[oi, :, ei, :]
-            if np.all(np.isnan(block)):
-                cells[oi, ei] = (np.nan, np.nan, np.nan, -1, -1)
-                continue
-            li, wi = np.unravel_index(np.nanargmax(block), block.shape)
-            cells[oi, ei] = (float(block[li, wi]),
-                             np.nan if nc_lower is None else float(nc_lower[oi, ei, wi]),
-                             np.nan if nc_upper is None else float(nc_upper[oi, ei, wi]),
-                             int(li), int(wi))
-    return cells
-
-
-def averaged_cells(cells):
-    """Add the averaged scope (index N_ROI + 1, ROI-avg: the 11 ROIs) and emotion (index 4,
-    emo-avg: fear, happy, neutral); ROI-avg x emo-avg averages the ROI x emotion cells.
-    Values and ceilings are averaged (NaN if a cell is undefined); layer and window become -1."""
-    out = {}
-    for oi in range(N_ROI + 2):
-        for ei in range(len(EMO_SPECIFIC) + 2):
-            if oi <= N_ROI and ei <= len(EMO_SPECIFIC):
-                out[oi, ei] = cells[oi, ei]
-                continue
-            rois = range(N_ROI) if oi == N_ROI + 1 else [oi]
-            emos = EMO_SPECIFIC if ei == len(EMO_SPECIFIC) + 1 else [ei]
-            group = [cells[r, e] for r in rois for e in emos]
-            out[oi, ei] = tuple(float(np.mean([c[j] for c in group])) for j in range(3)) + (-1, -1)
-    return out
+def pair_permutation(perm):
+    """Stimulus permutation -> index into the upper-triangle pairs of the permuted RDM."""
+    n = len(perm)
+    iu = np.triu_indices(n, 1)
+    pos = np.full((n, n), -1)
+    pos[iu] = np.arange(len(iu[0]))
+    pos = np.maximum(pos, pos.T)
+    return pos[perm[iu[0]], perm[iu[1]]]
