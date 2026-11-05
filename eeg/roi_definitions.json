@@ -1,9 +1,14 @@
 {
-  "_note": "Electrodes in each scalp ROI (Biosemi 64-channel layout, 10-10 labels), as listed in the paper's appendix table of ROI definitions. The whole-scalp analysis uses all 64 channels.",
-  "Ant-Left":   ["Fp1", "AF7", "AF3", "F1", "F3", "F5", "F7"],
-  "Ant-Right":  ["Fp2", "AF8", "AF4", "F2", "F4", "F6", "F8"],
-  "Post-Left":  ["P1", "P3", "P5", "P7", "P9", "PO7", "PO3", "O1"],
-  "Post-Right": ["P2", "P4", "P6", "P8", "P10", "PO8", "PO4", "O2"],
-  "Temp-Left":  ["FT7", "T7", "TP7", "CP5", "CP3", "CP1"],
-  "Temp-Right": ["FT8", "T8", "TP8", "CP6", "CP4", "CP2"]
+  "_note": "Scalp regions of interest (Biosemi 64-channel cap, 10-10 labels): four regions x left / right / midline; there is no central midline region, and P9 and P10 enter only the whole-scalp analysis (all 64 channels).",
+  "Frontal-L": ["Fp1", "AF3", "AF7", "F1", "F3", "F5", "F7", "FT7"],
+  "Frontal-R": ["Fp2", "AF4", "AF8", "F2", "F4", "F6", "F8", "FT8"],
+  "Frontal-M": ["Fpz", "AFz", "Fz"],
+  "Central-L": ["FC1", "FC3", "FC5", "C1", "C3", "C5"],
+  "Central-R": ["FC2", "FC4", "FC6", "C2", "C4", "C6"],
+  "CentroParietal-L": ["CP1", "CP3", "CP5", "P1", "P3", "P5"],
+  "CentroParietal-R": ["CP2", "CP4", "CP6", "P2", "P4", "P6"],
+  "CentroParietal-M": ["FCz", "Cz", "CPz", "Pz"],
+  "OccipitoTemporal-L": ["T7", "TP7", "P7", "PO3", "PO7", "O1"],
+  "OccipitoTemporal-R": ["T8", "TP8", "P8", "PO4", "PO8", "O2"],
+  "OccipitoTemporal-M": ["POz", "Oz", "Iz"]
 }
