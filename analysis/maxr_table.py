@@ -3,7 +3,7 @@
 
 rho_max = maximum over (layer x window) of the participant-mean time-locked
 Spearman, taken separately in each scope x emotion cell (rsa_core.cell_maxima).
-Scopes: 6 ROIs, whole scalp, ROI-avg (mean of the six ROI values); emotions:
+Scopes: 11 ROIs, whole scalp, ROI-avg (mean of the 11 ROI values); emotions:
 all, fear, happy, neutral, emo-avg (mean of the three emotion values). The noise
 ceilings are read at the window of each maximum and averaged like the values.
 
@@ -81,8 +81,8 @@ def main():
                     "sd": r5(v.std(ddof=1)) if len(v) > 1 else "",
                     "min": r5(v.min()), "max": r5(v.max()),
                     "max_layer": single[3] if single else -1, "max_window": ki,
-                    "win_start_ms": int(wb[ki][0]) if ki >= 0 else -1,
-                    "win_end_ms": int(wb[ki][1]) if ki >= 0 else -1,
+                    "win_start_ms": round(float(wb[ki][0]), 1) if ki >= 0 else -1,
+                    "win_end_ms": round(float(wb[ki][1]), 1) if ki >= 0 else -1,
                     "nc_lower": r5(ncl), "nc_upper": r5(ncu),
                     "within_nc": "undefined" if np.isnan(m) else "" if np.isnan(ncl) else
                                  "ABOVE" if m > ncu else ("below" if m < ncl else "within"),
