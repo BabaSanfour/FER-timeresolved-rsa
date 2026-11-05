@@ -10,12 +10,13 @@ and {C} (cache path).
 """
 import argparse
 import os
+import sys
 
-SIZES = ["10k", "50k", "100k", "200k", "300k", "500k"]
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "analysis"))
+from variants import CHECKPOINT_STEPS, IDENTITIES, N_DESIGN_REPEATS, N_RUNS, SIZES  # noqa: E402  (one definition)
+
 FULL_POOL_STEPS = 1398 * 40  # 715,810 // 512 x 40 epochs
-CHECKPOINT_STEPS = [0, 30, 100, 300, 1000, 3000, 10000, 30000, FULL_POOL_STEPS]
-IDENTITIES = ["50ids", "300ids", "1500ids", "3500ids"]        # build_subset_indexes.py --design ids, 100 images each
-N_DESIGN_REPEATS = 3
+assert CHECKPOINT_STEPS[-1] == FULL_POOL_STEPS
 
 
 def main():
@@ -48,7 +49,7 @@ def main():
                 f"{res}/identities/{rep}/{ids}", "facenet",
                 f"{repo}/vggface_train/indexes_identities/{rep}/{ids}", 1000 + r,
                 f"--steps {FULL_POOL_STEPS} --eval-every-steps 1398"))
-    for r in range(1, 11):
+    for r in range(1, N_RUNS + 1):
         rep = f"repeat_{r:02d}"
         archs = ["facenet", "resnet18", "resnet50"]
         for arch in archs:
