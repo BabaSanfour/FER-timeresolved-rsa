@@ -14,7 +14,7 @@ import os
 SIZES = ["10k", "50k", "100k", "200k", "300k", "500k"]
 FULL_POOL_STEPS = 1398 * 40  # 715,810 // 512 x 40 epochs
 CHECKPOINT_STEPS = [0, 30, 100, 300, 1000, 3000, 10000, 30000, FULL_POOL_STEPS]
-IDENTITIES = ["50ids", "300ids", "1500ids", "3500ids"]        # build_identity_subsets.py, 100 images each
+IDENTITIES = ["50ids", "300ids", "1500ids", "3500ids"]        # build_subset_indexes.py --design ids, 100 images each
 N_DESIGN_REPEATS = 3
 
 
