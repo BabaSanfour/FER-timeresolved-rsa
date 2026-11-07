@@ -1,7 +1,6 @@
 #!/bin/bash
-ROOT=$(realpath "${FER_ROOT:-.}")   # data/repo root; submit from the repository root or set FER_ROOT
-# Prepare the official 16-frame DFEW clips and five-fold labels for M3DFEL.
-# Usage: DFEW_PASSWORD='...' ./prepare_dfew_3class.sh
+# 3-class DFEW clips and fold labels as one archive (DFEW_PASSWORD='...' bash M3DFEL/prepare_dfew_3class.sh).
+ROOT=$(realpath "${FER_ROOT:-.}")
 set -euo pipefail
 
 : "${DFEW_PASSWORD:?Set DFEW_PASSWORD without putting it in this script}"
@@ -44,8 +43,7 @@ while IFS= read -r clip_id; do
   fi
 done < "$keep_ids"
 
-# A sequential archive stages much faster to a compute node than 270k small
-# Lustre files. It contains only selected clips and their official 16 frames.
+# one archive stages to a compute node much faster than many small files
 tar_tmp="$SOURCE/prepared_16f.tar.tmp"
 tar -C "$PREPARED" -cf "$tar_tmp" .
 mv "$tar_tmp" "$SOURCE/prepared_16f.tar"

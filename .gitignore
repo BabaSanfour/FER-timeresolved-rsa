@@ -1,24 +1,26 @@
 __pycache__/
 *.pyc
+*.egg-info/
 logs/
 *.log
 *.out
-# LaTeX build products
-paper/*.aux
-paper/*.bbl
-paper/*.blg
-paper/*.fdb_latexmk
-paper/*.fls
-paper/*.synctex.gz
-paper/main.pdf
-# Data, weights and derived outputs are not distributed
-net_weights/
-stim_frames/
-stim_frames_54/
-eeg_rdms_complete/
+# data, weights and derived outputs (FER_ROOT layout, on Drive)
+/analysis/
+/data/
+/eeg_raw/
+/eeg_rdms/
+/eeg_rdms_correct/
+/features/
+/net_weights/
+/random_init_weights/
+/rdms/
+/results/
+/torch_cache/
+/vggface_train/
 *.npy
 *.npz
 *.h5
 *.pt
 *.pth
 *.ckpt
+scripts/trillium/tasks/
