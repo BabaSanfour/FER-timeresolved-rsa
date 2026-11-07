@@ -70,8 +70,13 @@ def time_panel(ax, t, scope, contrasts, top, bottom):
     st.point_ticks(ax)
 
 
-def legend_handles():
-    handles = [Line2D([], [], color=COLORS[h], lw=1.3, label=n) for h, n in COMPARISONS]
+WRAPPED = {"H1 pretrained vs random": "generic pretraining\nvs random", "H5 face vs random": "face recognition\nvs random",
+           "H2 face vs ImageNet": "face vs object\nrecognition", "H4 video vs image": "video vs\nimage tasks",
+           "H3 fine-tuned vs start": "emotion recognition\nvs base task"}
+
+
+def legend_handles(wrap=False):
+    handles = [Line2D([], [], color=COLORS[h], lw=1.3, label=WRAPPED[h] if wrap else n) for h, n in COMPARISONS]
     return handles + [Line2D([], [], color=st.INK2, lw=1.6, label="p < .05")]
 
 
@@ -88,13 +93,13 @@ def main():
     st.setup()
     t = load()
     layout, scalp = sensor_layout(), topo_scalp()
-    H = 6.02
+    H = 4.95
     f = lambda inch: 1 - inch / H
     fig = plt.figure(figsize=(5.5, H))
-    tops = (0.5, 2.15)
+    tops = (0.5, 1.72)
     for i, (rname, contrasts) in enumerate(GROUPS):
         top, bottom = limits(t, SCOPES, contrasts)
-        gs = fig.add_gridspec(1, 4, left=0.11, right=0.99, top=f(tops[i]), bottom=f(tops[i] + 1.2), wspace=0.1)
+        gs = fig.add_gridspec(1, 4, left=0.11, right=0.99, top=f(tops[i]), bottom=f(tops[i] + 1.05), wspace=0.1)
         for j, sc in enumerate(SCOPES):
             ax = fig.add_subplot(gs[0, j])
             time_panel(ax, t, sc, contrasts, top, bottom)
@@ -106,19 +111,18 @@ def main():
                 ax.set_xlabel("time from onset (ms)", fontsize=6.4, labelpad=1)
             if j:
                 ax.tick_params(labelleft=False)
-        fig.text(0.035, f(tops[i] + 0.6), rname.replace(" (", "\n("), rotation=90, ha="center", va="center",
+        fig.text(0.035, f(tops[i] + 0.525), rname.replace(" (", "\n("), rotation=90, ha="center", va="center",
                  fontsize=6.8, linespacing=1.0)
-    fig.text(0.075, f(1.75), "difference above chance (fraction of noise ceiling)", rotation=90, ha="center",
+    fig.text(0.075, f(1.62), "difference above chance (fraction of noise ceiling)", rotation=90, ha="center",
              va="center", fontsize=6.2, color=st.INK2)
-    fig.legend(handles=legend_handles(), loc="center", bbox_to_anchor=(0.55, f(3.82)), ncol=3, fontsize=6.2,
-               frameon=False, handlelength=2.0, columnspacing=1.2)
-    # c
+    # c: maps on the left, the legend of a-b on the right
     n = len(COMPARISONS)
-    hw_in = 0.6; hw = hw_in / 5.5; hh = hw_in / H; x0 = 0.11; step = (0.92 - x0) / n
+    hw_in, step_in, x0_in = 0.52, 0.58, 0.62
+    hw = hw_in / 5.5; hh = hw_in / H; step = step_in / 5.5; x0 = x0_in / 5.5
     for i, (rname, contrasts) in enumerate(GROUPS):
-        y = f(5.1 + i * 0.7)
+        y = f(3.98 + i * 0.62)
         for k, ((hyp, _), contrast) in enumerate(zip(COMPARISONS, contrasts)):
-            axm = fig.add_axes([x0 + k * step + (step - hw) / 2, y, hw, hh])
+            axm = fig.add_axes([x0 + k * step, y, hw, hh])
             im = window_map(axm, t, hyp, contrast, scalp)
             if i == 0:
                 axm.set_title(SHORT_NAMES[hyp], fontsize=6, pad=2, linespacing=1.0)
@@ -127,15 +131,18 @@ def main():
                          fontsize=5.8)
         fig.text(0.035, y + hh / 2, rname.replace(" (", "\n("), rotation=90, ha="center", va="center", fontsize=6.8,
                  linespacing=1.0)
-    cax = fig.add_axes([0.9, f(5.78), 0.012, 1.25 / H])
+    xc_end = x0 + (n - 1) * step + hw
+    cax = fig.add_axes([xc_end + 0.02, f(4.6), 0.012, 1.14 / H])        # right of the maps
     cb = fig.colorbar(im, cax=cax)
     ticks = [-VMAX, 0, VMAX]
     cb.set_ticks(ticks, labels=[st.point_format(v) for v in ticks])
     cb.ax.tick_params(labelsize=5.6, width=0.4, length=2); cb.outline.set_linewidth(0.4)
     cb.set_label("difference above chance\n(fraction of noise ceiling)", fontsize=5.8, labelpad=2, linespacing=1.0)
-    for letter, y in (("a", 0.05), ("b", 1.95), ("c", 3.98)):
+    fig.legend(handles=legend_handles(wrap=True), loc="center left", bbox_to_anchor=(xc_end + 0.13, f(4.03)), ncol=1,
+               fontsize=6.2, frameon=False, handlelength=1.8, handletextpad=0.5, labelspacing=0.5)
+    for letter, y in (("a", 0.05), ("b", 1.6), ("c", 3.06)):
         fig.text(0.01, f(y), letter, fontsize=9, fontweight="bold", va="top")
-    fig.text(0.515, f(4.12), "187–250 ms", fontsize=7, ha="center", va="top")
+    fig.text(x0 + (xc_end - x0) / 2, f(3.08), "187–250 ms", fontsize=7, ha="center", va="top")
     st.save(fig, args.out)
     print(f"[ok] -> {args.out}.{{pdf,png}}")
 

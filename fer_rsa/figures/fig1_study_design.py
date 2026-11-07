@@ -162,7 +162,7 @@ def draw_models(ax):
                 ax.plot(x, y, "o", ms=1.3, color=RULE, mew=0)
     ax.plot([0.02, 0.99], [1.5, 1.5], color=RULE, lw=0.6)   # image | video models
     ax.set_xlim(0, 1)
-    ax.set_ylim(-0.6, n_r + 2.2)
+    ax.set_ylim(-0.5, n_r + 1.3)
     ax.axis("off")
 
 
@@ -202,20 +202,22 @@ def main():
                          "font.sans-serif": ["Arial", "DejaVu Sans"],
                          "pdf.fonttype": 42, "ps.fonttype": 42, "axes.linewidth": 0.5})
     rng = np.random.default_rng(7)
-    W_IN, H_IN = 5.5, 3.2
+    W_IN, H_IN = 5.5, 2.94
     fig = plt.figure(figsize=(W_IN, H_IN))
     sq = W_IN / H_IN                         # height (fig fraction) of a square of width w is w * sq
+    up = lambda inch: inch / H_IN            # inches -> figure fraction
+    top_in = lambda inch: 1 - inch / H_IN    # inches from the top -> figure fraction
 
     # columns: a | b over c | d over e | f
     A0, A1 = 0.010, 0.262
     B0, B1 = 0.292, 0.572
     C0, C1 = 0.600, 0.790
     D0, D1 = 0.835, 0.990
-    TOP, MID = 0.945, 0.455                   # panel-title baselines of the two rows
+    TOP, MID = top_in(0.176), up(1.2)         # panel-title baselines of the two rows
 
     # a: stimuli
     panel_label(fig, A0, TOP, "a", "Stimuli")
-    rule(fig, A0, A1, TOP - 0.007)
+    rule(fig, A0, A1, TOP - up(0.022))
     names = {"fear": "Fear", "happy": "Hapiness", "neutral": "Neutral"}      # stimuli/set18 file names
     gap, lab_w = 0.003, 0.028                    # emotion colour bar + rotated label strip
     size = 0.86 * (A1 - A0 - lab_w - 3 * gap) / 4
@@ -223,10 +225,10 @@ def main():
     xa = A0 + (A1 - A0 - block) / 2              # whole stimulus block centred in column 1
     x_img0 = xa + lab_w
     h = size * sq * ASPECT
-    row_gap, axis_h = 0.010, 0.075                # space under the rows for the time arrow + labels
-    note_top = 0.030 + 0.85 * size * sq * ASPECT  # top of the occlusion note
+    row_gap, axis_h = up(0.032), up(0.24)          # space under the rows for the time arrow + labels
+    note_top = up(0.06) + 0.85 * size * sq * ASPECT  # top of the occlusion note
     block_h = 3 * h + 2 * row_gap + axis_h
-    y_block_top = (TOP - 0.015 + note_top) / 2 + block_h / 2   # centred between title rule and note
+    y_block_top = (TOP - up(0.048) + note_top) / 2 + block_h / 2   # centred between title rule and note
     for r, emo in enumerate(EMOTION_COLORS):
         frames = sixteen_frames(args.stimuli / "set18" / f"{names[emo]}_Actor{ACTOR}.mp4")
         y = y_block_top - (r + 1) * h - r * row_gap
@@ -238,18 +240,18 @@ def main():
             ax = fig.add_axes([x_img0 + c * (size + gap), y, size, h])
             ax.imshow(thumb(frames[k]), interpolation="none")
             ax.axis("off")
-    y_arrow = y - 0.035
-    ax_t = fig.add_axes([x_img0, y_arrow, 4 * size + 3 * gap, 0.02])
+    y_arrow = y - up(0.112)
+    ax_t = fig.add_axes([x_img0, y_arrow, 4 * size + 3 * gap, up(0.064)])
     ax_t.annotate("", xy=(1, 0.5), xytext=(0, 0.5), xycoords="axes fraction",
                   arrowprops=dict(arrowstyle="-|>", lw=0.6, color=INK, mutation_scale=6))
     ax_t.axis("off")
     for c, ms in enumerate((0, 333, 667, 1000)):
-        fig.text(x_img0 + c * (size + gap) + size / 2, y_arrow - 0.025, f"{ms} ms" if c == 3 else f"{ms}",
+        fig.text(x_img0 + c * (size + gap) + size / 2, y_arrow - up(0.08), f"{ms} ms" if c == 3 else f"{ms}",
                  fontsize=5.5, color=INK, ha="center")
     # 54-video set: two occluded examples
     size_o, gap_o = 0.85 * size, 0.004
     h_o = size_o * sq * ASPECT
-    y_o = 0.030
+    y_o = up(0.06)
     x_o = xa
     for c, fname in enumerate([f"Fear_Glasses_Actor{ACTOR}.mp4", f"Fear_Masked_Actor{ACTOR}.mp4"]):
         frames = sixteen_frames(args.stimuli / "set54" / fname)
@@ -262,35 +264,39 @@ def main():
 
     # b: EEG (top) / c: models (bottom)
     panel_label(fig, B0, TOP, "b", "Electroencephalography")
-    rule(fig, B0, B1, TOP - 0.007)
-    draw_head(fig.add_axes([B0 + 0.03, 0.640, B1 - B0 - 0.06, 0.285]))
-    draw_windows(fig.add_axes([B0 + 0.012, 0.590, B1 - B0 - 0.024, 0.026]))
+    rule(fig, B0, B1, TOP - up(0.022))
+    draw_head(fig.add_axes([B0 + 0.03, top_in(1.152), B1 - B0 - 0.06, up(0.912)]))
+    draw_windows(fig.add_axes([B0 + 0.012, top_in(1.35), B1 - B0 - 0.024, up(0.083)]))
 
     panel_label(fig, B0, MID, "c", "Models")
-    rule(fig, B0, B1, MID - 0.007)
-    draw_models(fig.add_axes([B0, 0.015, B1 - B0, MID - 0.03]))
+    rule(fig, B0, B1, MID - up(0.022))
+    draw_models(fig.add_axes([B0, up(0.03), B1 - B0, MID - up(0.1)]))
 
     # d: EEG RDMs (top) / e: model RDMs (bottom)
     panel_label(fig, C0, TOP, "d", "EEG RDMs")
-    rule(fig, C0, C1, TOP - 0.007)
-    draw_stack(fig.add_axes([C0 + 0.012, 0.555, C1 - C0 - 0.02, 0.35]),
+    rule(fig, C0, C1, TOP - up(0.022))
+    ax_d = fig.add_axes([C0 + 0.012, top_in(1.27), C1 - C0 - 0.02, up(0.96)])
+    draw_stack(ax_d,
                [synthetic_rdm(rng, s) for s in (0.40, 0.50, 0.55, 0.45)], label_blocks=True)
 
     panel_label(fig, C0, MID, "e", "Model RDMs")
-    rule(fig, C0, C1, MID - 0.007)
-    draw_stack(fig.add_axes([C0 + 0.012, 0.065, C1 - C0 - 0.02, 0.35]),
+    rule(fig, C0, C1, MID - up(0.022))
+    ax_e = fig.add_axes([C0 + 0.012, up(0.07), C1 - C0 - 0.02, up(0.96)])
+    draw_stack(ax_e,
                [synthetic_rdm(rng, s) for s in (0.2, 0.35, 0.5, 0.65)], label_blocks=True)
 
     # f: RSA map
     panel_label(fig, D0, TOP, "f", "RSA")
-    rule(fig, D0, D1, TOP - 0.007)
-    ax_f = fig.add_axes([D0 + 0.050, 0.30, D1 - D0 - 0.058, 0.40])
+    rule(fig, D0, D1, TOP - up(0.022))
+    mid_f = (ax_d.get_position().y0 + ax_e.get_position().y1) / 2      # between the two stacks
+    ax_f = fig.add_axes([D0 + 0.050, mid_f - up(0.62), D1 - D0 - 0.058, up(1.24)])
     draw_rsa_map(ax_f, rng)
-    for y_from in (0.74, 0.25):               # from the d and e stacks into the map
-        fig.add_artist(FancyArrowPatch((C1 + 0.004, y_from), (D0 + 0.044, 0.48 + (0.05 if y_from > 0.5 else -0.05)),
+    for ax_s, dy in ((ax_d, up(0.16)), (ax_e, -up(0.16))):          # from the d and e stacks into the map
+        b = ax_s.get_position()
+        fig.add_artist(FancyArrowPatch((C1 + 0.004, (b.y0 + b.y1) / 2), (D0 + 0.044, mid_f + dy),
                                        transform=fig.transFigure, arrowstyle="-|>", mutation_scale=6,
                                        lw=0.7, color="#1c5cab", connectionstyle="arc3,rad=0"))
-    fig.text(C1 + 0.018, 0.49, "Spearman ρ", fontsize=5.5, color="#1c5cab",
+    fig.text(C1 + 0.018, mid_f, "Spearman ρ", fontsize=5.5, color="#1c5cab",
              rotation=90, ha="center", va="center")
 
     out = Path(args.out)

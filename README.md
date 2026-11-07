@@ -1,20 +1,23 @@
-# Which Steps of Training Make Vision Models More Brain-Like? Evidence from EEG Responses to Dynamic Facial Expressions
+# Training Vision Models to Recognize Faces and Emotions Does Not Consistently Improve Neural Alignment
 
 Code for the NeurIPS 2026 paper by Maryem Benslimane, Hamza Abdelhedi, Franco Lepore, Vanessa Hadid and Karim Jerbi.
 
-Vision networks are trained in steps: generic pretraining, then domain experience and task fine-tuning.
-We asked which steps make a network's representations more similar to the brain's. We compared the EEG
-of 25 participants watching 54 one-second videos of fearful, happy and neutral faces (unoccluded, with
-sunglasses, or with a mask) with 21 variants of six model families: random, generically pretrained,
-face-recognition-trained and emotion-fine-tuned versions of the same architectures, spanning image, video
-and video-language models. The comparison used time-resolved representational similarity analysis (RSA).
+**Paper:** [OpenReview](https://openreview.net/forum?id=jMlzffZ5UW) · [NeurIPS 2026 poster](https://neurips.cc/virtual/2026/loc/sydney/poster/150276)
+
+Deep networks are increasingly evaluated by how closely their representations match brain activity. We
+asked which steps of training (generic pretraining, face-identity training, emotion fine-tuning) change
+that alignment. We compared the EEG of 25 participants watching 54 one-second videos of fearful, happy and
+neutral faces (unoccluded, with sunglasses, or with a mask) with 21 variants of six model families: random,
+generically pretrained, face-recognition-trained and emotion-fine-tuned versions of the same architectures,
+spanning image, video and video-language models. Alignment was measured with time-resolved, within-emotion
+representational similarity analysis (RSA).
 Every comparison is tested against a permutation null that repeats the selection of layer and time window,
 and against models of identity, occlusion, pixels, optical flow and motion energy.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/MaryemBenslimane/FER-timeresolved-rsa.git
+git clone https://github.com/thecocolab/FER-timeresolved-rsa.git
 cd FER-timeresolved-rsa
 pip install -e .                                  # Python 3.12
 export FER_ROOT=/path/to/data                     # EEG and model RDMs (default: the repository root)
@@ -79,11 +82,12 @@ Then run the quick start.
 ## Citation
 
 ```bibtex
-@inproceedings{benslimane2026steps,
-  title     = {Which Steps of Training Make Vision Models More Brain-Like? Evidence from EEG Responses to Dynamic Facial Expressions},
+@inproceedings{benslimane2026training,
+  title     = {Training Vision Models to Recognize Faces and Emotions Does Not Consistently Improve Neural Alignment},
   author    = {Benslimane, Maryem and Abdelhedi, Hamza and Lepore, Franco and Hadid, Vanessa and Jerbi, Karim},
   booktitle = {Advances in Neural Information Processing Systems},
-  year      = {2026}
+  year      = {2026},
+  url       = {https://openreview.net/forum?id=jMlzffZ5UW}
 }
 ```
 
